@@ -20,6 +20,7 @@ import {
   DEFAULT_MAP_TIER,
   buildPageGrid,
   buildLocationPage,
+  validateAtlas,
   type AtlasContract,
   type BBox,
   type LngLat,
@@ -36,9 +37,11 @@ Usage:
   journeybook grid   --location LNG,LAT --scale <preset> [--tier 1..4]
   journeybook render --bbox W,S,E,N --scale <preset> --out <file.pdf> [--tier 1..4] [--basemap]
   journeybook render --location LNG,LAT --scale <preset> --out <file.pdf> [--tier 1..4] [--basemap]
-  journeybook validate <file.pdf>
+  journeybook validate --bbox W,S,E,N --scale <preset> [--overlap 0..1]
+  journeybook validate --location LNG,LAT --scale <preset>
 
 --basemap fetches a USGS (public-domain) topo panel per page over the network.
+validate runs the print-validation harness (true scale, neighbour integrity).
 
 Scale presets:
 ${SCALE_PRESETS.map((p) => `  ${p.id.padEnd(16)} ${p.label}`).join("\n")}
@@ -159,8 +162,18 @@ export async function runCli(args: readonly string[]): Promise<number> {
     }
   }
   if (cmd === "validate") {
-    stderr.write("'validate' is not implemented yet (Stage 1E).\n");
-    return 2;
+    try {
+      const contract = contractFromFlags(parseFlags(rest));
+      const report = validateAtlas(contract);
+      for (const check of report.checks) {
+        stdout.write(`  [${check.pass ? "PASS" : "FAIL"}] ${check.name} — ${check.detail}\n`);
+      }
+      stdout.write(report.pass ? "VALID\n" : "INVALID\n");
+      return report.pass ? 0 : 1;
+    } catch (err) {
+      stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
+      return 2;
+    }
   }
   stderr.write(`Unknown command: ${cmd}\n\n${HELP}`);
   return 1;

@@ -1,0 +1,76 @@
+{
+  "version": 1,
+  "scale": {
+    "id": "usgs-7-5-min",
+    "label": "7.5-minute (1:24,000)",
+    "ratio": 24000
+  },
+  "margins": {
+    "top": 0.5,
+    "right": 0.5,
+    "bottom": 0.5,
+    "left": 0.5
+  },
+  "pages": [
+    {
+      "id": "A1",
+      "bbox": [
+        -98.0543862607965,
+        40.999998252875145,
+        -98,
+        41.054903058949094
+      ],
+      "orientation": "portrait",
+      "tier": 2,
+      "neighbors": {
+        "south": "B1",
+        "east": "A2"
+      }
+    },
+    {
+      "id": "A2",
+      "bbox": [
+        -98,
+        40.999998252875145,
+        -97.94561373920348,
+        41.054903058949094
+      ],
+      "orientation": "portrait",
+      "tier": 2,
+      "neighbors": {
+        "south": "B2",
+        "west": "A1"
+      }
+    },
+    {
+      "id": "B1",
+      "bbox": [
+        -98.05434111514916,
+        40.94510575524081,
+        -98,
+        41.0000110611685
+      ],
+      "orientation": "portrait",
+      "tier": 2,
+      "neighbors": {
+        "north": "A1",
+        "east": "B2"
+      }
+    },
+    {
+      "id": "B2",
+      "bbox": [
+        -98,
+        40.94510575524081,
+        -97.94565888485084,
+        41.0000110611685
+      ],
+      "orientation": "portrait",
+      "tier": 2,
+      "neighbors": {
+        "north": "A2",
+        "west": "B1"
+      }
+    }
+  ]
+}

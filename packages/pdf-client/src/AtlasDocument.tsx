@@ -6,6 +6,7 @@ import {
   Image,
   Svg,
   Rect,
+  Line,
   Polygon,
   Circle,
   StyleSheet,
@@ -101,6 +102,21 @@ function CompassRose() {
   );
 }
 
+/** An exactly-1-inch tick so a printed page reveals any printer scaling. */
+function CalibrationTick() {
+  const w = PT; // 72 pt = 1 inch
+  return (
+    <View style={{ alignItems: "center" }}>
+      <Svg width={w} height={6}>
+        <Line x1={0} y1={3} x2={w} y2={3} stroke={INK} strokeWidth={0.75} />
+        <Line x1={0} y1={0} x2={0} y2={6} stroke={INK} strokeWidth={0.75} />
+        <Line x1={w} y1={0} x2={w} y2={6} stroke={INK} strokeWidth={0.75} />
+      </Svg>
+      <Text style={styles.small}>1 in · print check</Text>
+    </View>
+  );
+}
+
 function continuation(dir: string, id: string | undefined) {
   return id ? `CONTINUE ${dir} · ${id}` : "";
 }
@@ -167,6 +183,7 @@ function AtlasPageView({
               {"© OpenStreetMap contributors · USGS — Journey Book"}
             </Text>
           </View>
+          <CalibrationTick />
           {showTier2 ? <CompassRose /> : null}
         </View>
       </View>

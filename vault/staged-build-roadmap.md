@@ -250,7 +250,12 @@ Done when:
 - `render-cli --bbox … --scale 1:24000` and `render-cli --location … --scale 1:24000` each emit a multi-page Letter PDF.
 - Every map page shows visible attribution inside the printable area.
 
-### Stage 1E: Print-validation harness
+### Stage 1E: Print-validation harness — ✅ built (2026-06-24)
+
+Delivered: `validateAtlas(contract)` in `atlas-core` (TDD) emits a structured report — **scale-consistency** (each page's measured ground footprint vs. the scale-implied footprint, via ECEF geodesic, 0.5% tolerance — catches a false scale bar), **neighbor-reciprocity** (every N/S/E/W reference resolves and points back), and has-pages; plus `effectiveDpi(panelPx, printableInches)`. CLI `journeybook validate --bbox|--location --scale` prints PASS/FAIL per check and exits 0/1 — verified flagging a tampered footprint and a dangling neighbor, and passing a real 36-page grid (worst error 0.21%). Committed golden fixture `data/fixtures/sample-atlas.json` (2×2) with a regression test. The PDF now draws a **1-inch calibration tick** ("print check") so a printed page reveals printer scaling. **This completes Phase A — the headless engine — entirely with zero UI.** (Remaining nicety: page-boundary crop fiducials beyond the 1-inch tick.)
+
+Spec:
+
 Folders touched: `packages/render-cli/`, `data/fixtures/`.
 
 Build:
