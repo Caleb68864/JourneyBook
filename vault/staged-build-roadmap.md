@@ -293,8 +293,11 @@ Schema spec:
 - Generated-PDF table: status, file path, created date, source-metadata snapshot.
 - **Geocode-search planning:** add a nullable `geocoded_from`/provider field and reserve an address-search adapter interface, even though no geocoder is wired yet.
 
-### Stage 2B: Project + extent API
-- CRUD for projects and extents; derive and persist a page grid for a bbox + scale.
+### Stage 2B: Project + extent API — ✅ built (2026-06-24)
+
+Delivered: `IProjectService` (Application) + `ProjectService` (Infrastructure) + minimal-API endpoints `/api/projects` — create, list, get, update, delete, and `PUT /{id}/extent` (WGS84 bbox → PostGIS `Polygon`, SRID 4326, via NetTopologySuite). Creating a project also creates its `AtlasPageGrid` config (scale preset, orientation, margins, overlap); unknown scale preset → 400. Integration-tested with **Testcontainers PostGIS + WebApplicationFactory** (4 tests, full CRUD + extent geometry round-trip through real PostGIS, no mocks). Backend now 14 tests.
+
+**Architectural seam (ADR 0004): the C# API owns persistence/metadata; it does NOT duplicate the TS `atlas-core` projection/grid engine.** So "derive and persist a page grid" is split — the API persists grid *config*; the actual page derivation (projection, page IDs, neighbors) stays in `atlas-core` and runs in the render pipeline. A later integration can persist derived pages back via the API.
 
 ### Stage 2C: Important-locations API + fixed-scale location pages
 - CRUD for important locations.

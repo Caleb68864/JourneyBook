@@ -1,3 +1,4 @@
+using JourneyBook.Api.Endpoints;
 using JourneyBook.Application;
 using JourneyBook.Infrastructure;
 using JourneyBook.Infrastructure.Persistence;
@@ -59,4 +60,9 @@ app.MapGet("/health/db", async (JourneyBookDbContext db) =>
 })
     .WithName("HealthDb");
 
+app.MapProjectEndpoints();
+
 app.Run();
+
+// Exposed for WebApplicationFactory integration tests.
+public partial class Program;

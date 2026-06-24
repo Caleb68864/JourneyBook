@@ -1,4 +1,6 @@
+using JourneyBook.Application.Projects;
 using JourneyBook.Infrastructure.Persistence;
+using JourneyBook.Infrastructure.Projects;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -21,6 +23,8 @@ public static class DependencyInjection
 
         services.AddDbContext<JourneyBookDbContext>(options =>
             options.UseNpgsql(connectionString, npgsql => npgsql.UseNetTopologySuite()));
+
+        services.AddScoped<IProjectService, ProjectService>();
 
         return services;
     }
