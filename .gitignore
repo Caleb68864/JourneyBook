@@ -152,3 +152,6 @@ data/map-packages/
 *.sql.gz
 *.dump
 *.bak
+
+# Git-bash crash dumps
+*.stackdump
