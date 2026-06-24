@@ -42,7 +42,7 @@ The build order is deliberately **risk-first and headless-first**: the riskiest 
 
 ## Current Status (2026-06-24)
 
-**Phase A (headless engine) is complete; Phase B (persistence) is underway.** Built and verified:
+**Phase A (headless engine) and Phase B (persistence) are both complete.** Built and verified:
 
 - ✅ **Stage 0** — monorepo skeleton, layered .NET 10 backend, Docker Compose, branded web shell.
 - ✅ **Stage 1B** — scale + per-page true-scale projection + page-grid/location engine (`atlas-core`, TDD).
@@ -51,13 +51,18 @@ The build order is deliberately **risk-first and headless-first**: the riskiest 
 - ✅ **Stage 1E** — print-validation harness (`validateAtlas`, golden fixture, 1-inch calibration tick).
 - ✅ **Stage 2A** — Postgres/PostGIS schema + EF Core `InitialSchema` migration + seeded scale presets.
 - ✅ **Stage 2B** — Project + extent CRUD API (Testcontainers PostGIS integration tests).
+- ✅ **Stage 2C** — important-locations API + stable L-series labels (Point 4326).
+- ✅ **Stage 2D** — tile-source registry (unique key → 409, by-key lookup, seeded `usgs-topo`).
+- ✅ **Stage 2E** — generated-PDF records + retention + path-confined prune.
+
+Stage 2C-2E were built end-to-end via the **dark factory** (4 sub-specs from a forged/prepped/red-teamed spec), then driven to **CONVERGED** by `/forge-converge` (the adversarial pass caught + closed an untested path-traversal guard). See `docs/decisions.md` (ADR 0004 seam) and the spec bundle.
 
 The whole headless pipeline runs with **zero UI**:
 `journeybook render --location LNG,LAT --scale <preset> --tier N --basemap --out atlas.pdf` (also `grid`, `validate`).
 
-**Test tally:** atlas-core 26 · map-sources 6 · backend 14 — all green. Three commits on `origin/master`.
+**Test tally:** atlas-core 26 · map-sources 6 · backend **37** — all green. All on `origin/master` (default branch).
 
-**Next:** Stage 2C (locations API + location pages) → 2D/2E → Stage 3 (tile proxy) → Phase C (web UI on the proven engine).
+**Next:** Stage 3 (tile proxy + cache — where the [[PMTiles]] / self-hosting support lands on the Stage 2D registry seam) → Phase C (Stage 4 brand, Stage 5 web UI on the proven engine + API).
 
 ## Locked Decisions
 
@@ -356,15 +361,24 @@ Delivered: `IProjectService` (Application) + `ProjectService` (Infrastructure) +
 
 **Architectural seam (ADR 0004): the C# API owns persistence/metadata; it does NOT duplicate the TS `atlas-core` projection/grid engine.** So "derive and persist a page grid" is split — the API persists grid *config*; the actual page derivation (projection, page IDs, neighbors) stays in `atlas-core` and runs in the render pipeline. A later integration can persist derived pages back via the API.
 
-### Stage 2C: Important-locations API + fixed-scale location pages
+### Stage 2C: Important-locations API + fixed-scale location pages — ✅ built (2026-06-24)
+
+Delivered: `ILocationService`/`LocationService` + `/api/projects/{id}/locations` (nested) + `/api/locations/{id}`, with stable per-project **L-series** labels (`L1`, `L2`… via a `LocationNumber` column + unique `(ProjectId, LocationNumber)` index, never renumbered on delete) and `referenceLabel` ("see page L1"), `Point(4326)` geometry, enum validation → 400, unknown project → 404. 8 `PostgisApiFactory` integration tests. The `Label` feeds the engine's `buildLocationPage` id (cross-language contract). Spec below.
+
 - CRUD for important locations — follow the **Stage 2B feature pattern** (`ILocationService` + `LocationService` + `/api/projects/{id}/locations` endpoints + `PostgisApiFactory` tests). The `ImportantLocation` entity already exists (Stage 2A) with `Point` geometry (4326), `LocationCategory`/`SourceConfidence` enums, notes, and the reserved `GeocodedFrom`/`GeocodeProvider` fields. Build the point via `NtsGeometryServices…CreateGeometryFactory(4326).CreatePoint(new Coordinate(lng, lat))`.
 - Location-page generation **reuses the TS engine** `buildLocationPage(center, scale, page, id, tier)` (already built, `atlas-core`) — the API persists the location; the render pipeline derives the fixed-scale `L1` page. Add the `L1/L2…` reference-label scheme (the locator label "see page L1") to the page-furniture contract.
 
-### Stage 2D: Tile-source registry
+### Stage 2D: Tile-source registry — ✅ built (2026-06-24)
+
+Delivered: `ITileSourceService`/`TileSourceService` + `/api/tile-sources` (global) + `/api/tile-sources/{id}` + `/api/tile-sources/by-key/{key}`; unique `key` (duplicate → **409**), owned `TileCachePolicy` round-trip, and a seeded `usgs-topo` row. 7 integration tests. **Wiring `renderMapPanel` to read this registry (instead of the hardcoded `USGS_TOPO`) is Stage 3** — see below. Spec:
+
 - Register/select tile sources with attribution + cache policy. The `TileSource` entity already exists (Stage 2A) with the owned `TileCachePolicy`. Wire `renderMapPanel`'s `RasterBasemap` (currently the hardcoded `USGS_TOPO` in `map-sources/panel.ts`) to read provider/url/attribution from this registry; surface attribution via `composeAttribution`.
 - **This registry is the self-hosting seam** (see [Tile Sources & Self-Hosting](#tile-sources--self-hosting-feature)). A self-hosted tile server or a [[PMTiles]] archive is **just another registry row** — provider/sourceUrl (e.g. `http://your-server:8080/{z}/{x}/{y}` or a `pmtiles://…` archive) / maxZoom / attribution / cache policy — so no schema or architecture change is needed to point the renderer at a server you own. Keep the row's `kind`/source-type open enough to distinguish `usgs-raster` / `xyz-server` / `pmtiles` so Stage 3 can dispatch the right reader. The ODbL "© OpenStreetMap contributors" string for OSM-derived sources rides the existing attribution field.
 
-### Stage 2E: Generated-PDF records + retention
+### Stage 2E: Generated-PDF records + retention — ✅ built (2026-06-24)
+
+Delivered: `IGeneratedPdfService`/`GeneratedPdfService` + `/api/projects/{id}/generated-pdfs` + `/api/generated-pdfs/{id}` (+ `/status`) + `POST /api/generated-pdfs/prune`; lifecycle `Pending`→`Rendering`→`Completed`/`Failed`, `jsonb` `SourceMetadataSnapshot` (semantic round-trip), `ExpiresAt` from config (`GeneratedPdf:RetentionDays` default 30), and a **path-confined** best-effort prune (a `../`/escape `FilePath` is skipped, proven by a negative test added during convergence). 8 integration tests. Spec:
+
 - Persist render outputs with a source-metadata snapshot and a retention/expiry policy field. The `GeneratedPdf` entity already exists (Stage 2A) with `PdfStatus`, `FilePath`, and a `jsonb` `SourceMetadataSnapshot`. A render endpoint (or the render worker) writes a `Pending`→`Completed`/`Failed` record around each `renderAtlasPdfToFile` call; artifacts land under `data/generated/`.
 
 Done when:
