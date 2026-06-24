@@ -27,5 +27,6 @@ public class ImportantLocationConfiguration : IEntityTypeConfiguration<Important
         builder.Property(l => l.GeocodeProvider).HasMaxLength(50);
 
         builder.HasIndex(l => l.ProjectId);
+        builder.HasIndex(l => new { l.ProjectId, l.LocationNumber }).IsUnique();
     }
 }

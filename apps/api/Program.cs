@@ -61,6 +61,9 @@ app.MapGet("/health/db", async (JourneyBookDbContext db) =>
     .WithName("HealthDb");
 
 app.MapProjectEndpoints();
+app.MapLocationEndpoints();
+app.MapTileSourceEndpoints();
+app.MapGeneratedPdfEndpoints();
 
 app.Run();
 

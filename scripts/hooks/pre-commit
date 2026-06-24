@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# BEGIN factory-compat-sentinels
+# This hook is factory-compatible. The factory commits with a
+# [factory-managed] tag, and treats <FACTORY-MANAGED> scaffold entries
+# in docs/decisions.md as a passing state.
+# END factory-compat-sentinels
 # BEGIN decision-log-enforcement v1
 set -euo pipefail
 

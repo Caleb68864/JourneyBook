@@ -1,6 +1,12 @@
+using JourneyBook.Application.GeneratedPdfs;
+using JourneyBook.Application.Locations;
 using JourneyBook.Application.Projects;
+using JourneyBook.Application.TileSources;
+using JourneyBook.Infrastructure.GeneratedPdfs;
+using JourneyBook.Infrastructure.Locations;
 using JourneyBook.Infrastructure.Persistence;
 using JourneyBook.Infrastructure.Projects;
+using JourneyBook.Infrastructure.TileSources;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -25,6 +31,9 @@ public static class DependencyInjection
             options.UseNpgsql(connectionString, npgsql => npgsql.UseNetTopologySuite()));
 
         services.AddScoped<IProjectService, ProjectService>();
+        services.AddScoped<ILocationService, LocationService>();
+        services.AddScoped<ITileSourceService, TileSourceService>();
+        services.AddScoped<IGeneratedPdfService, GeneratedPdfService>();
 
         return services;
     }

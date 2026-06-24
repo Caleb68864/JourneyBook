@@ -29,4 +29,7 @@ public class ImportantLocation : EntityBase
 
     /// <summary>Geocoder that produced the position (e.g. "nominatim"), if any.</summary>
     public string? GeocodeProvider { get; set; }
+
+    /// <summary>L-series number assigned within the project (e.g. L1, L2 …).</summary>
+    public int LocationNumber { get; set; }
 }

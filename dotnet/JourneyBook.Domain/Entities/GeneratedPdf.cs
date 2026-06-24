@@ -20,4 +20,7 @@ public class GeneratedPdf : EntityBase
 
     /// <summary>JSON snapshot of source metadata at render time (jsonb).</summary>
     public string? SourceMetadataSnapshot { get; set; }
+
+    /// <summary>When the generated file expires and may be purged.</summary>
+    public DateTimeOffset? ExpiresAt { get; set; }
 }

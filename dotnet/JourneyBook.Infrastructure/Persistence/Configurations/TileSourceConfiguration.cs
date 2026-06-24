@@ -17,6 +17,23 @@ public class TileSourceConfiguration : IEntityTypeConfiguration<TileSource>
         builder.Property(t => t.Attribution).IsRequired().HasMaxLength(500);
 
         // Owned cache/terms policy -> Cache_MaxAgeSeconds, Cache_OfflineAllowed.
-        builder.OwnsOne(t => t.Cache);
+        builder.OwnsOne(t => t.Cache).HasData(new
+        {
+            TileSourceId = Guid.Parse("11111111-1111-1111-1111-111111111111"),
+            MaxAgeSeconds = 86400,
+            OfflineAllowed = false
+        });
+
+        builder.HasData(new
+        {
+            Id = Guid.Parse("11111111-1111-1111-1111-111111111111"),
+            Key = "usgs-topo",
+            Provider = "USGS",
+            SourceUrl = "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}",
+            Attribution = "USGS The National Map",
+            MaxZoom = 16,
+            Version = (string?)null,
+            SourceDate = (DateOnly?)null
+        });
     }
 }

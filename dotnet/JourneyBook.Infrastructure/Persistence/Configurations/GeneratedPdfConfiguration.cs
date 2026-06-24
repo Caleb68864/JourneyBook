@@ -17,6 +17,8 @@ public class GeneratedPdfConfiguration : IEntityTypeConfiguration<GeneratedPdf>
 
         builder.Property(g => g.SourceMetadataSnapshot).HasColumnType("jsonb");
 
+        builder.Property(g => g.ExpiresAt);
+
         builder.HasIndex(g => g.ProjectId);
     }
 }
