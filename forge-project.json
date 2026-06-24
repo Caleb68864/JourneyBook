@@ -54,6 +54,10 @@
   ],
   "well_known_blockers": [],
 
+  "decision_log": {
+    "filter_stack": "mixed"
+  },
+
   "envelope_validation_mode": "strict",
   "idempotency_env_fail_patterns": [
     "A connection string is required",
