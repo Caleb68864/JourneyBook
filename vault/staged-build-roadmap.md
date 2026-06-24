@@ -38,6 +38,25 @@ This roadmap turns Journey Book into a buildable sequence. The MVP target is a D
 
 The build order is deliberately **risk-first and headless-first**: the riskiest unknowns (true print scale, projection, PDF fidelity, attribution survival) are proven by a no-UI engine before any visual theming exists. This lets an autonomous builder (Dark Factory) produce and validate the core engine before the brand/hero work begins.
 
+## Current Status (2026-06-24)
+
+**Phase A (headless engine) is complete; Phase B (persistence) is underway.** Built and verified:
+
+- ✅ **Stage 0** — monorepo skeleton, layered .NET 10 backend, Docker Compose, branded web shell.
+- ✅ **Stage 1B** — scale + per-page true-scale projection + page-grid/location engine (`atlas-core`, TDD).
+- ✅ **Stage 1C** — headless USGS topo map-panel renderer (`map-sources`; ADR 0003).
+- ✅ **Stage 1D** — headless tier-aware PDF composition (`pdf-client`, `@react-pdf/renderer`).
+- ✅ **Stage 1E** — print-validation harness (`validateAtlas`, golden fixture, 1-inch calibration tick).
+- ✅ **Stage 2A** — Postgres/PostGIS schema + EF Core `InitialSchema` migration + seeded scale presets.
+- ✅ **Stage 2B** — Project + extent CRUD API (Testcontainers PostGIS integration tests).
+
+The whole headless pipeline runs with **zero UI**:
+`journeybook render --location LNG,LAT --scale <preset> --tier N --basemap --out atlas.pdf` (also `grid`, `validate`).
+
+**Test tally:** atlas-core 26 · map-sources 6 · backend 14 — all green. Three commits on `origin/master`.
+
+**Next:** Stage 2C (locations API + location pages) → 2D/2E → Stage 3 (tile proxy) → Phase C (web UI on the proven engine).
+
 ## Locked Decisions
 
 These were resolved during roadmap refinement and are now treated as fixed constraints. Revisit only with explicit cause.
@@ -167,6 +186,17 @@ Delivered:
 - `.gitignore`, `.dockerignore`, root README, ADR 0001.
 
 Satisfies several Stage 1A items early (skeleton, Compose, health checks). Stage 1A now reduces to confirming a first EF Core migration applies and the api↔db readiness path is green end-to-end.
+
+## Implementation Patterns (established)
+
+Conventions later stages should follow so new code stays consistent with what's built:
+
+- **TS engine is the one source of truth for geometry** (ADR 0004) — projection, page-grid/location derivation, scale, and validation live in `packages/atlas-core`. Never reimplement this math in C#.
+- **Shared contract**: `AtlasContract` (`scale`, `margins`, `pages[]` with `id`/`bbox`/`orientation`/`tier`/`neighbors`) flows engine → renderer/validator. Extend this type; don't fork it.
+- **Backend feature pattern** (from Stage 2B): DTOs + `I<X>Service` in Application → `<X>Service` (uses `JourneyBookDbContext`) in Infrastructure, registered in `AddInfrastructure` → minimal-API endpoints in `apps/api/Endpoints/<X>Endpoints.cs` → integration test via `PostgisApiFactory` (Testcontainers + `WebApplicationFactory`, real PostGIS). Build geometry with `NtsGeometryServices.Instance.CreateGeometryFactory(4326)`.
+- **TS package TDD**: vitest; `*.test.ts` excluded from `tsc` build; engine modules import from the leaf `./model.js`, not the barrel `./index.js` (avoids the init cycle).
+- **Tiers**: `MapTier` (1–4) on every page; furniture is additive per level; default Level 1.
+- **Headless entry is `render-cli`** (`grid`/`render`/`validate`) — keep new no-UI capabilities reachable there before any UI exists.
 
 ---
 
@@ -300,14 +330,14 @@ Delivered: `IProjectService` (Application) + `ProjectService` (Infrastructure) +
 **Architectural seam (ADR 0004): the C# API owns persistence/metadata; it does NOT duplicate the TS `atlas-core` projection/grid engine.** So "derive and persist a page grid" is split — the API persists grid *config*; the actual page derivation (projection, page IDs, neighbors) stays in `atlas-core` and runs in the render pipeline. A later integration can persist derived pages back via the API.
 
 ### Stage 2C: Important-locations API + fixed-scale location pages
-- CRUD for important locations.
-- Generate a dedicated **location page** at the project's chosen scale (fixed ground footprint) and a main-atlas reference label ("Grandma's House — see page L1").
+- CRUD for important locations — follow the **Stage 2B feature pattern** (`ILocationService` + `LocationService` + `/api/projects/{id}/locations` endpoints + `PostgisApiFactory` tests). The `ImportantLocation` entity already exists (Stage 2A) with `Point` geometry (4326), `LocationCategory`/`SourceConfidence` enums, notes, and the reserved `GeocodedFrom`/`GeocodeProvider` fields. Build the point via `NtsGeometryServices…CreateGeometryFactory(4326).CreatePoint(new Coordinate(lng, lat))`.
+- Location-page generation **reuses the TS engine** `buildLocationPage(center, scale, page, id, tier)` (already built, `atlas-core`) — the API persists the location; the render pipeline derives the fixed-scale `L1` page. Add the `L1/L2…` reference-label scheme (the locator label "see page L1") to the page-furniture contract.
 
 ### Stage 2D: Tile-source registry
-- Register/select tile sources with attribution + cache policy; the render engine reads from this registry.
+- Register/select tile sources with attribution + cache policy. The `TileSource` entity already exists (Stage 2A) with the owned `TileCachePolicy`. Wire `renderMapPanel`'s `RasterBasemap` (currently the hardcoded `USGS_TOPO` in `map-sources/panel.ts`) to read provider/url/attribution from this registry; surface attribution via `composeAttribution`.
 
 ### Stage 2E: Generated-PDF records + retention
-- Persist render outputs with a source-metadata snapshot and a retention/expiry policy field.
+- Persist render outputs with a source-metadata snapshot and a retention/expiry policy field. The `GeneratedPdf` entity already exists (Stage 2A) with `PdfStatus`, `FilePath`, and a `jsonb` `SourceMetadataSnapshot`. A render endpoint (or the render worker) writes a `Pending`→`Completed`/`Failed` record around each `renderAtlasPdfToFile` call; artifacts land under `data/generated/`.
 
 Done when:
 - A project with a bbox and a chosen scale can be created, persisted, and reopened from another device via API.
@@ -320,14 +350,16 @@ Goal: serve map tiles without permanently storing large archives, and let the he
 
 Folders touched: `apps/api/`, `packages/map-sources/`, `data/cache/`.
 
+Context now that code exists: Stage 1C's `renderMapPanel` fetches USGS raster tiles **directly** per page (fine for the spike, but a 36-page atlas is hundreds of uncached fetches). Stage 3 centralizes fetching behind one endpoint + cache so the renderer and browser share it. Reuse `map-sources/tilemath.ts` (`tileRangeForBBox`, `zoomForBBox`) for the math; the registry from Stage 2D supplies source URLs/attribution.
+
 Build:
-- C# tile endpoint such as `/api/tiles/{source}/{z}/{x}/{y}.mvt`.
-- Backend PMTiles reader/proxy that can read a remote PMTiles archive.
-- Explicit HTTP cache headers for per-device browser caching.
-- Source attribution surfaced through the endpoint metadata.
+- C# tile endpoint `/api/tiles/{source}/{z}/{x}/{y}` (raster today; `.mvt` when a vector/PMTiles source is added).
+- Disk-backed tile cache under `data/cache/` keyed by source+z+x+y; `renderMapPanel` fetches through this endpoint instead of USGS directly.
+- Optional PMTiles reader/proxy for a remote archive (future vector path; raster USGS is the current default per ADR 0003).
+- Explicit HTTP cache headers for per-device browser caching; attribution surfaced through endpoint metadata.
 
 Done when:
-- The Stage 1 renderer fetches tiles through this endpoint instead of reading PMTiles directly.
+- The renderer fetches tiles through this endpoint instead of hitting USGS per page.
 - Tile responses carry correct cache headers and attribution.
 - A second request reuses cache where possible (verified via headers).
 
@@ -339,10 +371,12 @@ Done when:
 
 Goal: define the visual language now that the engine is proven. This is the first UI work and the natural home for a themeable hero page.
 
+Partly seeded already: the Stage 0 web shell shipped a **branded hero** (`apps/web/src/components/Hero.tsx`, `MapFurniture.tsx`) and a **Tailwind v4 `@theme`** brand token set (forest/moss/bark/parchment/cream/campfire + Saira Stencil / Source Sans 3 / Spline Mono fonts) in `apps/web/src/index.css`. Stage 4 hardens these into a reusable system and aligns the **PDF** furniture (`pdf-client`) to the same tokens. **shadcn/ui is not yet installed** — adding it is part of this stage.
+
 Folders touched: `apps/web/`, `apps/web/src/styles/`, `packages/ui/`, `packages/pdf-client/`, `docs/decisions/`, `vault/`.
 
 Build:
-- Add the **web** service to Docker Compose; React/Vite/shadcn/Tailwind scaffold.
+- shadcn/ui scaffold (the web service is already in Docker Compose; React/Vite/Tailwind v4 already set up).
 - Color tokens: forest, moss, bark, parchment, cream, campfire/trail-marker accent, charcoal.
 - Stencil display font (brand/page IDs/stamped moments); body/UI font; print/map label font.
 - shadcn/ui + Tailwind theme tokens; first hero/landing screen.
@@ -359,14 +393,16 @@ Done when:
 
 Goal: wire the proven headless engine to an interactive UI.
 
+Context now that code exists: the UI is largely **wiring existing pieces** — `/api/projects` CRUD + extent (Stage 2B) and locations (2C) already exist; the scale picker is driven by `SCALE_PRESETS` and the tier picker by `MapTier` (both from `atlas-core`); the PDF is produced by `pdf-client` (`renderAtlasPdf*`, reusable client-side in the browser). Mostly new is the MapLibre preview and binding forms to the API.
+
 Folders touched: `apps/web/`, `apps/api/`, `packages/map-sources/`, `packages/atlas-core/`.
 
 Build:
 - MapLibre browser preview (Web Mercator preview, with the true-scale disclosure from the engine).
-- Project list; create/open project; draw or enter a bbox.
-- **Scale-preset picker** (7.5-minute / 1:24,000, etc.) driving extent and location pages.
-- Drop/save important locations on the map.
-- Generate + download/open the PDF via the existing engine; visual comparison of preview vs. exported PDF.
+- Project list; create/open project; draw or enter a bbox — calling the existing `/api/projects` endpoints.
+- **Scale-preset picker** bound to `SCALE_PRESETS`, plus a **tier picker** (`MapTier`), driving extent and location pages.
+- Drop/save important locations on the map (Stage 2C endpoints).
+- Generate + download/open the PDF via `pdf-client` (client-side) or a render endpoint; visual comparison of preview vs. exported PDF.
 - Source attribution shown in the map UI.
 
 Done when:
