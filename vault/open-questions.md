@@ -36,6 +36,8 @@ source_urls:
 - Should final composition be client-side React PDF, browser print/export, QuestPDF server-side fallback, or a hybrid?
 - What minimum contour readability survives home printers and page protectors?
 - Should Android render atlas pages natively from metadata, reuse PDF/page images, or support both?
+- For MVP offline, which PMTiles basemap: the Protomaps **hosted** daily build (cut to region with `pmtiles extract`) or a **self-generated** [[Planetiler]] build? Hosted is zero-effort; self-generated is fully owned. See [[Self-Hosting Decision]].
+- How do we get **contours into a self-hosted/vector basemap** for land-nav tiers, since OSM vector lacks them — generate from SRTM/3DEP DEMs (`gdal_contour` + hillshade), or just keep USGS topo for US land nav and self-generate contours only for international? See [[Self-Hosted Contours and Terrain]].
 
 ## Legal Questions
 - Will the app ever be commercial? If yes, tile provider choices need another review.

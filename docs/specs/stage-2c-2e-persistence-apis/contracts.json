@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "spec_slug": "stage-2c-2e-persistence-apis",
+  "contracts": [
+    {
+      "owner_sub_spec": 1,
+      "consumer_sub_specs": [2],
+      "name": "LocationNumber",
+      "kind": "type",
+      "signature": "ImportantLocation.LocationNumber: int (unique index on (ProjectId, LocationNumber))",
+      "file_path": "dotnet/JourneyBook.Domain/Entities/ImportantLocation.cs",
+      "content_sha256": "40ea5f52ec647414b0f2383a058af93184bcb5914452daced261e164b01abeba"
+    },
+    {
+      "owner_sub_spec": 1,
+      "consumer_sub_specs": [4],
+      "name": "ExpiresAt",
+      "kind": "type",
+      "signature": "GeneratedPdf.ExpiresAt: DateTimeOffset?",
+      "file_path": "dotnet/JourneyBook.Domain/Entities/GeneratedPdf.cs",
+      "content_sha256": "65fdca156186f2041896309d18794990ee0d8992de5ea5578ea9598370a8cb40"
+    },
+    {
+      "owner_sub_spec": 1,
+      "consumer_sub_specs": [3],
+      "name": "usgs-topo",
+      "kind": "type",
+      "signature": "seeded TileSource row (key=usgs-topo) via HasData",
+      "file_path": "dotnet/JourneyBook.Infrastructure/Persistence/Configurations/TileSourceConfiguration.cs",
+      "content_sha256": "12e4590e0bb1f973ad788c0e22e5caa3456be55e802de35677d3a643d1c087a2"
+    }
+  ]
+}

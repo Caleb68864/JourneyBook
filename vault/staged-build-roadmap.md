@@ -11,6 +11,8 @@ related:
   - "PDF Rendering Strategy"
   - "Web App With Backend Renderer"
   - "PMTiles"
+  - "Self-Hosted Tile Servers"
+  - "Planetiler"
   - "Offline Map Storage"
   - "Important Location Pages"
   - "Android Atlas App"
@@ -92,6 +94,31 @@ A core product-shaping concept that sits alongside Standard Scale Presets. A pag
 - **Level 4 — Full MGRS + Azimuth/Declination (teen).** Full MGRS labeling, grid/magnetic azimuths, declination diagram and conversion, distance-azimuth worksheets — per [[TC 3-25.26 Part 1 Map Reading and Land Navigation]].
 
 The decision is **road-atlas-first**: it is not road-atlas *vs* land-nav — the road atlas *is* the first rung of the land-nav ladder. **The MVP default is Level 1 (with the nearly-free Level 2 as a fast-follow); Levels 3–4 ship as opt-in advanced templates** gated behind a toggle, targeted at older kids and the hiking use case. Each level is **additive page furniture on the same engine** (a Level 4 page is a Level 1 page with more furniture turned on), so the tier rides the existing page-furniture contract (Stage 1D) and round-trips in project metadata (Stage 2A) exactly like the scale preset. One family book can hold mixed-level pages so siblings of different ages share the same atlas. Full rationale in [[Land Nav Learning Curve Recommendation]].
+
+## Tile Sources & Self-Hosting (feature)
+
+A capability that sits alongside Standard Scale Presets and Map Tiers: **where a page's basemap comes from is itself a first-class, swappable choice.** The architecture is already set up for this — the **Stage 2D `TileSource` registry is the seam**. Each registry row already carries provider, source URL, max zoom, attribution, and cache policy, so pointing the renderer at a tile server *you own* — or a **[[PMTiles]]** archive — instead of USGS is *just another registry row*. No architecture change is required, which makes self-hosting cheap to add and a natural fit for the Stage 3 tile-proxy + disk-cache (which is effectively a mini self-host already).
+
+Why it matters for JourneyBook specifically:
+
+- **Removes the tile-policy / rate-limit risk (a documented top risk).** Stage 1C currently fetches USGS public-domain tiles directly, per page — a 36-page atlas is hundreds of requests, and *any* third-party basemap carries rate limits and ToS constraints on bulk PDF generation. A tile server (or a PMTiles archive) you own has **no rate limit and no ToS worry for bulk rendering**, directly mitigating the vault's OSM-tile-policy / rate-limit risk. See [[Self-Hosted Tile Servers]].
+- **Offline / hiking (Stage 7 + Android, Stage 11).** There is no signal on the trail. A bundled **PMTiles** archive (or a self-hosted server on a home network) is how a region's tiles go offline. **PMTiles ≈ "self-hosting in a single file"** — one archive served by HTTP range requests, with *no running server* — and it is MapLibre-native. See [[PMTiles]].
+- **International coverage.** USGS is US-only; a self-hosted OSM-derived server or a Protomaps PMTiles archive covers the whole planet.
+
+**The mixed model is the design.** This is not USGS *vs* self-host — it is both, chosen per tier:
+
+- **USGS topo for the land-nav tiers (Level 3–4).** USGS is genuinely *topographic* (contours, terrain, relief) — that is the thing that makes a page useful for land navigation, and most self-hosted/OSM basemaps are road/street style, not topo.
+- **PMTiles / self-host for the road-atlas tiers (Level 1–2), offline, and international.** A planet-wide road/street basemap with no rate limit is exactly what the friendly low tiers, offline packages, and non-US trips want.
+
+Kinds of self-hosting, in rough order of ops cost:
+
+- **PMTiles / Protomaps** — best fit, lowest ops, no running server. The natural home is `packages/map-sources`. **The cheapest high-value first step** (offline + planet-wide + no service to run). Either a prebuilt **Protomaps** basemap or a **self-generated [[Planetiler]] PMTiles** archive.
+- **Full tile servers** — TileServer-GL / Martin / pg_tileserv, run in the existing Docker Compose. More power (live styling, vector tiles, custom data), more ops (one more service to run and maintain).
+- **[[Planetiler]]** to *generate your own* PMTiles from OSM data — feeds the offline/international packages without depending on a hosted provider.
+
+Trade-offs to keep honest: licensing still applies — OSM-derived tiles require "© OpenStreetMap contributors" (ODbL), which the registry's attribution field already models. A *running* server is one more service to operate; **PMTiles avoids that**, which is why it is the recommended first step. A running server is the better fit for power users.
+
+**Recommendation:** make **PMTiles support part of the MVP roadmap** (the cheapest path to offline + planet-wide + no running server), and keep **full self-hosted tile-server hosting as a later "Power User / Home Server" advanced feature** built on the *same* `TileSource` registry. (Audience note: many eventual users are homelabbers — Proxmox/Docker/NAS/Starlink — who would value a bring-your-own-server option.) See [[Self-Hosted Tile Servers]], [[PMTiles]], [[Planetiler]].
 
 ## Guiding Architecture
 
@@ -335,6 +362,7 @@ Delivered: `IProjectService` (Application) + `ProjectService` (Infrastructure) +
 
 ### Stage 2D: Tile-source registry
 - Register/select tile sources with attribution + cache policy. The `TileSource` entity already exists (Stage 2A) with the owned `TileCachePolicy`. Wire `renderMapPanel`'s `RasterBasemap` (currently the hardcoded `USGS_TOPO` in `map-sources/panel.ts`) to read provider/url/attribution from this registry; surface attribution via `composeAttribution`.
+- **This registry is the self-hosting seam** (see [Tile Sources & Self-Hosting](#tile-sources--self-hosting-feature)). A self-hosted tile server or a [[PMTiles]] archive is **just another registry row** — provider/sourceUrl (e.g. `http://your-server:8080/{z}/{x}/{y}` or a `pmtiles://…` archive) / maxZoom / attribution / cache policy — so no schema or architecture change is needed to point the renderer at a server you own. Keep the row's `kind`/source-type open enough to distinguish `usgs-raster` / `xyz-server` / `pmtiles` so Stage 3 can dispatch the right reader. The ODbL "© OpenStreetMap contributors" string for OSM-derived sources rides the existing attribution field.
 
 ### Stage 2E: Generated-PDF records + retention
 - Persist render outputs with a source-metadata snapshot and a retention/expiry policy field. The `GeneratedPdf` entity already exists (Stage 2A) with `PdfStatus`, `FilePath`, and a `jsonb` `SourceMetadataSnapshot`. A render endpoint (or the render worker) writes a `Pending`→`Completed`/`Failed` record around each `renderAtlasPdfToFile` call; artifacts land under `data/generated/`.
@@ -352,11 +380,13 @@ Folders touched: `apps/api/`, `packages/map-sources/`, `data/cache/`.
 
 Context now that code exists: Stage 1C's `renderMapPanel` fetches USGS raster tiles **directly** per page (fine for the spike, but a 36-page atlas is hundreds of uncached fetches). Stage 3 centralizes fetching behind one endpoint + cache so the renderer and browser share it. Reuse `map-sources/tilemath.ts` (`tileRangeForBBox`, `zoomForBBox`) for the math; the registry from Stage 2D supplies source URLs/attribution.
 
+This proxy + cache is **effectively a mini self-host** (see [Tile Sources & Self-Hosting](#tile-sources--self-hosting-feature)) and the natural place to add first-class self-hosted/PMTiles support: the `{source}` segment resolves through the Stage 2D registry, so a row pointing at a **bring-your-own tile server URL** or a **[[PMTiles]] archive** is served the same way as USGS.
+
 Build:
-- C# tile endpoint `/api/tiles/{source}/{z}/{x}/{y}` (raster today; `.mvt` when a vector/PMTiles source is added).
-- Disk-backed tile cache under `data/cache/` keyed by source+z+x+y; `renderMapPanel` fetches through this endpoint instead of USGS directly.
-- Optional PMTiles reader/proxy for a remote archive (future vector path; raster USGS is the current default per ADR 0003).
-- Explicit HTTP cache headers for per-device browser caching; attribution surfaced through endpoint metadata.
+- C# tile endpoint `/api/tiles/{source}/{z}/{x}/{y}` (raster today; `.mvt` when a vector/PMTiles source is added). `{source}` resolves to a Stage 2D registry row, dispatching by source kind: USGS raster XYZ, a **self-hosted XYZ/TMS server** (bring-your-own URL), or a PMTiles archive.
+- **PMTiles reader** (range-request reader over a local or remote `.pmtiles` archive — "self-hosting in a single file," no running server). This is the cheapest path to offline + planet-wide tiles; back it by a Protomaps basemap or a self-generated [[Planetiler]] archive. See [[PMTiles]].
+- Disk-backed tile cache under `data/cache/` keyed by source+z+x+y; `renderMapPanel` fetches through this endpoint instead of USGS directly. (A self-owned server/archive has no rate limit, so caching is purely a performance choice, not a ToS necessity.)
+- Explicit HTTP cache headers for per-device browser caching; attribution surfaced through endpoint metadata (ODbL "© OpenStreetMap contributors" for OSM-derived sources).
 
 Done when:
 - The renderer fetches tiles through this endpoint instead of hitting USGS per page.
@@ -457,7 +487,10 @@ Folders touched: `packages/map-sources/`, `apps/api/`, `infra/db/migrations/`, `
 Build:
 - Cache-manifest model in Postgres; server-side short-lived tile cache for render jobs.
 - Optional `pmtiles extract` workflow for a selected bbox when a reusable package is requested.
+- **[[PMTiles]] packaging for offline / international (built on the Stage 2D registry + Stage 3 reader).** Either extract a bbox from a hosted Protomaps basemap or **generate a region archive with [[Planetiler]]** from OSM data — the resulting `.pmtiles` is "self-hosting in a single file," registered as just another `TileSource` row, and is how Stage 11 (Android) and the hiking use case go offline planet-wide. Licensing note: OSM-derived archives carry the ODbL "© OpenStreetMap contributors" attribution through the existing attribution field.
 - Expiration/pruning job for temporary extracts and old render artifacts; size estimate before creating an extract (driven by the chosen scale).
+
+**Power User / Home Server (advanced, later):** a **full self-hosted tile server** — TileServer-GL / Martin / pg_tileserv in the existing Docker Compose — for users who want live styling, vector tiles, or to serve their own data. It is built on the *same* `TileSource` registry (just a row with the server's URL), so it is purely additive over the PMTiles path. The trade-off is ops cost: a running server is one more service to operate, which is why **PMTiles is the recommended first step and the server is the opt-in upgrade** for homelabbers. See [[Self-Hosted Tile Servers]].
 
 Default behavior:
 - Preview uses per-device browser cache; PDF render uses the server tile proxy + per-device cache; permanent extracts only on explicit request or when a render needs reliability.
@@ -538,15 +571,16 @@ Resolved (now locked, see [Locked Decisions](#locked-decisions)):
 - **MVP default template = Level 1 + Level 2** (road-atlas grid plus the nearly-free true scale bar and compass). Levels 3–4 are opt-in advanced templates. See [[Progressive Map Skills Curriculum]].
 - **Default grid label = USNG** (civilian, kid-friendly) everywhere; the "MGRS" name is surfaced only in the Level 4 advanced template.
 - **Tiers are chosen per page** (a book may mix tiers so siblings of different ages share one atlas); an orienteering-style age-band picker for parents is a later convenience, not MVP.
+- **Basemap is mixed, chosen per tier: USGS topo for the land-nav tiers (Level 3–4) + [[PMTiles]] for the road-atlas tiers (Level 1–2), offline, and international.** USGS is US-only and topographic; PMTiles/self-host is planet-wide, rate-limit-free, and offline-capable. **PMTiles support is in the MVP roadmap**; a **full self-hosted tile server** is a later "Power User / Home Server" advanced feature on the same `TileSource` registry. See [Tile Sources & Self-Hosting](#tile-sources--self-hosting-feature) and [[Self-Hosted Tile Servers]].
 
 Remaining for review before/within the relevant stage:
 - Which headless map-panel render path wins in Stage 1C (maplibre-gl-native vs. static vector-to-raster)?
 - What exact scale-bar tolerance counts as "true" in the Stage 1E harness?
 - What max zoom should MVP allow for print?
 - How long should generated PDFs and temporary tile caches be retained?
-- Which source is the first basemap: Protomaps PMTiles, self-generated Planetiler PMTiles, or both?
+- **Which PMTiles basemap for the MVP offline/road-atlas path: a prebuilt Protomaps archive or a self-generated [[Planetiler]] archive (or both)?** (The mixed USGS-topo-for-land-nav decision is resolved above; this is now specifically about the road/offline/international PMTiles source.)
 - Should location pages use a separate numbering scheme (L1/L2) or join the normal page sequence?
 - Exact page-overlap percentage and overlap-marker style.
 - For Android later, native-rendered from metadata or image/PDF-page based?
 
-See also: [[Recommended Stack]], [[Recommended Architecture]], [[MVP Plan]], [[Branding Theme]], [[PDF Rendering Strategy]], [[Web App With Backend Renderer]], [[PMTiles]], [[Offline Map Storage]], [[Important Location Pages]], [[Android Atlas App]], [[TC 3-25.26 Part 1 Map Reading and Land Navigation]], [[Land Nav Learning Curve Recommendation]], [[Progressive Map Skills Curriculum]], [[Orienteering Course Levels As Scaffold]], [[Road Atlas Conventions]], [[MGRS USNG Map Acquisition]], [[Captain Input — Road Atlas vs Land Nav]]
+See also: [[Recommended Stack]], [[Recommended Architecture]], [[MVP Plan]], [[Branding Theme]], [[PDF Rendering Strategy]], [[Web App With Backend Renderer]], [[PMTiles]], [[Self-Hosted Tile Servers]], [[Planetiler]], [[Offline Map Storage]], [[Important Location Pages]], [[Android Atlas App]], [[TC 3-25.26 Part 1 Map Reading and Land Navigation]], [[Land Nav Learning Curve Recommendation]], [[Progressive Map Skills Curriculum]], [[Orienteering Course Levels As Scaffold]], [[Road Atlas Conventions]], [[MGRS USNG Map Acquisition]], [[Captain Input — Road Atlas vs Land Nav]]
