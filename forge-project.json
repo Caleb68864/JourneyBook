@@ -1,0 +1,87 @@
+{
+  "project_name": "JourneyBook",
+  "name": "JourneyBook",
+  "repo_root": ".",
+  "project_vault": "docs",
+
+  "build_command": "pnpm -r build && dotnet build JourneyBook.slnx --nologo",
+  "test_command": "pnpm -r test && dotnet test JourneyBook.slnx --nologo",
+  "frontend_build": "pnpm --filter @journeybook/web build",
+  "frontend_test": null,
+  "start_command": "docker compose -f infra/compose/docker-compose.yml up --build",
+  "dev_server": "pnpm dev:web",
+  "migrate_command": "dotnet ef migrations add <Name> -p dotnet/JourneyBook.Infrastructure -s apps/api",
+
+  "spec_output_dir": "docs/specs",
+  "notes_dir": "docs/notes",
+
+  "factory_aware_config": {
+    "frontend_test_runner": "vitest",
+    "frontend_build_tool": "vite",
+    "ts_strict_flags": ["strict", "noUncheckedIndexedAccess", "verbatimModuleSyntax", "isolatedModules", "noImplicitOverride", "noFallthroughCasesInSwitch"],
+    "tailwind_major": 4,
+    "is_esm_package": true,
+    "dotnet_test_framework": "xunit",
+    "csharp_nullable_enabled": true,
+    "python_runtime": null,
+    "has_conda_env": false,
+    "notes": [
+      "Monorepo: pnpm workspaces + TS project references (atlas-core, map-sources, pdf-client, render-cli, ui). Build with `tsc -b`; engine modules import from the leaf ./model.js, NOT the barrel ./index.js (avoids an init cycle).",
+      "Backend: .NET 10 Clean Architecture (Domain <- Application <- Infrastructure <- Api). EF Core 10 + Npgsql + NetTopologySuite (PostGIS). Migrations project is dotnet/JourneyBook.Infrastructure with apps/api as startup.",
+      "Backend integration tests use Testcontainers.PostgreSql (image postgis/postgis:16-3.4) + Microsoft.AspNetCore.Mvc.Testing via PostgisApiFactory - they REQUIRE a running Docker daemon.",
+      "ADR 0004: the TS atlas-core engine is the single source of truth for geometry (projection/grid/scale/validation). Do NOT reimplement projection math in C#; the API persists metadata only.",
+      "Backend feature pattern (from Stage 2B): DTOs + I<X>Service (Application) -> <X>Service over JourneyBookDbContext (Infrastructure, registered in AddInfrastructure) -> minimal-API endpoints in apps/api/Endpoints/<X>Endpoints.cs -> integration test via PostgisApiFactory. Build geometry with NtsGeometryServices.Instance.CreateGeometryFactory(4326).",
+      "TS package tests use vitest; *.test.ts is excluded from the tsc build (exclude in tsconfig)."
+    ]
+  },
+
+  "runtime_paths": [
+    "C:/Program Files/dotnet",
+    "C:/Program Files/nodejs",
+    "C:/Users/CalebBennett/AppData/Roaming/npm"
+  ],
+
+  "reference_sources": {
+    "fixtures": "data/fixtures"
+  },
+  "dev_env_prerequisites": [
+    {
+      "name": "docker",
+      "description": "Docker daemon for PostGIS Testcontainers backend integration tests",
+      "check_command": "docker info",
+      "severity": "WARNING"
+    }
+  ],
+  "well_known_blockers": [],
+
+  "envelope_validation_mode": "strict",
+  "idempotency_env_fail_patterns": [
+    "A connection string is required",
+    "No DbContext was found",
+    "Cannot connect to the Docker daemon"
+  ],
+
+  "verify_integrated": {
+    "enabled": false,
+    "max_iterations": 10,
+    "severity_threshold": "minor",
+    "model": "haiku",
+    "parallel_files": false,
+    "max_iteration_usd": 5.00,
+    "fix_worker_timeout_seconds": 600,
+    "scope": "declared"
+  },
+
+  "project_graph": {
+    "out_dirname": "graphify-out",
+    "auto_refresh": "lazy",
+    "languages": ["csharp", "markdown", "tsx", "typescript"],
+    "storage": "sqlite",
+    "search_mode": "substring",
+    "vault": "",
+    "exclude_dirs": [],
+    "include_dirs": [],
+    "enabled": true,
+    "graph_first": true
+  }
+}

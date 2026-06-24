@@ -155,3 +155,6 @@ data/map-packages/
 
 # Git-bash crash dumps
 *.stackdump
+
+# logic-dev-kit code graph (regenerable)
+graphify-out/
