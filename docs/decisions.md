@@ -27,3 +27,10 @@ Each entry follows this shape:
 - Surfaces: apps/api/Program.cs, dotnet/JourneyBook.Infrastructure/DependencyInjection.cs, dotnet/JourneyBook.Tests/Api/GeneratedPdfsApiTests.cs, MapGeneratedPdfEndpoints, IGeneratedPdfService, SourceMetadataSnapshot
 - Watch: A missing minimal-API DI registration is a whole-app failure (route table build), not a localized 404/500 — check DI registration first when many endpoints 500 at once. Factory strict-order + a hollow-success on the first sub-spec blocks all downstream sub-specs.
 - Commit: (populated at commit time)
+
+## 2026-06-24 — Converge: path-traversal confinement was code-correct but untested
+- Symptom: /forge-converge adversarial pass flagged that GeneratedPdfService prune's path-confinement guard (red-team C-1) was implemented correctly but had NO test exercising a `..`/escape FilePath — "Met by reading" is unverified.
+- Fix: Added GeneratedPdfsApiTests.Prune_does_not_delete_files_outside_the_generated_dir — plants a sentinel outside data/generated, points a record's FilePath at it, prunes, asserts the sentinel survives while the record is removed. Fails if the StartsWith(root) guard is broken.
+- Surfaces: dotnet/JourneyBook.Tests/Api/GeneratedPdfsApiTests.cs, GeneratedPdfService.TryDeleteArtifact, Prune_does_not_delete_files_outside_the_generated_dir
+- Watch: Security guards that are correct-by-reading still need an executed negative test; the converge adversarial pass is what surfaced it.
+- Commit: (populated at commit time)

@@ -139,4 +139,42 @@ public class GeneratedPdfsApiTests(PostgisApiFactory factory) : IClassFixture<Po
         var get = await _client.GetAsync($"/api/generated-pdfs/{Guid.NewGuid()}");
         Assert.Equal(HttpStatusCode.NotFound, get.StatusCode);
     }
+
+    [Fact]
+    public async Task Prune_does_not_delete_files_outside_the_generated_dir()
+    {
+        // Path-confinement guard (red-team C-1): a FilePath that resolves outside
+        // GeneratedDir (here, an absolute path into the temp dir) must be skipped by
+        // prune, not deleted — while the DB record is still removed.
+        var sentinel = Path.Combine(Path.GetTempPath(), $"jb-prune-sentinel-{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(sentinel, "must survive prune");
+        try
+        {
+            var projectId = await CreateProjectAsync("Confinement Host");
+            var post = await _client.PostAsJsonAsync($"/api/projects/{projectId}/generated-pdfs",
+                new CreateGeneratedPdfRequest());
+            var created = await post.Content.ReadFromJsonAsync<GeneratedPdfResponse>();
+
+            using (var scope = _factory.Services.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<JourneyBookDbContext>();
+                var pdf = await db.GeneratedPdfs.FirstAsync(g => g.Id == created!.Id);
+                pdf.FilePath = sentinel; // escapes GeneratedDir
+                pdf.ExpiresAt = DateTimeOffset.UtcNow.AddDays(-1);
+                await db.SaveChangesAsync();
+            }
+
+            var prune = await _client.PostAsync("/api/generated-pdfs/prune", null);
+            Assert.Equal(HttpStatusCode.OK, prune.StatusCode);
+
+            // The out-of-confinement file MUST survive; the record MUST still be pruned.
+            Assert.True(File.Exists(sentinel), "prune must not delete files outside GeneratedDir");
+            var get = await _client.GetAsync($"/api/generated-pdfs/{created!.Id}");
+            Assert.Equal(HttpStatusCode.NotFound, get.StatusCode);
+        }
+        finally
+        {
+            if (File.Exists(sentinel)) File.Delete(sentinel);
+        }
+    }
 }
