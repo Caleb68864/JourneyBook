@@ -1,0 +1,60 @@
+# Journey Book — local stack. Run from the repository root:
+#   docker compose -f infra/compose/docker-compose.yml up --build
+#
+# Services:
+#   db   Postgres + PostGIS (project metadata, atlas geometry)
+#   api  ASP.NET Core API (http://localhost:5180)
+#   web  React/Vite app behind nginx (http://localhost:8080), proxies /api + /health to api
+
+name: journeybook
+
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-journeybook}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-journeybook}
+      POSTGRES_DB: ${POSTGRES_DB:-journeybook}
+    ports:
+      # 5433 on the host by default so a locally installed Postgres on 5432
+      # does not conflict; the api still reaches db:5432 inside the network.
+      - "${DB_PORT:-5433}:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-journeybook} -d ${POSTGRES_DB:-journeybook}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ../..
+      dockerfile: infra/docker/api.Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+      ConnectionStrings__Postgres: "Host=db;Port=5432;Database=${POSTGRES_DB:-journeybook};Username=${POSTGRES_USER:-journeybook};Password=${POSTGRES_PASSWORD:-journeybook}"
+      Cors__AllowedOrigins__0: "http://localhost:8080"
+      # The api waits for a healthy db, so apply migrations on boot here.
+      Database__MigrateOnStartup: "true"
+    ports:
+      - "${API_PORT:-5180}:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      # Short-lived render artifacts / generated PDFs (kept out of the image).
+      - ../../data/generated:/app/data/generated
+      - ../../data/cache:/app/data/cache
+
+  web:
+    build:
+      context: ../..
+      dockerfile: infra/docker/web.Dockerfile
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      - api
+
+volumes:
+  db-data:

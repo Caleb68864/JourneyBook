@@ -1,0 +1,109 @@
+/**
+ * Core atlas types and constants — the leaf module every engine module imports
+ * from. (index.ts is a barrel that re-exports this plus the engine modules;
+ * importing from the leaf avoids an init cycle.)
+ */
+
+// ---------------------------------------------------------------------------
+// Letter page geometry (see roadmap: Exact Letter Page Sizing)
+// ---------------------------------------------------------------------------
+
+/** PDF user-space points per inch. */
+export const POINTS_PER_INCH = 72;
+
+/** US Letter dimensions in PDF points (8.5in x 11in). */
+export const LETTER_PORTRAIT_PT = { width: 612, height: 792 } as const;
+
+export type PageOrientation = "portrait" | "landscape";
+
+export interface PageMargins {
+  /** inches */
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+  /** optional binder gutter in inches, added to the binding edge */
+  gutter?: number;
+}
+
+/** Conservative default safe margins for home printers (inches). */
+export const DEFAULT_MARGINS: PageMargins = {
+  top: 0.5,
+  right: 0.5,
+  bottom: 0.5,
+  left: 0.5,
+};
+
+// ---------------------------------------------------------------------------
+// Standard scale presets (roadmap: first-class "same ground footprint" feature)
+// ---------------------------------------------------------------------------
+
+export interface ScalePreset {
+  /** stable id used in persistence and the API */
+  id: string;
+  /** human label shown in the UI */
+  label: string;
+  /** map scale denominator: 1 : ratio (e.g. 24000) */
+  ratio: number;
+}
+
+/**
+ * Named presets. Choosing a scale fixes the ground footprint of every page,
+ * so all saved-location pages cover the same amount of surrounding terrain.
+ */
+export const SCALE_PRESETS: readonly ScalePreset[] = [
+  { id: "usgs-7-5-min", label: "7.5-minute (1:24,000)", ratio: 24000 },
+  { id: "1-25000", label: "1:25,000", ratio: 25000 },
+  { id: "usgs-15-min", label: "15-minute (1:62,500)", ratio: 62500 },
+  { id: "1-50000", label: "1:50,000", ratio: 50000 },
+  { id: "1-100000", label: "1:100,000", ratio: 100000 },
+] as const;
+
+export const DEFAULT_SCALE_PRESET_ID = "usgs-7-5-min";
+
+// ---------------------------------------------------------------------------
+// Core geographic + page-grid contract types
+// ---------------------------------------------------------------------------
+
+/** WGS84 bounding box [west, south, east, north] in degrees. */
+export type BBox = [west: number, south: number, east: number, north: number];
+
+/** WGS84 point. */
+export interface LngLat {
+  lng: number;
+  lat: number;
+}
+
+/**
+ * Map tier (learning-curve level) selecting which navigation furniture is drawn:
+ * 1 road-atlas grid, 2 + scale bar & compass, 3 + UTM/USNG grid, 4 + full MGRS
+ * & azimuth/declination. Additive — a Level 4 page is a Level 1 page with more.
+ */
+export type MapTier = 1 | 2 | 3 | 4;
+
+/** Default tier: road-atlas grid (friendly, zero learning curve). */
+export const DEFAULT_MAP_TIER: MapTier = 1;
+
+/** A single page in the atlas grid. */
+export interface AtlasPage {
+  /** grid id such as "A1", "B2", or a location id such as "L1" */
+  id: string;
+  /** projected extent of this page's printable map area */
+  bbox: BBox;
+  orientation: PageOrientation;
+  /** map tier (learning-curve level) driving page furniture */
+  tier: MapTier;
+  /** neighbor page ids by cardinal direction, when present */
+  neighbors: Partial<Record<"north" | "south" | "east" | "west", string>>;
+}
+
+/** The page-grid + page-furniture contract shared by all renderers. */
+export interface AtlasContract {
+  version: 1;
+  scale: ScalePreset;
+  margins: PageMargins;
+  pages: AtlasPage[];
+}
+
+/** Library version marker. */
+export const ATLAS_CORE_VERSION = "0.0.0";

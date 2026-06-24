@@ -1,0 +1,15 @@
+# Keep build contexts small and deterministic.
+**/node_modules
+**/dist
+**/bin
+**/obj
+**/.vite
+**/.turbo
+data/generated/*
+data/cache/*
+data/map-packages/*
+!**/.gitkeep
+.git
+*.md
+vault/
+docs/

@@ -1,0 +1,25 @@
+{
+  "name": "@journeybook/render-cli",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Headless CLI that drives atlas-core + pdf-client to render a validated atlas with no UI.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "journeybook": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc --noEmit",
+    "start": "node ./dist/cli.js"
+  },
+  "dependencies": {
+    "@journeybook/atlas-core": "workspace:*",
+    "@journeybook/map-sources": "workspace:*",
+    "@journeybook/pdf-client": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0"
+  }
+}

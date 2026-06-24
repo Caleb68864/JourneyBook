@@ -1,0 +1,28 @@
+{
+  "name": "@journeybook/atlas-core",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Atlas domain logic: page grid, scale presets, per-page projection, page-furniture contract.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "proj4": "^2.15.0"
+  },
+  "devDependencies": {
+    "@types/proj4": "^2.5.6",
+    "vitest": "^3.0.0"
+  }
+}

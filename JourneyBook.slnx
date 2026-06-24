@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/apps/" />
+  <Folder Name="/apps/api/">
+    <Project Path="apps/api/JourneyBook.Api.csproj" />
+  </Folder>
+  <Folder Name="/dotnet/">
+    <Project Path="dotnet/JourneyBook.Application/JourneyBook.Application.csproj" />
+    <Project Path="dotnet/JourneyBook.Domain/JourneyBook.Domain.csproj" />
+    <Project Path="dotnet/JourneyBook.Infrastructure/JourneyBook.Infrastructure.csproj" />
+    <Project Path="dotnet/JourneyBook.Tests/JourneyBook.Tests.csproj" />
+  </Folder>
+</Solution>

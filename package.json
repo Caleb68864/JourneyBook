@@ -1,0 +1,22 @@
+{
+  "name": "journeybook",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Journey Book — printable land-nav atlas generator (monorepo root).",
+  "license": "UNLICENSED",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=10"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild", "@tailwindcss/oxide", "sharp"]
+  },
+  "scripts": {
+    "build": "pnpm -r --filter \"./packages/*\" run build",
+    "typecheck": "pnpm -r run typecheck",
+    "dev:web": "pnpm --filter @journeybook/web dev",
+    "build:web": "pnpm --filter @journeybook/web build",
+    "clean": "pnpm -r exec rimraf dist"
+  }
+}

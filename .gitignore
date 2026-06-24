@@ -1,0 +1,154 @@
+# ============================================================
+# JourneyBook .gitignore
+# Monorepo: React/Vite/TS web, ASP.NET Core C# API, Android,
+# Docker, Postgres/PostGIS, PMTiles, generated PDFs/tiles.
+# ============================================================
+
+# ----------------------------
+# OS / editor / IDE
+# ----------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.sample.json
+*.code-workspace
+
+# ----------------------------
+# Secrets / environment
+# ----------------------------
+.env
+.env.*
+!.env.example
+*.local
+appsettings.*.Local.json
+secrets.json
+*.pem
+*.key
+
+# ============================================================
+# Node / React / Vite / TypeScript
+#   apps/web, packages/* (atlas-core, map-sources, pdf-client, ui)
+# ============================================================
+node_modules/
+.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# Build output
+dist/
+dist-ssr/
+build/
+.vite/
+.turbo/
+.cache/
+
+# Test / coverage
+coverage/
+*.lcov
+.nyc_output/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# TypeScript
+*.tsbuildinfo
+
+# ============================================================
+# .NET / C#
+#   apps/api, dotnet/* (Domain, Infrastructure, Tests),
+#   services/questpdf-renderer
+# ============================================================
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+project.lock.json
+project.fragment.lock.json
+artifacts/
+*.nupkg
+*.snupkg
+TestResults/
+[Tt]est[Rr]esult*/
+*.trx
+*.coverage
+*.coveragexml
+
+# ============================================================
+# Android (apps/mobile-android)
+# ============================================================
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+local.properties
+.gradle/
+captures/
+.externalNativeBuild/
+.cxx/
+*.keystore
+!debug.keystore
+
+# ============================================================
+# Docker / infra
+# ============================================================
+infra/compose/.env
+docker-compose.override.yml
+
+# ============================================================
+# Python (optional geo-worker: GDAL/Rasterio/Shapely)
+# ============================================================
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+
+# ============================================================
+# Generated data, tiles, PDFs, caches
+#   Do NOT commit heavy generated data, tile packages, or PDFs.
+#   Keep data/ mounted as Docker volumes in deployed envs.
+#   (Allow small committed fixtures explicitly.)
+# ============================================================
+data/generated/
+data/cache/
+data/map-packages/
+
+# Tile / map archives (large binaries)
+*.pmtiles
+*.mbtiles
+*.pbf
+*.mvt
+
+# Generated PDFs (allow tiny committed fixtures under **/fixtures/)
+*.pdf
+!**/fixtures/**/*.pdf
+
+# Local DB dumps
+*.sql.gz
+*.dump
+*.bak

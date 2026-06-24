@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.8" />
+    <!-- Kept in the startup project so `dotnet ef migrations` tooling works;
+         the DbContext + Npgsql provider live in JourneyBook.Infrastructure. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.9">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\dotnet\JourneyBook.Application\JourneyBook.Application.csproj" />
+    <ProjectReference Include="..\..\dotnet\JourneyBook.Infrastructure\JourneyBook.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

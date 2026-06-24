@@ -1,0 +1,28 @@
+{
+  "name": "@journeybook/pdf-client",
+  "version": "0.0.0",
+  "private": true,
+  "description": "React atlas page components (headless Node + browser) consuming the atlas contract.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@journeybook/atlas-core": "workspace:*",
+    "@react-pdf/renderer": "^4.3.0",
+    "react": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.1.0"
+  }
+}

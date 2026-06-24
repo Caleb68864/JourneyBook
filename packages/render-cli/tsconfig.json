@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "types": ["node"],
+    "lib": ["ES2022"]
+  },
+  "references": [
+    { "path": "../atlas-core" },
+    { "path": "../map-sources" },
+    { "path": "../pdf-client" }
+  ],
+  "include": ["src"]
+}

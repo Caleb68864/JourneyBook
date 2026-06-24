@@ -1,0 +1,19 @@
+{
+  "name": "@journeybook/ui",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Shared UI/theme components (populated during Stage 4 brand work).",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc --noEmit"
+  }
+}
