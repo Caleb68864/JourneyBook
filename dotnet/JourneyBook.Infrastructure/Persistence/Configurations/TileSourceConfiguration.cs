@@ -13,6 +13,7 @@ public class TileSourceConfiguration : IEntityTypeConfiguration<TileSource>
 
         builder.Property(t => t.Provider).IsRequired().HasMaxLength(120);
         builder.Property(t => t.SourceUrl).IsRequired().HasMaxLength(1000);
+        builder.Property(t => t.Kind).IsRequired().HasMaxLength(20).HasDefaultValue("usgs-raster");
         builder.Property(t => t.Version).HasMaxLength(60);
         builder.Property(t => t.Attribution).IsRequired().HasMaxLength(500);
 
@@ -31,6 +32,7 @@ public class TileSourceConfiguration : IEntityTypeConfiguration<TileSource>
             Provider = "USGS",
             SourceUrl = "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}",
             Attribution = "USGS The National Map",
+            Kind = "usgs-raster",
             MaxZoom = 16,
             Version = (string?)null,
             SourceDate = (DateOnly?)null

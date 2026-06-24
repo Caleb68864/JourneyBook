@@ -64,6 +64,7 @@ app.MapProjectEndpoints();
 app.MapLocationEndpoints();
 app.MapTileSourceEndpoints();
 app.MapGeneratedPdfEndpoints();
+app.MapTileEndpoints();
 
 app.Run();
 

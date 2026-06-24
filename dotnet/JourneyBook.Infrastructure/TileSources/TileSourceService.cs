@@ -20,6 +20,7 @@ public class TileSourceService(JourneyBookDbContext db) : ITileSourceService
             SourceUrl = request.SourceUrl,
             Attribution = request.Attribution,
             MaxZoom = request.MaxZoom,
+            Kind = request.Kind,
             Version = request.Version,
             SourceDate = request.SourceDate,
             Cache = new TileCachePolicy
@@ -61,6 +62,7 @@ public class TileSourceService(JourneyBookDbContext db) : ITileSourceService
         entity.SourceUrl = request.SourceUrl;
         entity.Attribution = request.Attribution;
         entity.MaxZoom = request.MaxZoom;
+        entity.Kind = request.Kind;
         entity.Version = request.Version;
         entity.SourceDate = request.SourceDate;
         entity.Cache = new TileCachePolicy
@@ -92,5 +94,6 @@ public class TileSourceService(JourneyBookDbContext db) : ITileSourceService
         t.SourceDate,
         t.Attribution,
         t.MaxZoom,
-        new TileCachePolicyDto(t.Cache.MaxAgeSeconds, t.Cache.OfflineAllowed));
+        new TileCachePolicyDto(t.Cache.MaxAgeSeconds, t.Cache.OfflineAllowed),
+        t.Kind);
 }

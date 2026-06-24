@@ -41,6 +41,10 @@ Usage:
   journeybook validate --location LNG,LAT --scale <preset>
 
 --basemap fetches a USGS (public-domain) topo panel per page over the network.
+--tile-base-url <url> routes basemap tiles through the C# proxy (e.g. http://localhost:5180/api/tiles),
+  reusing its cache and enabling PMTiles sources; --tile-source <id> overrides the proxy source key.
+  Omit --tile-base-url to fetch tiles directly (zero infrastructure).
+--tile-cache-dir <dir> reads/writes a shared local tile cache (default: no Node-side cache).
 validate runs the print-validation harness (true scale, neighbour integrity).
 
 Scale presets:
@@ -146,8 +150,19 @@ export async function runCli(args: readonly string[]): Promise<number> {
       let panels: Record<string, string> | undefined;
       if (flags.has("basemap")) {
         panels = {};
+        const tileBaseUrl = flags.has("tile-base-url") ? flags.get("tile-base-url") : undefined;
+        const sourceId = flags.has("tile-source") ? flags.get("tile-source") : undefined;
+        const cacheDir = flags.has("tile-cache-dir") ? flags.get("tile-cache-dir") : undefined;
+        const panelOptions =
+          tileBaseUrl || sourceId || cacheDir
+            ? {
+                ...(tileBaseUrl && tileBaseUrl !== "true" ? { tileBaseUrl } : {}),
+                ...(sourceId && sourceId !== "true" ? { sourceId } : {}),
+                ...(cacheDir && cacheDir !== "true" ? { cacheDir } : {}),
+              }
+            : undefined;
         for (const page of contract.pages) {
-          const panel = await renderMapPanel(page.bbox, 1000);
+          const panel = await renderMapPanel(page.bbox, 1000, undefined, panelOptions);
           panels[page.id] = `data:image/png;base64,${panel.png.toString("base64")}`;
           stderr.write(`  panel ${page.id} (z${panel.zoom})\n`);
         }

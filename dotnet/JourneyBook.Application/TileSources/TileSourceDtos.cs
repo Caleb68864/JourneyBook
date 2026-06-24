@@ -18,7 +18,8 @@ public record CreateTileSourceRequest(
     int MaxZoom,
     TileCachePolicyDto Cache,
     string? Version = null,
-    DateOnly? SourceDate = null);
+    DateOnly? SourceDate = null,
+    string Kind = "usgs-raster");
 
 /// <summary>Replace the mutable fields of an existing tile source (the <c>Key</c> is immutable).</summary>
 public record UpdateTileSourceRequest(
@@ -28,7 +29,8 @@ public record UpdateTileSourceRequest(
     int MaxZoom,
     TileCachePolicyDto Cache,
     string? Version = null,
-    DateOnly? SourceDate = null);
+    DateOnly? SourceDate = null,
+    string Kind = "usgs-raster");
 
 /// <summary>A tile source as stored in the registry, including its owned cache policy.</summary>
 public record TileSourceResponse(
@@ -40,4 +42,5 @@ public record TileSourceResponse(
     DateOnly? SourceDate,
     string Attribution,
     int MaxZoom,
-    TileCachePolicyDto Cache);
+    TileCachePolicyDto Cache,
+    string Kind);
