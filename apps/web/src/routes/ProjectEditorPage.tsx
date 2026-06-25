@@ -13,6 +13,8 @@ import { MapPreview } from "../components/MapPreview";
 import { ScalePicker } from "../components/ScalePicker";
 import { TierPicker } from "../components/TierPicker";
 import { LocationList } from "../components/LocationList";
+import { GeocodeSearch } from "../components/GeocodeSearch";
+import type { GeocodeResult } from "../api/client";
 import { GenerateButton } from "../components/GenerateButton";
 import { LandmarkImportControl } from "../components/LandmarkImportControl";
 
@@ -225,6 +227,23 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update location scale.");
     }
+  }
+
+  // Address search → location: create at the geocoded position, recording the
+  // original query + provider as provenance.
+  async function handleGeocodePick(result: GeocodeResult, query: string) {
+    const name = result.displayName.split(",")[0]?.trim() || result.displayName;
+    const loc = await api.locations.create(
+      projectId,
+      name,
+      result.lng,
+      result.lat,
+      undefined,
+      undefined,
+      query,
+      "nominatim",
+    );
+    setLocations((l) => [...l, loc]);
   }
 
   async function handleImportCsv(csv: string): Promise<number> {
@@ -453,7 +472,8 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
             </section>
 
             {/* Locations */}
-            <section className="border-b border-bark-300 pb-5">
+            <section className="flex flex-col gap-3 border-b border-bark-300 pb-5">
+              <GeocodeSearch viewbox={project.extent} onPick={handleGeocodePick} />
               <LocationList
                 locations={locations}
                 scalePresets={SCALE_PRESETS}

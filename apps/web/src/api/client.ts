@@ -64,6 +64,14 @@ export interface ImportLandmarksResult {
   landmarks: Landmark[];
 }
 
+export interface GeocodeResult {
+  displayName: string;
+  lat: number;
+  lng: number;
+  type: string | null;
+  category: string | null;
+}
+
 export interface RenderResult {
   generatedPdfId: string;
   status: string;
@@ -177,6 +185,8 @@ export const api = {
       lat: number,
       notes?: string,
       scalePresetId?: string | null,
+      geocodedFrom?: string | null,
+      geocodeProvider?: string | null,
     ) =>
       request<Location>("POST", `/projects/${projectId}/locations`, {
         name,
@@ -184,6 +194,8 @@ export const api = {
         lat,
         notes: notes ?? null,
         scalePresetId: scalePresetId ?? null,
+        geocodedFrom: geocodedFrom ?? null,
+        geocodeProvider: geocodeProvider ?? null,
       }),
     // Update/delete are on the flat /api/locations/{id} group (not project-scoped).
     update: (
@@ -203,6 +215,22 @@ export const api = {
       request<void>("DELETE", `/locations/${locationId}`),
     import: (projectId: string, csv: string) =>
       request<ImportLocationsResult>("POST", `/projects/${projectId}/locations/import`, { csv }),
+  },
+
+  geocode: {
+    // Forward-geocode a free-text address/place. An optional viewbox biases results
+    // toward the project's extent. Returns candidates only; the caller turns a chosen
+    // result into a location (recording the query as provenance).
+    search: (query: string, viewbox?: BBox | null) => {
+      const params = new URLSearchParams({ q: query });
+      if (viewbox) {
+        params.set("west", String(viewbox[0]));
+        params.set("south", String(viewbox[1]));
+        params.set("east", String(viewbox[2]));
+        params.set("north", String(viewbox[3]));
+      }
+      return request<GeocodeResult[]>("GET", `/geocode?${params.toString()}`);
+    },
   },
 
   landmarks: {

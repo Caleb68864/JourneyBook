@@ -12,7 +12,9 @@ public record CreateLocationRequest(
     string Category = "Other",
     string? Notes = null,
     string SourceConfidence = "Unknown",
-    string? ScalePresetId = null);
+    string? ScalePresetId = null,
+    string? GeocodedFrom = null,
+    string? GeocodeProvider = null);
 
 /// <summary>
 /// Bulk-import locations from CSV text. Header row required; columns

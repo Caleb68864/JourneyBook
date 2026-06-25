@@ -35,6 +35,8 @@ public class LocationService(JourneyBookDbContext db) : ILocationService
             Notes = request.Notes,
             SourceConfidence = sourceConfidence,
             ScalePresetId = request.ScalePresetId,
+            GeocodedFrom = request.GeocodedFrom,
+            GeocodeProvider = request.GeocodeProvider,
             LocationNumber = maxNumber + 1,
         };
 

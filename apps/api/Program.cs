@@ -63,6 +63,7 @@ app.MapGet("/health/db", async (JourneyBookDbContext db) =>
 app.MapProjectEndpoints();
 app.MapLocationEndpoints();
 app.MapLandmarkEndpoints();
+app.MapGeocodeEndpoints();
 app.MapTileSourceEndpoints();
 app.MapGeneratedPdfEndpoints();
 app.MapRenderEndpoints();

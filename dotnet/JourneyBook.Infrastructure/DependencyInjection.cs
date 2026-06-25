@@ -1,10 +1,12 @@
 using JourneyBook.Application.GeneratedPdfs;
+using JourneyBook.Application.Geocoding;
 using JourneyBook.Application.Landmarks;
 using JourneyBook.Application.Locations;
 using JourneyBook.Application.Projects;
 using JourneyBook.Application.Rendering;
 using JourneyBook.Application.TileSources;
 using JourneyBook.Infrastructure.GeneratedPdfs;
+using JourneyBook.Infrastructure.Geocoding;
 using JourneyBook.Infrastructure.Landmarks;
 using JourneyBook.Infrastructure.Locations;
 using JourneyBook.Application.Tiles;
@@ -78,6 +80,19 @@ public static class DependencyInjection
         {
             http.BaseAddress = new Uri(overpassBaseUrl);
             http.Timeout = TimeSpan.FromSeconds(overpassTimeout);
+        });
+
+        // --- Geocoding / Nominatim (address search) -------------------------
+        var nominatimBaseUrl = configuration["Geocode:BaseUrl"] is { Length: > 0 } gu ? gu : "https://nominatim.openstreetmap.org";
+        var nominatimTimeout = int.TryParse(configuration["Geocode:TimeoutSeconds"], out var gt) ? gt : 15;
+        var nominatimUserAgent = configuration["Geocode:UserAgent"] is { Length: > 0 } ua ? ua : "JourneyBook/1.0 (atlas address search)";
+
+        services.AddHttpClient<IGeocodeClient, NominatimClient>(http =>
+        {
+            http.BaseAddress = new Uri(nominatimBaseUrl);
+            http.Timeout = TimeSpan.FromSeconds(nominatimTimeout);
+            // Nominatim's usage policy requires a descriptive User-Agent.
+            http.DefaultRequestHeaders.UserAgent.ParseAdd(nominatimUserAgent);
         });
 
         return services;
