@@ -17,6 +17,7 @@ import {
   type AtlasContract,
   type AtlasPage,
   type PageMargins,
+  type PlacedLandmark,
   type ScalePreset,
   type UsngGridOverlay,
 } from "@journeybook/atlas-core";
@@ -58,6 +59,21 @@ const styles = StyleSheet.create({
   },
   small: { fontSize: 7, color: INK },
   attribution: { fontSize: 6, color: BARK, maxWidth: 280 },
+  // Per-page landmark legend, pinned in the panel corner; distinct from the
+  // route/L# furniture (BARK diamond glyph, not a FOREST circle).
+  landmarkLegend: {
+    position: "absolute",
+    top: 4,
+    left: 4,
+    maxWidth: 150,
+    backgroundColor: PARCHMENT,
+    borderWidth: 0.75,
+    borderColor: BARK,
+    padding: 3,
+  },
+  landmarkLegendTitle: { fontSize: 6, fontFamily: "Helvetica-Bold", color: BARK, marginBottom: 1 },
+  landmarkLegendRow: { flexDirection: "row", alignItems: "center", marginTop: 1 },
+  landmarkLegendName: { fontSize: 6, color: INK, marginLeft: 3 },
 });
 
 function sheetWidthInches(orientation: AtlasPage["orientation"]): number {
@@ -232,6 +248,78 @@ function UsngCollar({ collar }: { collar: UsngGridOverlay["collar"] }) {
   );
 }
 
+/**
+ * A diamond glyph centred at (cx, cy) with the given half-extent. Used for
+ * landmark markers and the legend swatch so they stay visually DISTINCT from
+ * the FOREST route-stop / L# circle markers — different shape (diamond, not
+ * circle) and different colour (BARK fill, not FOREST).
+ */
+function landmarkDiamond(cx: number, cy: number, r: number): string {
+  return `${cx},${cy - r} ${cx + r},${cy} ${cx},${cy + r} ${cx - r},${cy}`;
+}
+
+/**
+ * SVG landmark overlay drawn over the map panel: a category diamond marker per
+ * landmark plus a small label for markers whose label survived decluttering
+ * (`labelPlaced`). Coordinates are normalized (0..1) over the same 1000×1000
+ * viewBox as RouteLayer/UsngGridLayer. Additive furniture keyed by `page.id`,
+ * so the core AtlasContract/AtlasPage types stay untouched.
+ */
+function LandmarkLayer({ landmarks }: { landmarks: PlacedLandmark[] }) {
+  const SIZE = 1000;
+  return (
+    <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}>
+      <Svg width="100%" height="100%" viewBox={`0 0 ${SIZE} ${SIZE}`}>
+        {landmarks.map((lm, i) => (
+          <Polygon
+            key={`landmark-${i}`}
+            points={landmarkDiamond(lm.x * SIZE, lm.y * SIZE, 13)}
+            fill={BARK}
+            stroke={PARCHMENT}
+            strokeWidth={3}
+          />
+        ))}
+        {landmarks.map((lm, i) =>
+          lm.labelPlaced ? (
+            <Text
+              key={`landmark-label-${i}`}
+              x={lm.x * SIZE + 17}
+              y={lm.y * SIZE + 5}
+              style={{ fontSize: 22, fill: INK }}
+            >
+              {lm.name}
+            </Text>
+          ) : null,
+        )}
+      </Svg>
+    </View>
+  );
+}
+
+/**
+ * Per-page landmark legend, pinned in the panel corner. Lists every landmark
+ * selected for this page beside the same BARK diamond glyph the markers use —
+ * distinct in presentation from the route/L# furniture.
+ */
+function LandmarkLegend({ landmarks }: { landmarks: PlacedLandmark[] }) {
+  return (
+    <View style={styles.landmarkLegend}>
+      <Text style={styles.landmarkLegendTitle}>LANDMARKS</Text>
+      {landmarks.map((lm, i) => (
+        <View key={`legend-${i}`} style={styles.landmarkLegendRow}>
+          <Svg width={8} height={8}>
+            <Polygon points={landmarkDiamond(4, 4, 3.5)} fill={BARK} stroke={PARCHMENT} strokeWidth={0.75} />
+          </Svg>
+          <Text style={styles.landmarkLegendName}>
+            {lm.name}
+            {lm.category ? ` · ${lm.category}` : ""}
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 function AtlasPageView({
   page,
   contract,
@@ -239,6 +327,7 @@ function AtlasPageView({
   panel,
   grid,
   route,
+  landmarks,
 }: {
   page: AtlasPage;
   contract: AtlasContract;
@@ -246,6 +335,7 @@ function AtlasPageView({
   panel?: string;
   grid?: UsngGridOverlay;
   route?: RouteOverlay;
+  landmarks?: PlacedLandmark[];
 }) {
   const showTier2 = page.tier >= 2;
   const showTier3 = page.tier >= 3;
@@ -291,6 +381,9 @@ function AtlasPageView({
             {showTier3 && grid ? <UsngGridLayer overlay={grid} /> : null}
             {/* Route furniture is additive and only present for corridor (R#) pages. */}
             {route && page.id.startsWith("R") ? <RouteLayer overlay={route} /> : null}
+            {/* Landmark furniture is additive, keyed by page.id like routes/grids. */}
+            {landmarks && landmarks.length > 0 ? <LandmarkLayer landmarks={landmarks} /> : null}
+            {landmarks && landmarks.length > 0 ? <LandmarkLegend landmarks={landmarks} /> : null}
           </View>
           <Text style={[styles.edgeLabel, { width: 54, alignSelf: "center" }]}>
             {continuation("EAST", page.neighbors.east)}
@@ -321,6 +414,7 @@ export function AtlasDocument({
   panels,
   grids,
   routes,
+  landmarks,
 }: {
   contract: AtlasContract;
   title: string;
@@ -330,6 +424,8 @@ export function AtlasDocument({
   grids?: Record<string, UsngGridOverlay>;
   /** map pageId -> route overlay (corridor R# pages only); additive, mirrors panels/grids */
   routes?: Record<string, RouteOverlay>;
+  /** map pageId -> selected landmarks; additive furniture, mirrors panels/grids/routes */
+  landmarks?: Record<string, PlacedLandmark[]>;
 }) {
   return (
     <Document title={title}>
@@ -342,6 +438,7 @@ export function AtlasDocument({
           panel={panels?.[page.id]}
           grid={grids?.[page.id]}
           route={routes?.[page.id]}
+          landmarks={landmarks?.[page.id]}
         />
       ))}
     </Document>
