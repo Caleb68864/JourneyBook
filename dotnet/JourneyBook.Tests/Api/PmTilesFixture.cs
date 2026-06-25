@@ -18,6 +18,13 @@ public static class PmTilesFixture
     public const int AbsentY = 0;
 
     /// <summary>
+    /// The header <c>tile_type</c> byte written at offset 99 of the 127-byte header (2 = PNG, per the
+    /// PMTiles v3 spec). Exposed so callers can assert the archive advertises the expected content
+    /// type as a verifiable header element without re-parsing the header.
+    /// </summary>
+    public const byte TileType = 2;
+
+    /// <summary>
     /// A 38-byte minimal PNG stub: the 8-byte PNG signature followed by a placeholder IHDR-shaped
     /// body. The reader round-trips these bytes verbatim (it never parses PNG internals), so the
     /// exact contents are irrelevant beyond byte-equality — only the length matches the spec stub.
@@ -67,7 +74,7 @@ public static class PmTilesFixture
         header[96] = 1;                               // clustered
         header[97] = 1;                               // internal compression: none
         header[98] = 1;                               // tile compression: none
-        header[99] = 2;                               // tile type: png
+        header[99] = TileType;                        // tile type: png
         header[100] = Z;                              // min zoom
         header[101] = Z;                              // max zoom
 
@@ -85,6 +92,24 @@ public static class PmTilesFixture
         var path = Path.Combine(directory, fileName);
         File.WriteAllBytes(path, Build());
         return path;
+    }
+
+    /// <summary>
+    /// Spec-named entry point (SS-04): writes a minimal valid PMTiles v3 archive to
+    /// <paramref name="outputPath"/> and returns its path together with the single known tile
+    /// coordinate the archive contains and that tile's bytes. Overwrites any existing file; the
+    /// caller owns teardown (no cleanup here). <see cref="Build"/> / <see cref="WriteTo"/> remain for
+    /// in-memory and directory-based callers.
+    /// </summary>
+    public static (string ArchivePath, int Z, int X, int Y, byte[] TileBytes) CreateMinimalArchive(string outputPath)
+    {
+        var directory = Path.GetDirectoryName(outputPath);
+        if (!string.IsNullOrEmpty(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+        File.WriteAllBytes(outputPath, Build());
+        return (outputPath, Z, X, Y, TilePayload);
     }
 
     private static void WriteVarint(List<byte> buf, ulong value)
