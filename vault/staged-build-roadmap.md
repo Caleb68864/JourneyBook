@@ -468,22 +468,23 @@ Done when:
 - A non-developer can create a project, pick a scale, preview, and export a validated atlas from the browser.
 - Preview reuses per-device tile cache; a second device can open the same project.
 
-## Stage 6: Landmarks and Simple Routes
+## Stage 6: Landmarks and Simple Routes — ✅ built (2026-06-25)
 
 Goal: make pages kid-friendly without drowning them in GIS detail.
 
-Folders touched: `packages/atlas-core/`, `packages/map-sources/`, `apps/api/`, `apps/web/`, `infra/db/migrations/`.
+**Both halves done.** The **simple-routes** half (route polyline + R# corridor pages + CONTINUE-direction continuation labels across pages) shipped with **Stage 6C (Route Atlas)**. The **landmarks** half was built via the full forge chain (brainstorm → spec → red-team → dark-factory):
 
-Build:
-- Landmark import/query pipeline from OSM/Overpass or Overture.
-- Landmark ranking: durable, visible, useful, distributed across pages.
-- Landmark table in PostGIS; important-location references in index and legend.
-- Route geometry import or simple route entry; route overlay rendering with print-friendly casing.
-- Basic callout collision avoidance.
+- ✅ **Landmark import pipeline from OSM Overpass** — `IOverpassClient`/`OverpassClient` (typed HttpClient, configurable base URL, timeout, graceful-empty on failure); `LandmarkService.ImportAsync` queries Overpass for the project extent, maps a **curated tag set** → `LandmarkCategory`, drops unnamed clutter, scores, and persists. `POST /api/projects/{id}/landmarks/import`, `GET …/landmarks`, `DELETE /api/landmarks/{id}`.
+- ✅ **Landmark ranking — durable/visible/useful/distributed** — a deterministic import score (category weight + has-name) culls clutter; per-page `selectPageLandmarks` (atlas-core, TS — ADR 0004) keeps a small **spatially-distributed** top-N (bucket-grid) so a page shows a few well-spread landmarks, with **greedy label collision avoidance**.
+- ✅ **Landmark table in PostGIS** — new `Landmark` entity (Point 4326, category, score, `SourceTags` jsonb via a value converter), migration `AddLandmarks`; rendered in a per-page legend, **visually distinct** from the L# important-location markers.
+- ✅ **Route overlay + continuation labels** — delivered by Stage 6C (route polyline + R# neighbor continuation).
+- ✅ **Basic callout collision avoidance** — greedy non-overlapping label placement in atlas-core.
 
-Done when:
-- Each page can show a few useful landmarks, clearly distinct from saved important locations.
-- A route can be highlighted across multiple pages with continuation labels at boundaries.
+Wired end-to-end: render-forward (`RenderService` → worker → `selectPageLandmarks` → pdf-client furniture), a render-cli `--landmarks <file.json>` headless path, and a web **Import Landmarks** control + an **Include Landmarks** toggle (default on). Verified: atlas-core 50 (landmarks select/collision 10), render-cli 19, .NET 17 render/landmark tests (Overpass import via a **fake** client — no network), headless CLI landmark render, and a live Docker round-trip (insert landmarks → render-forward; toggle off → clean map). The dark-factory run finished `partial_success` (rate-limit-throttled gap-sweep + a deferred SS-01 migration commit); recovered by hand + two fixes: a **jsonb value converter** for `SourceTags` (Npgsql needs it without `EnableDynamicJson`) and making the **Include-Landmarks toggle functional** (was dead — API ignored the flag). See `docs/decisions.md`.
+
+Done when (met):
+- Each page can show a few useful landmarks, clearly distinct from saved important locations. ✅
+- A route can be highlighted across multiple pages with continuation labels at boundaries. ✅ (Stage 6C)
 
 ## Stage 6B: Land-Nav Fidelity Pass (tiered templates)
 
