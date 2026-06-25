@@ -123,8 +123,11 @@ public class GeneratedPdfService : IGeneratedPdfService
         try
         {
             var root = Path.GetFullPath(_generatedDir);
-            var resolved = Path.GetFullPath(Path.Combine(_generatedDir, filePath));
-            if (resolved.StartsWith(root, StringComparison.Ordinal))
+            // Anchor on a trailing separator so a sibling dir (e.g. "…/generated-evil")
+            // cannot satisfy StartsWith("…/generated").
+            var rootPrefix = root.EndsWith(Path.DirectorySeparatorChar) ? root : root + Path.DirectorySeparatorChar;
+            var resolved = Path.GetFullPath(Path.Combine(root, filePath));
+            if (resolved.StartsWith(rootPrefix, StringComparison.Ordinal))
             {
                 File.Delete(resolved);
             }

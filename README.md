@@ -37,7 +37,7 @@ packages/
   ui/             Shared UI/theme components (Stage 4)
 infra/
   docker/         Dockerfiles (api, web)
-  compose/        docker-compose.yml (db, api, web)
+  compose/        docker-compose.yml (db, api, render-worker, web)
   db/             Migrations + seeds
 data/             Generated PDFs, cache, map packages (gitignored, Docker volumes)
 docs/             Architecture decisions + specs

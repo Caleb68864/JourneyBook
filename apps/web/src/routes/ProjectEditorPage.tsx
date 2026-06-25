@@ -67,7 +67,15 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
     const s = parseFloat(bboxInputs.south);
     const e = parseFloat(bboxInputs.east);
     const n = parseFloat(bboxInputs.north);
-    if ([w, s, e, n].some(isNaN)) return;
+    if ([w, s, e, n].some(isNaN)) {
+      setError("Enter all four bounding-box fields (west, south, east, north) as numbers.");
+      return;
+    }
+    if (w >= e || s >= n) {
+      setError("Bounding box must have west < east and south < north.");
+      return;
+    }
+    setError(null);
     const bbox: BBox = [w, s, e, n];
     setSaving(true);
     try {
@@ -156,6 +164,7 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
     );
   }
 
+  const hasGeometry = project.extent !== null || locations.length > 0;
   const drawActive = drawMode !== "none";
   const drawCursor = drawMode === "bbox-first"
     ? "Click first corner"
@@ -252,7 +261,8 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
                 <button
                   type="button"
                   onClick={() => void applyBboxInputs()}
-                  className="flex-1 border border-forest-700 bg-cream-50 px-3 py-1.5 font-mono text-xs text-forest-700 hover:bg-parchment-200"
+                  disabled={saving}
+                  className="flex-1 border border-forest-700 bg-cream-50 px-3 py-1.5 font-mono text-xs text-forest-700 hover:bg-parchment-200 disabled:opacity-50"
                 >
                   Apply
                 </button>
@@ -278,7 +288,12 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
 
             {/* Generate */}
             <section>
-              <GenerateButton projectId={projectId} tier={tier} />
+              <GenerateButton projectId={projectId} tier={tier} disabled={!hasGeometry} />
+              {!hasGeometry && (
+                <p className="mt-1 font-mono text-[10px] text-bark-500">
+                  Set a bounding box or add a location to generate an atlas.
+                </p>
+              )}
             </section>
           </div>
         </aside>

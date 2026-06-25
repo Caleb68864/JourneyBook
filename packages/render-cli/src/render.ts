@@ -68,7 +68,15 @@ function validateInput(input: RenderAtlasInput): void {
   } else {
     throw new Error(`Invalid mode "${String((input as RenderAtlasInput).mode)}": must be "bbox" or "location".`);
   }
+  if (input.tileBaseUrl !== undefined && !/^https?:\/\//i.test(input.tileBaseUrl)) {
+    // Defense-in-depth against SSRF: only http(s) tile proxies, never file://,
+    // gopher://, etc. (the worker accepts tileBaseUrl from its request body).
+    throw new Error("Invalid tileBaseUrl: must be an http(s) URL.");
+  }
 }
+
+/** Upper bound on pages per render — a guard against a huge bbox exhausting memory. */
+const MAX_PAGES = 200;
 
 export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasResult> {
   validateInput(input);
@@ -97,6 +105,12 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
             tier: input.tier,
           });
         })();
+
+  if (contract.pages.length > MAX_PAGES) {
+    throw new Error(
+      `Invalid request: this bbox at ${scale.id} produces ${contract.pages.length} pages, exceeding the ${MAX_PAGES}-page limit. Use a smaller area or a coarser scale.`,
+    );
+  }
 
   let panels: Record<string, string> | undefined;
   if (input.basemap) {

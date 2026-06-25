@@ -22,6 +22,7 @@ export function MapPreview({ extent, locations, onMapClick, drawMode }: MapPrevi
   const mapRef = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<maplibregl.Marker[]>([]);
   const [ready, setReady] = useState(false);
+  const [tileError, setTileError] = useState(false);
 
   // Initialize map once
   useEffect(() => {
@@ -56,6 +57,10 @@ export function MapPreview({ extent, locations, onMapClick, drawMode }: MapPrevi
 
     map.addControl(new maplibregl.NavigationControl(), "top-right");
     map.on("load", () => setReady(true));
+    // Surface tile/source load failures (USGS gap, proxy down) non-blockingly.
+    map.on("error", (e) => {
+      if (e?.error) setTileError(true);
+    });
 
     mapRef.current = map;
     return () => {
@@ -69,6 +74,11 @@ export function MapPreview({ extent, locations, onMapClick, drawMode }: MapPrevi
     const map = mapRef.current;
     if (!map || !ready || !extent) return;
     const [west, south, east, north] = extent;
+    // A degenerate (zero-area) extent makes fitBounds throw — fly to its center instead.
+    if (west === east || south === north) {
+      map.flyTo({ center: [(west + east) / 2, (south + north) / 2], zoom: 12 });
+      return;
+    }
     map.fitBounds([west, south, east, north], { padding: 40, animate: true });
   }, [extent, ready]);
 
@@ -82,13 +92,13 @@ export function MapPreview({ extent, locations, onMapClick, drawMode }: MapPrevi
     }
     const lngs = locations.map((l) => l.lng);
     const lats = locations.map((l) => l.lat);
-    const bounds: [number, number, number, number] = [
-      Math.min(...lngs),
-      Math.min(...lats),
-      Math.max(...lngs),
-      Math.max(...lats),
-    ];
-    map.fitBounds(bounds, { padding: 80, animate: true });
+    const [w, s, e, n] = [Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)];
+    // All locations at the same point → zero-area bounds → fitBounds throws.
+    if (w === e || s === n) {
+      map.flyTo({ center: [w, s], zoom: 12 });
+      return;
+    }
+    map.fitBounds([w, s, e, n], { padding: 80, animate: true });
   }, [locations, extent, ready]);
 
   // Sync location markers
@@ -126,6 +136,11 @@ export function MapPreview({ extent, locations, onMapClick, drawMode }: MapPrevi
       <p className="mt-1 font-mono text-[10px] text-bark-500">
         Preview: Web Mercator (EPSG:3857). Printed pages are true-scale per the chosen preset.
       </p>
+      {tileError && (
+        <p className="mt-0.5 font-mono text-[10px] text-campfire-600">
+          Some map tiles failed to load (the area may be outside USGS coverage).
+        </p>
+      )}
     </div>
   );
 }

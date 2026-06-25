@@ -2,6 +2,7 @@ using JourneyBook.Application.GeneratedPdfs;
 using JourneyBook.Application.Rendering;
 using JourneyBook.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace JourneyBook.Infrastructure.Rendering;
 
@@ -13,7 +14,8 @@ namespace JourneyBook.Infrastructure.Rendering;
 public class RenderService(
     JourneyBookDbContext db,
     IGeneratedPdfService pdfService,
-    IRenderWorkerClient workerClient) : IRenderService
+    IRenderWorkerClient workerClient,
+    ILogger<RenderService> logger) : IRenderService
 {
     public async Task<RenderServiceResult> RenderProjectAsync(
         Guid projectId,
@@ -102,6 +104,8 @@ public class RenderService(
         }
         catch (Exception ex)
         {
+            logger.LogError(ex, "Render worker failed for project {ProjectId} (pdf {GeneratedPdfId})",
+                projectId, created.Id);
             await pdfService.UpdateStatusAsync(
                 created.Id,
                 new UpdateGeneratedPdfStatusRequest("Failed"),
