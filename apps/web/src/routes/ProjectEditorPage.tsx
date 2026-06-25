@@ -33,6 +33,10 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
   // Tier is chosen at render time (the API has no project-level tier field); it is
   // carried in the render request body when Generate is clicked.
   const [tier, setTier] = useState<MapTier>(DEFAULT_MAP_TIER);
+  // Route-atlas opt-in. When set, Generate sends route:true so the worker adds
+  // corridor (R#) pages alongside the location (L#) pages. Carried in the render
+  // request body, like tier.
+  const [route, setRoute] = useState(false);
 
   // Manual bbox entry
   const [bboxInputs, setBboxInputs] = useState({ west: "", south: "", east: "", north: "" });
@@ -459,7 +463,23 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
 
             {/* Generate */}
             <section>
-              <GenerateButton projectId={projectId} tier={tier} disabled={!hasGeometry || savedOverLimit} />
+              <label className="mb-3 flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  checked={route}
+                  onChange={(e) => setRoute(e.target.checked)}
+                  className="mt-0.5 accent-forest-700"
+                />
+                <span className="flex flex-col gap-0.5">
+                  <span className="font-mono text-[11px] uppercase tracking-widest text-bark-600">
+                    Generate Route Atlas
+                  </span>
+                  <span className="font-mono text-[10px] text-bark-500">
+                    Adds corridor (R#) pages connecting your locations in order, alongside the location (L#) pages.
+                  </span>
+                </span>
+              </label>
+              <GenerateButton projectId={projectId} tier={tier} route={route} disabled={!hasGeometry || savedOverLimit} />
               {!hasGeometry && (
                 <p className="mt-1 font-mono text-[10px] text-bark-500">
                   Set a bounding box or add a location to generate an atlas.
