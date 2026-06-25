@@ -140,5 +140,36 @@ export interface UsngGridOverlay {
   collar: { zoneDesignator: string; hundredKmSquare: string };
 }
 
+/**
+ * A candidate landmark to be drawn on a page — additive page furniture like
+ * {@link UsngGridOverlay}. Selection/placement is performed by
+ * selectPageLandmarks in the landmarks engine module.
+ */
+export interface LandmarkMarker {
+  lng: number;
+  lat: number;
+  name: string;
+  category: string;
+  /** ranking score; higher means more prominent / preferred for selection */
+  score: number;
+}
+
+/**
+ * The result of placing a {@link LandmarkMarker} on a specific page panel —
+ * additive page furniture like {@link UsngGridOverlay}. x/y are normalized
+ * [0,1] with top-left origin; labelPlaced is false when the greedy collision
+ * pass dropped this marker's label (overlap or furniture-zone intersection).
+ */
+export interface PlacedLandmark {
+  /** normalized [0,1] horizontal position, top-left origin */
+  x: number;
+  /** normalized [0,1] vertical position, top-left origin */
+  y: number;
+  name: string;
+  category: string;
+  /** false when the greedy pass dropped this label to avoid a collision */
+  labelPlaced: boolean;
+}
+
 /** Library version marker. */
 export const ATLAS_CORE_VERSION = "0.0.0";
