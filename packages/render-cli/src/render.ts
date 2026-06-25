@@ -2,6 +2,7 @@ import { stderr } from "node:process";
 import {
   SCALE_PRESETS,
   LETTER_PORTRAIT,
+  MAX_ATLAS_PAGES,
   buildPageGrid,
   buildLocationPage,
   type BBox,
@@ -75,8 +76,6 @@ function validateInput(input: RenderAtlasInput): void {
   }
 }
 
-/** Upper bound on pages per render — a guard against a huge bbox exhausting memory. */
-const MAX_PAGES = 200;
 
 export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasResult> {
   validateInput(input);
@@ -106,9 +105,9 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
           });
         })();
 
-  if (contract.pages.length > MAX_PAGES) {
+  if (contract.pages.length > MAX_ATLAS_PAGES) {
     throw new Error(
-      `Invalid request: this bbox at ${scale.id} produces ${contract.pages.length} pages, exceeding the ${MAX_PAGES}-page limit. Use a smaller area or a coarser scale.`,
+      `Invalid request: this bbox at ${scale.id} produces ${contract.pages.length} pages, exceeding the ${MAX_ATLAS_PAGES}-page limit. Use a smaller area or a coarser scale.`,
     );
   }
 

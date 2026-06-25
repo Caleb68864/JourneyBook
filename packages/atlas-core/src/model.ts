@@ -84,6 +84,13 @@ export type MapTier = 1 | 2 | 3 | 4;
 /** Default tier: road-atlas grid (friendly, zero learning curve). */
 export const DEFAULT_MAP_TIER: MapTier = 1;
 
+/**
+ * Upper bound on pages a single atlas render may produce — a guard against a huge
+ * bbox exhausting memory/time. The render engine enforces it; the UI uses it to
+ * warn before a too-large extent is confirmed.
+ */
+export const MAX_ATLAS_PAGES = 200;
+
 /** A single page in the atlas grid. */
 export interface AtlasPage {
   /** grid id such as "A1", "B2", or a location id such as "L1" */

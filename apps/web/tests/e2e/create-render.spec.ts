@@ -113,18 +113,23 @@ test("create project → bbox → scale + tier → location → generate", async
   await expect(page.getByText("← Projects")).toBeVisible();
   await expect(page.getByText("E2E Smoke Test Atlas")).toBeVisible();
 
-  // 4. Enter bounding box via manual inputs
+  // 4. Enter bounding box via manual inputs, preview the box, then confirm it.
   await page.getByLabel(/^west$/i).fill("-96.5");
   await page.getByLabel(/^south$/i).fill("41.0");
   await page.getByLabel(/^east$/i).fill("-96.0");
   await page.getByLabel(/^north$/i).fill("41.5");
 
+  // Preview shows the box but does NOT save yet.
+  await page.getByRole("button", { name: /Preview Box/i }).click();
+  await expect(page.getByText(/isn't saved until you confirm/i)).toBeVisible();
+
+  // Confirm writes the extent (PUT).
   const [extentRequest] = await Promise.all([
     page.waitForRequest(
       (req) =>
         req.url().includes(`/api/projects/${PROJECT_ID}/extent`) && req.method() === "PUT",
     ),
-    page.getByRole("button", { name: /^Apply$/i }).click(),
+    page.getByRole("button", { name: /Confirm Box/i }).click(),
   ]);
   expect(extentRequest).toBeTruthy();
 
