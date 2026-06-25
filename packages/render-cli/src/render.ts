@@ -5,6 +5,7 @@ import {
   MAX_ATLAS_PAGES,
   buildPageGrid,
   buildLocationPage,
+  buildRouteAtlas,
   type AtlasContract,
   type AtlasPage,
   type BBox,
@@ -12,7 +13,7 @@ import {
   type MapTier,
   type UsngGridOverlay,
 } from "@journeybook/atlas-core";
-import { renderAtlasPdfToFile } from "@journeybook/pdf-client";
+import { renderAtlasPdfToFile, type RouteOverlay } from "@journeybook/pdf-client";
 import { renderMapPanel, buildUsngGrid } from "@journeybook/map-sources";
 
 /** A saved location to render as its own fixed-scale page (L1, L2, …). */
@@ -48,6 +49,11 @@ export interface RenderAtlasInput {
   tileSourceId?: string;
   cacheDir?: string;
   outputPath: string;
+  /**
+   * When true, corridor pages (R1…Rn) are tiled along the polyline connecting
+   * `locations` centres and appended after the L# pages. Requires ≥2 locations.
+   */
+  route?: boolean;
 }
 
 export interface RenderAtlasResult {
@@ -58,6 +64,8 @@ export interface RenderAtlasResult {
   contract: AtlasContract;
   /** USNG grid overlays built for tier-3+ pages (empty for tier 1–2). */
   grids: Record<string, UsngGridOverlay>;
+  /** Route polyline (global LngLat) when route mode was used, undefined otherwise. */
+  polyline?: LngLat[];
 }
 
 /**
@@ -126,6 +134,34 @@ function validateInput(input: RenderAtlasInput): void {
 }
 
 
+/**
+ * Liang-Barsky parametric clip of a single line segment [a, b] against an
+ * axis-aligned bbox. Returns the clipped endpoints or null when no intersection.
+ */
+function clipSegmentToBbox(
+  a: LngLat, b: LngLat,
+  west: number, south: number, east: number, north: number,
+): [LngLat, LngLat] | null {
+  let t0 = 0, t1 = 1;
+  const dx = b.lng - a.lng;
+  const dy = b.lat - a.lat;
+  function liang(p: number, q: number): boolean {
+    if (Math.abs(p) < 1e-12) return q >= 0;
+    const r = q / p;
+    if (p < 0) { if (r > t1) return false; if (r > t0) t0 = r; }
+    else { if (r < t0) return false; if (r < t1) t1 = r; }
+    return true;
+  }
+  if (!liang(-dx, a.lng - west)) return null;
+  if (!liang(dx, east - a.lng)) return null;
+  if (!liang(-dy, a.lat - south)) return null;
+  if (!liang(dy, north - a.lat)) return null;
+  return [
+    { lng: a.lng + t0 * dx, lat: a.lat + t0 * dy },
+    { lng: a.lng + t1 * dx, lat: a.lat + t1 * dy },
+  ];
+}
+
 export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasResult> {
   validateInput(input);
 
@@ -178,6 +214,21 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
 
   if (pages.length === 0) {
     throw new Error('Invalid request: nothing to render (no bbox and no locations).');
+  }
+
+  // Route corridor pages (R1…Rn): tiled along the polyline connecting location
+  // centres. Appended AFTER L# pages so the MAX_ATLAS_PAGES guard sees the full
+  // combined count (L# + R#).
+  let routePolyline: LngLat[] | undefined;
+  if (input.route && locationList.length >= 2) {
+    const routeResult = buildRouteAtlas({
+      stops: locationList.map((loc) => loc.center),
+      scale,
+      page: LETTER_PORTRAIT,
+      tier: input.tier,
+    });
+    pages.push(...routeResult.pages);
+    routePolyline = routeResult.polyline;
   }
 
   const contract: AtlasContract = {
@@ -234,7 +285,47 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
     }
   }
 
-  await renderAtlasPdfToFile({ contract, outputPath: input.outputPath, panels, grids });
+  // Build route overlays for corridor (R#) pages: clip the global polyline to
+  // each page's bbox and normalize to (0..1) coordinates for RouteLayer.
+  let routes: Record<string, RouteOverlay> | undefined;
+  if (routePolyline && routePolyline.length >= 2) {
+    const routesMap: Record<string, RouteOverlay> = {};
+    for (const page of contract.pages) {
+      if (!page.id.startsWith("R")) continue;
+      const [west, south, east, north] = page.bbox;
+      const bw = east - west;
+      const bh = north - south;
+      const clipped: { x: number; y: number }[] = [];
+      for (let i = 0; i < routePolyline.length - 1; i++) {
+        const a = routePolyline[i]!;
+        const b = routePolyline[i + 1]!;
+        const seg = clipSegmentToBbox(a, b, west, south, east, north);
+        if (seg) {
+          const [ca, cb] = seg;
+          const pa = { x: (ca.lng - west) / bw, y: (north - ca.lat) / bh };
+          const pb = { x: (cb.lng - west) / bw, y: (north - cb.lat) / bh };
+          const last = clipped[clipped.length - 1];
+          if (!last || last.x !== pa.x || last.y !== pa.y) clipped.push(pa);
+          clipped.push(pb);
+        }
+      }
+      if (clipped.length >= 2) {
+        const stops = locationList
+          .filter((loc) =>
+            loc.center.lng >= west && loc.center.lng <= east &&
+            loc.center.lat >= south && loc.center.lat <= north,
+          )
+          .map((loc) => ({
+            x: (loc.center.lng - west) / bw,
+            y: (north - loc.center.lat) / bh,
+          }));
+        routesMap[page.id] = { points: clipped, ...(stops.length > 0 ? { stops } : {}) };
+      }
+    }
+    if (Object.keys(routesMap).length > 0) routes = routesMap;
+  }
+
+  await renderAtlasPdfToFile({ contract, outputPath: input.outputPath, panels, grids, routes });
 
   return {
     outputPath: input.outputPath,
@@ -244,5 +335,6 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
       : "JourneyBook atlas",
     contract,
     grids: grids ?? {},
+    polyline: routePolyline,
   };
 }

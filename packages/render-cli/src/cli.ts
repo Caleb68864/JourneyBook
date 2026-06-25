@@ -36,10 +36,13 @@ Usage:
   journeybook grid   --location LNG,LAT --scale <preset> [--tier 1..4]
   journeybook render --bbox W,S,E,N --scale <preset> --out <file.pdf> [--tier 1..4] [--basemap]
   journeybook render --location LNG,LAT --scale <preset> --out <file.pdf> [--tier 1..4] [--basemap]
+  journeybook render --location LNG,LAT --location LNG,LAT [...] --scale <preset> --out <file.pdf> [--route] [--tier 1..4] [--basemap]
   journeybook validate --bbox W,S,E,N --scale <preset> [--overlap 0..1]
   journeybook validate --location LNG,LAT --scale <preset>
 
 --basemap fetches a USGS (public-domain) topo panel per page over the network.
+--route tiles corridor pages (R1…Rn) along the polyline connecting ≥2 --location stops,
+  appended after the per-location (L#) pages in the same atlas.
 --tile-base-url <url> routes basemap tiles through the C# proxy (e.g. http://localhost:5180/api/tiles),
   reusing its cache and enabling PMTiles sources; --tile-source <id> overrides the proxy source key.
   Omit --tile-base-url to fetch tiles directly (zero infrastructure).
@@ -69,6 +72,20 @@ export function parseFlags(args: readonly string[]): Map<string, string> {
     }
   }
   return flags;
+}
+
+/** Collect every value for a multi-value flag (e.g. --location may appear N times). */
+export function collectMultiFlag(args: readonly string[], name: string): string[] {
+  const values: string[] = [];
+  for (let i = 0; i < args.length - 1; i++) {
+    if (args[i] === `--${name}`) {
+      const next = args[i + 1];
+      if (next !== undefined && !next.startsWith("--")) {
+        values.push(next);
+      }
+    }
+  }
+  return values;
 }
 
 function resolveScale(id: string | undefined): ScalePreset {
@@ -156,12 +173,25 @@ export async function runCli(args: readonly string[]): Promise<number> {
 
       let center: { lng: number; lat: number } | undefined;
       let bbox: [number, number, number, number] | undefined;
+      let locations: { center: { lng: number; lat: number } }[] | undefined;
+
       if (mode === "location") {
-        const [lng, lat] = flags
-          .get("location")!
-          .split(",")
-          .map(Number) as [number, number];
-        center = { lng, lat };
+        // Collect all --location values (may appear multiple times for route mode).
+        const locationArgs = collectMultiFlag(rest, "location");
+        if (locationArgs.length >= 2) {
+          locations = locationArgs.map((v) => {
+            const [lng, lat] = v.split(",").map(Number) as [number, number];
+            return { center: { lng, lat } };
+          });
+          // center = first location (required by location-mode validation when locations array given).
+          center = locations[0]!.center;
+        } else {
+          const [lng, lat] = flags
+            .get("location")!
+            .split(",")
+            .map(Number) as [number, number];
+          center = { lng, lat };
+        }
       } else {
         bbox = flags
           .get("bbox")!
@@ -173,17 +203,20 @@ export async function runCli(args: readonly string[]): Promise<number> {
         mode,
         bbox,
         center,
+        locations,
         scalePresetId: scaleId,
         tier,
         overlap: flags.has("overlap") ? Number(flags.get("overlap")) : undefined,
         basemap: flags.has("basemap"),
+        route: flags.has("route"),
         tileBaseUrl: tileBaseUrl && tileBaseUrl !== "true" ? tileBaseUrl : undefined,
         tileSourceId: tileSourceId && tileSourceId !== "true" ? tileSourceId : undefined,
         cacheDir: cacheDir && cacheDir !== "true" ? cacheDir : undefined,
         outputPath: out,
       });
 
-      stdout.write(`Wrote ${result.pageCount} page(s) to ${result.outputPath}\n`);
+      const pageIds = result.contract.pages.map((p) => p.id).join(", ");
+      stdout.write(`Wrote ${result.pageCount} page(s) to ${result.outputPath} [${pageIds}]\n`);
       return 0;
     } catch (err) {
       stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);

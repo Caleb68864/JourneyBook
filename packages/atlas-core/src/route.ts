@@ -1,5 +1,6 @@
 import {
   DEFAULT_MAP_TIER,
+  MAX_ATLAS_PAGES,
   type AtlasPage,
   type BBox,
   type LngLat,
@@ -114,6 +115,19 @@ export function buildRouteAtlas(options: BuildRouteAtlasOptions): RouteAtlasResu
     const p0 = projector.forward(a);
     const p1 = projector.forward(b);
     candidates.push(...tileSegment(projector, p0, p1, fp.widthMeters));
+  }
+
+  // Fail fast before the O(n²) dedup: a route that tiles more corridor pages than
+  // the whole-atlas cap can never fit (dedup only ever reduces the count, never
+  // below the limit for a non-self-overlapping route). Throwing here keeps a
+  // cross-country route from spending seconds in dedup only to be rejected by the
+  // render-side page cap. Message references the cap so the render guard and this
+  // one read the same.
+  if (candidates.length > MAX_ATLAS_PAGES) {
+    throw new Error(
+      `Invalid request: this route produces ${candidates.length} corridor pages at ${scale.id}, ` +
+        `exceeding the ${MAX_ATLAS_PAGES}-page limit. Use fewer or closer stops, or a coarser scale.`,
+    );
   }
 
   // Dedup pass: greedy keep-first, drop if within dedupRadius of any stop or

@@ -275,4 +275,49 @@ describe("renderAtlas", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("[BEHAVIORAL] route mode produces both L# and R# pages and writes a valid PDF", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jb-render-route-"));
+    try {
+      const out = join(dir, "route.pdf");
+      const res = await renderAtlas({
+        mode: "location",
+        locations: [
+          { center: { lng: -96.7, lat: 40.8 }, label: "Start" },
+          { center: { lng: -96.6, lat: 40.9 }, label: "End" },
+        ],
+        center: { lng: -96.7, lat: 40.8 },
+        scalePresetId: "usgs-7-5-min",
+        tier: 2,
+        route: true,
+        outputPath: out,
+      });
+      const pageIds = res.contract.pages.map((p) => p.id);
+      expect(pageIds.some((id) => /^L\d+$/.test(id))).toBe(true);
+      expect(pageIds.some((id) => /^R\d+$/.test(id))).toBe(true);
+      const bytes = readFileSync(out);
+      expect(bytes.subarray(0, 4).toString("latin1")).toBe("%PDF");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("[BEHAVIORAL] route mode with combined L#+R# over MAX_ATLAS_PAGES throws Invalid request with page limit", async () => {
+    // Two stops far apart (~4000 km) generate hundreds of R# corridor pages at
+    // usgs-7-5-min scale, pushing L#(2) + R#(n) well above the 200-page cap.
+    await expect(
+      renderAtlas({
+        mode: "location",
+        locations: [
+          { center: { lng: -120, lat: 45 } },
+          { center: { lng: -70, lat: 45 } },
+        ],
+        center: { lng: -120, lat: 45 },
+        scalePresetId: "usgs-7-5-min",
+        tier: 1,
+        route: true,
+        outputPath: "ignored.pdf",
+      }),
+    ).rejects.toThrow(/^Invalid request:.*200/);
+  });
 });
