@@ -71,7 +71,6 @@ public sealed class PmTilesFetcher(HttpClient http, IConfiguration config) : ITi
         2 => "image/png",
         3 => "image/jpeg",
         4 => "image/webp",
-        5 => "image/avif",
         _ => "application/octet-stream",
     };
 }
