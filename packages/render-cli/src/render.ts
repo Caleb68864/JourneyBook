@@ -5,6 +5,8 @@ import {
   MAX_ATLAS_PAGES,
   buildPageGrid,
   buildLocationPage,
+  type AtlasContract,
+  type AtlasPage,
   type BBox,
   type LngLat,
   type MapTier,
@@ -13,10 +15,24 @@ import {
 import { renderAtlasPdfToFile } from "@journeybook/pdf-client";
 import { renderMapPanel, buildUsngGrid } from "@journeybook/map-sources";
 
+/** A saved location to render as its own fixed-scale page (L1, L2, …). */
+export interface RenderLocation {
+  center: LngLat;
+  /** Optional human label, carried for logging/future furniture. */
+  label?: string;
+}
+
 export interface RenderAtlasInput {
   mode: "bbox" | "location";
   bbox?: BBox;
   center?: LngLat;
+  /**
+   * Saved important locations. Each renders as a fixed-scale `L#` page appended
+   * after any bbox grid, so a project with an extent AND locations yields the
+   * grid pages PLUS one page per location (instead of dropping the locations).
+   * In `location` mode with no `locations`, `center` is rendered as the lone page.
+   */
+  locations?: RenderLocation[];
   scalePresetId: string;
   tier: MapTier;
   overlap?: number;
@@ -42,6 +58,13 @@ export interface RenderAtlasResult {
  * cryptic error deep inside projection/grid math. Messages start with "Invalid"
  * or "Unknown" so the worker's input-error classifier catches them.
  */
+function isValidLngLat(c: LngLat | undefined): c is LngLat {
+  return (
+    !!c && Number.isFinite(c.lng) && Number.isFinite(c.lat) &&
+    c.lng >= -180 && c.lng <= 180 && c.lat >= -90 && c.lat <= 90
+  );
+}
+
 function validateInput(input: RenderAtlasInput): void {
   if (!Number.isInteger(input.tier) || input.tier < 1 || input.tier > 4) {
     throw new Error(`Invalid tier ${String(input.tier)}: must be an integer 1–4.`);
@@ -51,10 +74,25 @@ function validateInput(input: RenderAtlasInput): void {
       throw new Error(`Invalid overlap ${String(input.overlap)}: must be in [0, 1).`);
     }
   }
+  if (input.locations !== undefined) {
+    if (!Array.isArray(input.locations)) {
+      throw new Error("Invalid locations: must be an array of { center } entries.");
+    }
+    input.locations.forEach((loc, i) => {
+      if (!isValidLngLat(loc?.center)) {
+        throw new Error(
+          `Invalid location[${i}].center: requires finite lng in [-180,180] and lat in [-90,90].`,
+        );
+      }
+    });
+  }
   if (input.mode === "location") {
-    const c = input.center;
-    if (!c || !Number.isFinite(c.lng) || !Number.isFinite(c.lat) ||
-        c.lng < -180 || c.lng > 180 || c.lat < -90 || c.lat > 90) {
+    // `center` is required unless an explicit `locations` list is supplied
+    // (a no-extent project still passes its first location as `center`).
+    if ((input.locations === undefined || input.locations.length === 0) && !isValidLngLat(input.center)) {
+      throw new Error('Invalid center: requires finite lng in [-180,180] and lat in [-90,90].');
+    }
+    if (input.center !== undefined && !isValidLngLat(input.center)) {
       throw new Error('Invalid center: requires finite lng in [-180,180] and lat in [-90,90].');
     }
   } else if (input.mode === "bbox") {
@@ -90,27 +128,48 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
     );
   }
 
-  const contract =
-    input.mode === "location"
-      ? (() => {
-          if (!input.center) throw new Error('mode "location" requires center');
-          const page = buildLocationPage(input.center, scale, LETTER_PORTRAIT, "L1", input.tier);
-          return { version: 1 as const, scale, margins: LETTER_PORTRAIT.margins, pages: [page] };
-        })()
-      : (() => {
-          if (!input.bbox) throw new Error('mode "bbox" requires bbox');
-          return buildPageGrid({
-            bbox: input.bbox,
-            scale,
-            page: LETTER_PORTRAIT,
-            overlap: input.overlap ?? 0,
-            tier: input.tier,
-          });
-        })();
+  // Resolve the locations to render as fixed-scale L# pages. In location mode
+  // with no explicit list, fall back to the single `center` (legacy behaviour).
+  const locationList: RenderLocation[] =
+    input.locations && input.locations.length > 0
+      ? input.locations
+      : input.mode === "location" && input.center
+        ? [{ center: input.center }]
+        : [];
+
+  // Base pages: a bbox grid (extent-driven) plus a page per saved location
+  // (scale-driven). A project with both an extent AND locations renders the
+  // grid pages followed by L1…Ln — the locations are no longer dropped.
+  const pages: AtlasPage[] = [];
+  if (input.mode === "bbox") {
+    if (!input.bbox) throw new Error('mode "bbox" requires bbox');
+    const grid = buildPageGrid({
+      bbox: input.bbox,
+      scale,
+      page: LETTER_PORTRAIT,
+      overlap: input.overlap ?? 0,
+      tier: input.tier,
+    });
+    pages.push(...grid.pages);
+  }
+  locationList.forEach((loc, i) => {
+    pages.push(buildLocationPage(loc.center, scale, LETTER_PORTRAIT, `L${i + 1}`, input.tier));
+  });
+
+  if (pages.length === 0) {
+    throw new Error('Invalid request: nothing to render (no bbox and no locations).');
+  }
+
+  const contract: AtlasContract = {
+    version: 1,
+    scale,
+    margins: LETTER_PORTRAIT.margins,
+    pages,
+  };
 
   if (contract.pages.length > MAX_ATLAS_PAGES) {
     throw new Error(
-      `Invalid request: this bbox at ${scale.id} produces ${contract.pages.length} pages, exceeding the ${MAX_ATLAS_PAGES}-page limit. Use a smaller area or a coarser scale.`,
+      `Invalid request: this atlas at ${scale.id} produces ${contract.pages.length} pages, exceeding the ${MAX_ATLAS_PAGES}-page limit. Use a smaller area, a coarser scale, or fewer locations.`,
     );
   }
 

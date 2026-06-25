@@ -48,6 +48,72 @@ describe("renderAtlas", () => {
     }
   });
 
+  it("renders a page per saved location alongside the bbox grid", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jb-render-combined-"));
+    try {
+      const out = join(dir, "combined.pdf");
+      const gridOnly = await renderAtlas({
+        mode: "bbox",
+        bbox: [-96.73, 40.79, -96.67, 40.83],
+        scalePresetId: "usgs-7-5-min",
+        tier: 1,
+        outputPath: join(dir, "grid-only.pdf"),
+      });
+      const combined = await renderAtlas({
+        mode: "bbox",
+        bbox: [-96.73, 40.79, -96.67, 40.83],
+        locations: [
+          { center: { lng: -96.7, lat: 40.8 }, label: "Home" },
+          { center: { lng: -95.9, lat: 41.25 }, label: "Grandma" },
+        ],
+        scalePresetId: "usgs-7-5-min",
+        tier: 1,
+        outputPath: out,
+      });
+      // Combined atlas = the grid pages PLUS one page per location.
+      expect(combined.pageCount).toBe(gridOnly.pageCount + 2);
+      expect(readFileSync(out).subarray(0, 4).toString("latin1")).toBe("%PDF");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("renders every location when no bbox is set (location mode, multiple)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jb-render-multiloc-"));
+    try {
+      const out = join(dir, "multiloc.pdf");
+      const res = await renderAtlas({
+        mode: "location",
+        center: { lng: -96.7, lat: 40.8 }, // first location, legacy field
+        locations: [
+          { center: { lng: -96.7, lat: 40.8 } },
+          { center: { lng: -95.9, lat: 41.25 } },
+          { center: { lng: -97.4, lat: 42.0 } },
+        ],
+        scalePresetId: "usgs-7-5-min",
+        tier: 1,
+        outputPath: out,
+      });
+      expect(res.pageCount).toBe(3);
+      expect(readFileSync(out).subarray(0, 4).toString("latin1")).toBe("%PDF");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a non-finite location coordinate", async () => {
+    await expect(
+      renderAtlas({
+        mode: "bbox",
+        bbox: [-96.73, 40.79, -96.67, 40.83],
+        locations: [{ center: { lng: -96.7, lat: Number.NaN } }],
+        scalePresetId: "usgs-7-5-min",
+        tier: 1,
+        outputPath: "ignored.pdf",
+      }),
+    ).rejects.toThrow(/Invalid location\[0\]\.center/);
+  });
+
   it("throws on an unknown scale preset", async () => {
     await expect(
       renderAtlas({
