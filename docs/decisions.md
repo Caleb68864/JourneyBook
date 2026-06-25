@@ -97,3 +97,10 @@ Each entry follows this shape:
 - Surfaces: apps/web/tests/e2e/create-render.spec.ts, apps/web/playwright.config.ts, .gitignore
 - Watch: A mocked UI test encodes the API contract in its `page.route` fixtures — those mocks drift exactly like a hand-written client when the real contract changes; update them alongside the client. The mocked e2e proves UI wiring only; real integration is the live Docker round-trip.
 - Commit: (populated at commit time)
+
+## 2026-06-25 — Render now routes basemap tiles through the Stage 3 proxy (was direct USGS)
+- Symptom: The render-worker fetched USGS tiles **directly** per page, bypassing the Stage 3 proxy — no shared disk cache, no PMTiles-for-render, and a rate-limit risk on large atlases. The design's "one tile path" was wired for the browser preview but not the render side.
+- Fix: `RenderService` reads `Tiles:ProxyBaseUrl` (compose sets `http://api:8080/api/tiles`) + `Tiles:DefaultSource` (default `usgs-topo`) and passes them as `TileBaseUrl`/`TileSourceId` on `RenderWorkerRequest`; `HttpRenderWorkerClient.ToWirePayload` forwards them into the worker's `RenderAtlasInput`; `renderMapPanel` then fetches `{base}/{source}/{z}/{x}/{y}`. Unset → null → worker falls back to direct USGS (e.g. a bare `dotnet run`). Verified live: a Docker render populated `data/cache/usgs-topo/...` with 450 tiles (proxy hit + cached).
+- Surfaces: dotnet/JourneyBook.Infrastructure/Rendering/RenderService.cs, HttpRenderWorkerClient.cs, dotnet/JourneyBook.Application/Rendering/RenderDtos.cs, infra/compose/docker-compose.yml, RenderWorkerRequest, ToWirePayload
+- Watch: The worker reaches the api at the compose-internal `http://api:8080`; a bare dev `dotnet run` needs `Tiles:ProxyBaseUrl` pointed at the dev api (or left unset for direct fetch). The api tile endpoint isn't logged at Info — verify proxy routing via `data/cache`, not api logs.
+- Commit: (populated at commit time)

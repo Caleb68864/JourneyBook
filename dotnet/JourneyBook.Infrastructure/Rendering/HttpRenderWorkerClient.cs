@@ -38,7 +38,9 @@ public class HttpRenderWorkerClient(HttpClient http) : IRenderWorkerClient
         int Tier,
         double Overlap,
         bool Basemap,
-        string OutputPath);
+        string OutputPath,
+        string? TileBaseUrl,
+        string? TileSourceId);
 
     private sealed record WorkerCenter(double Lng, double Lat);
 
@@ -60,7 +62,9 @@ public class HttpRenderWorkerClient(HttpClient http) : IRenderWorkerClient
                 Tier: request.Tier,
                 Overlap: request.Overlap,
                 Basemap: true,
-                OutputPath: request.OutputFileName);
+                OutputPath: request.OutputFileName,
+                TileBaseUrl: request.TileBaseUrl,
+                TileSourceId: request.TileSourceId);
         }
 
         if (request.Locations.Count > 0)
@@ -74,7 +78,9 @@ public class HttpRenderWorkerClient(HttpClient http) : IRenderWorkerClient
                 Tier: request.Tier,
                 Overlap: request.Overlap,
                 Basemap: true,
-                OutputPath: request.OutputFileName);
+                OutputPath: request.OutputFileName,
+                TileBaseUrl: request.TileBaseUrl,
+                TileSourceId: request.TileSourceId);
         }
 
         throw new InvalidOperationException(
