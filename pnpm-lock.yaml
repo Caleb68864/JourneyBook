@@ -94,6 +94,12 @@ importers:
       '@journeybook/atlas-core':
         specifier: workspace:*
         version: link:../atlas-core
+      mgrs:
+        specifier: ^2.1.0
+        version: 2.1.0
+      proj4:
+        specifier: ^2.15.0
+        version: 2.20.9
       sharp:
         specifier: ^0.33.5
         version: 0.33.5
@@ -101,6 +107,9 @@ importers:
       '@types/node':
         specifier: ^22.10.0
         version: 22.20.0
+      '@types/proj4':
+        specifier: ^2.5.6
+        version: 2.19.0
       vitest:
         specifier: ^3.0.0
         version: 3.2.6(@types/node@22.20.0)(jiti@2.7.0)(lightningcss@1.32.0)
@@ -1684,6 +1693,9 @@ packages:
 
   mgrs@1.0.0:
     resolution: {integrity: sha512-awNbTOqCxK1DBGjalK3xqWIstBZgN6fxsMSiXLs9/spqWkF2pAhb2rrYCFSsr1/tT7PhcDGjZndG8SWYn0byYA==}
+
+  mgrs@2.1.0:
+    resolution: {integrity: sha512-/pjuM02PUAhp4dazfccTSKBGTGPFkRz9LKwGJKusc/B20apcGG/CYnRHx0kXmLXy4m5O3p6y6nOVxEnErPpFvQ==}
 
   minimist@1.2.8:
     resolution: {integrity: sha512-2yyAR8qBkN3YuheJanUpWC5U3bb5osDywNB8RzDVlDwDHbocAJveqqj1u8+SVD7jkWT4yvsHCpWqqWqAxb0zCA==}
@@ -3524,6 +3536,8 @@ snapshots:
   media-engine@1.0.3: {}
 
   mgrs@1.0.0: {}
+
+  mgrs@2.1.0: {}
 
   minimist@1.2.8: {}
 
