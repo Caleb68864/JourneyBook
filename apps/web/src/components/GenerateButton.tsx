@@ -5,10 +5,11 @@ import { api } from "../api/client";
 interface GenerateButtonProps {
   projectId: string;
   tier: MapTier;
+  route?: boolean;
   disabled?: boolean;
 }
 
-export function GenerateButton({ projectId, tier, disabled }: GenerateButtonProps) {
+export function GenerateButton({ projectId, tier, route, disabled }: GenerateButtonProps) {
   const [status, setStatus] = useState<"idle" | "generating" | "done" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
@@ -18,7 +19,7 @@ export function GenerateButton({ projectId, tier, disabled }: GenerateButtonProp
     setErrorMsg(null);
     setPdfUrl(null);
     try {
-      const result = await api.render.start(projectId, tier);
+      const result = await api.render.start(projectId, tier, route);
       const downloadUrl = result.downloadUrl || api.render.getContent(result.generatedPdfId);
       setPdfUrl(downloadUrl);
       // Try to open the PDF; if a popup blocker stops it, the link below still works.
