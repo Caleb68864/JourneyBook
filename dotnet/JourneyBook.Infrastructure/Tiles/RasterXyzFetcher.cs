@@ -1,4 +1,5 @@
 using JourneyBook.Application.TileSources;
+using Microsoft.Extensions.Configuration;
 
 namespace JourneyBook.Infrastructure.Tiles;
 
@@ -9,8 +10,17 @@ namespace JourneyBook.Infrastructure.Tiles;
 /// per-provider special-casing. Any non-2xx, timeout, or transport error returns <c>null</c>
 /// (→ 502); failures are never cached.
 /// </summary>
-public sealed class RasterXyzFetcher(HttpClient http) : ITileFetcher
+public sealed class RasterXyzFetcher : ITileFetcher
 {
+    private readonly HttpClient http;
+
+    public RasterXyzFetcher(HttpClient http, IConfiguration configuration)
+    {
+        this.http = http;
+        var timeoutSeconds = configuration.GetValue<int?>("TileCache:UpstreamTimeoutSeconds") ?? 10;
+        http.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
+    }
+
     public bool CanHandle(string kind) => kind is "usgs-raster" or "xyz-server";
 
     public async Task<FetchedTile?> FetchAsync(TileSourceResponse source, int z, int x, int y, CancellationToken ct)
