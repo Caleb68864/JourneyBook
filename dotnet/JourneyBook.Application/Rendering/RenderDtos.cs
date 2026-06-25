@@ -1,7 +1,7 @@
 namespace JourneyBook.Application.Rendering;
 
 /// <summary>Request body for POST /api/projects/{id}/render.</summary>
-public record RenderProjectRequest(int Tier = 1, bool Route = false);
+public record RenderProjectRequest(int Tier = 1, bool Route = false, bool IncludeLandmarks = true);
 
 /// <summary>Successful render response (200): generated PDF id, status, and download URL.</summary>
 public record RenderProjectResponse(Guid GeneratedPdfId, string Status, string DownloadUrl);

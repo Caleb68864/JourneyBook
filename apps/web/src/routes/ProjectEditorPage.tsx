@@ -38,10 +38,10 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
   // corridor (R#) pages alongside the location (L#) pages. Carried in the render
   // request body, like tier.
   const [route, setRoute] = useState(false);
-  // Include-landmarks opt-in. When set, Generate sends includeLandmarks:true so the
-  // worker draws landmark furniture from the project's imported landmarks. Carried
-  // in the render request body, like route.
-  const [includeLandmarks, setIncludeLandmarks] = useState(false);
+  // Include-landmarks toggle (default on). Generate sends includeLandmarks so the
+  // worker draws landmark furniture from the project's imported landmarks; unchecking
+  // it generates a clean map without them. Carried in the render body, like route.
+  const [includeLandmarks, setIncludeLandmarks] = useState(true);
 
   // Manual bbox entry
   const [bboxInputs, setBboxInputs] = useState({ west: "", south: "", east: "", north: "" });
