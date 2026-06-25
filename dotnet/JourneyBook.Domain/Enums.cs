@@ -29,6 +29,22 @@ public enum SourceConfidence
     High = 3,
 }
 
+/// <summary>Category of an OSM-sourced landmark imported via the landmark pipeline.</summary>
+public enum LandmarkCategory
+{
+    Peak,
+    Water,
+    Tower,
+    School,
+    Worship,
+    Civic,
+    Park,
+    Viewpoint,
+    Trailhead,
+    Station,
+    Other,
+}
+
 /// <summary>Lifecycle of a generated PDF render.</summary>
 public enum PdfStatus
 {
