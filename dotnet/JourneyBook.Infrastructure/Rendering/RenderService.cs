@@ -90,7 +90,8 @@ public class RenderService(
             Locations: locations,
             OutputFileName: outputFileName,
             TileBaseUrl: tileProxyBaseUrl,
-            TileSourceId: tileProxyBaseUrl is null ? null : tileSourceId);
+            TileSourceId: tileProxyBaseUrl is null ? null : tileSourceId,
+            Route: request.Route);
 
         // 5. Invoke the worker; mark Completed or Failed.
         try
