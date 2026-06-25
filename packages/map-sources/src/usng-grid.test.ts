@@ -113,6 +113,20 @@ describe("buildUsngGrid — georeference accuracy", () => {
   });
 });
 
+describe("buildUsngGrid — defensive (never aborts the render)", () => {
+  it("never throws and returns a well-formed overlay for a degenerate (zero-area) bbox", () => {
+    const DEGENERATE: [number, number, number, number] = [-96.7, 40.8, -96.7, 40.8];
+    let overlay!: ReturnType<typeof buildUsngGrid>;
+    expect(() => {
+      overlay = buildUsngGrid(DEGENERATE, PANEL_W, PANEL_H);
+    }).not.toThrow();
+    expect(overlay).toHaveProperty("lines");
+    expect(overlay).toHaveProperty("labels");
+    expect(overlay).toHaveProperty("collar");
+    expect(Array.isArray(overlay.lines)).toBe(true);
+  });
+});
+
 describe("buildUsngGrid — polar / out-of-UTM bbox", () => {
   it("returns empty overlay without throwing for centre lat > 84°N", () => {
     const POLAR: [number, number, number, number] = [-10, 84.5, 10, 87];
