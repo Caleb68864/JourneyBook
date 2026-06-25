@@ -557,7 +557,7 @@ Build:
 - Basic style settings: title, explorer name, date, orientation, margin, overlap, scale preset.
 - PDF history; understandable error messages for tile/source/render failures.
 - Print calibration page; simple backup/export of project JSON.
-- **Address/geocode search** wired to the UI (the adapter reserved in Stage 2A).
+- ✅ **Address/geocode search** wired to the UI (landed early, 2026-06-25) — `IGeocodeClient`/`NominatimClient` (configurable base URL + required User-Agent, viewbox-biased to the project extent, graceful-empty); `GET /api/geocode?q=…`; a web search box → pick → creates a location recording `GeocodedFrom`/`GeocodeProvider` (the adapter + fields reserved in Stage 2A). Verified via a fake client (4 tests) + live Nominatim + Playwright.
 - Optional lightweight profiles if family use demands separation.
 
 Done when:
