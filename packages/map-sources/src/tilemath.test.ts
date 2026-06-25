@@ -6,6 +6,7 @@ import {
   groundResolutionMetersPerPixel,
   zoomForBBox,
   tileRangeForBBox,
+  lngLatToPanelFraction,
 } from "./tilemath.js";
 
 describe("web mercator tile math", () => {
@@ -38,5 +39,28 @@ describe("web mercator tile math", () => {
     const r = tileRangeForBBox(bbox, 14);
     expect(r.maxX).toBeGreaterThanOrEqual(r.minX);
     expect(r.maxY).toBeGreaterThanOrEqual(r.minY);
+  });
+
+  it("lngLatToPanelFraction maps the bbox corners and centre (top-left origin, v down)", () => {
+    const bbox: BBox = [-98.05, 40.95, -97.95, 41.05];
+    const [west, south, east, north] = bbox;
+
+    // SW corner -> ≈[0, 1]
+    const sw = lngLatToPanelFraction({ lng: west, lat: south }, bbox);
+    expect(sw[0]).toBeCloseTo(0, 2);
+    expect(sw[1]).toBeCloseTo(1, 2);
+
+    // NE corner -> ≈[1, 0]
+    const ne = lngLatToPanelFraction({ lng: east, lat: north }, bbox);
+    expect(ne[0]).toBeCloseTo(1, 2);
+    expect(ne[1]).toBeCloseTo(0, 2);
+
+    // Centre -> ≈[0.5, 0.5]
+    const centre = lngLatToPanelFraction(
+      { lng: (west + east) / 2, lat: (south + north) / 2 },
+      bbox,
+    );
+    expect(centre[0]).toBeCloseTo(0.5, 2);
+    expect(centre[1]).toBeCloseTo(0.5, 2);
   });
 });
