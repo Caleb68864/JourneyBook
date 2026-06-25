@@ -1,5 +1,4 @@
 using JourneyBook.Application.TileSources;
-using Microsoft.Extensions.Configuration;
 
 namespace JourneyBook.Infrastructure.Tiles;
 
@@ -14,11 +13,9 @@ public sealed class RasterXyzFetcher : ITileFetcher
 {
     private readonly HttpClient http;
 
-    public RasterXyzFetcher(HttpClient http, IConfiguration configuration)
+    public RasterXyzFetcher(HttpClient http)
     {
         this.http = http;
-        var timeoutSeconds = configuration.GetValue<int?>("TileCache:UpstreamTimeoutSeconds") ?? 10;
-        http.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
     }
 
     public bool CanHandle(string kind) => kind is "usgs-raster" or "xyz-server";
@@ -47,8 +44,10 @@ public sealed class RasterXyzFetcher : ITileFetcher
             // HttpClient.Timeout elapsed (surfaces as a cancellation not tied to our token).
             return null;
         }
-        catch (HttpRequestException)
+        catch (Exception)
         {
+            // Any other upstream/transport failure (HttpRequestException, IOException,
+            // socket errors, etc.) ⇒ null so the service surfaces a 502; never cached.
             return null;
         }
     }
