@@ -90,3 +90,10 @@ Each entry follows this shape:
 - Surfaces: infra/docker/api.Dockerfile, infra/compose/docker-compose.yml
 - Watch: A container healthcheck (and any in-container self-call) must hit `127.0.0.1`, not `localhost`, when the server binds IPv4 `0.0.0.0` — `localhost`→`::1` is refused. A .NET app Dockerfile must copy every ProjectReference target, not just the entry project. The live api→worker→download round-trip is now verified under Docker (was manual-only residue).
 - Commit: (populated at commit time)
+
+## 2026-06-25 — Phase C: the SS-05 Playwright e2e smoke test was stale (broken by the converge contract fixes)
+- Symptom: `apps/web/tests/e2e/create-render.spec.ts` (an SS-05 deliverable, referenced by the `test:e2e` script + `@playwright/test` devDep) was never committed and, after the web↔API contract fixes, its mocks no longer matched the app: location mock used `label` instead of `name`, the extent mock was a tuple instead of the API's `{west,south,east,north}` object, the render mock used `jobId` instead of `generatedPdfId`, and the success assertion looked for "PDF opened in new tab" (the hardening pass changed the copy to "…in a new tab").
+- Fix: Updated the mocks to mirror the C# contract and the assertion to the current copy; made `playwright.config.ts` baseURL read `E2E_BASE_URL` (default `:5173` dev server) so it can run against the Docker-served app on `:8080`. Verified: `E2E_BASE_URL=http://localhost:8080 pnpm --filter @journeybook/web test:e2e` → 1 passed. Added `test-results/`, `playwright-report/`, `.playwright-mcp/`, `*.tsbuildinfo` to `.gitignore`.
+- Surfaces: apps/web/tests/e2e/create-render.spec.ts, apps/web/playwright.config.ts, .gitignore
+- Watch: A mocked UI test encodes the API contract in its `page.route` fixtures — those mocks drift exactly like a hand-written client when the real contract changes; update them alongside the client. The mocked e2e proves UI wiring only; real integration is the live Docker round-trip.
+- Commit: (populated at commit time)
