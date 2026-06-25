@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
-import proj4 from "proj4";
-import { forward as mgrsForward } from "mgrs";
+import { createUtmProjector } from "@journeybook/atlas-core";
+import mgrs from "mgrs";
+const mgrsForward = mgrs.forward;
 
 import { buildUsngGrid } from "./usng-grid.js";
+import { lngLatToPanelFraction } from "./tilemath.js";
 
 const LINCOLN_NE: [number, number, number, number] = [-96.75, 40.78, -96.65, 40.85];
 // ~10 km × ~7.8 km → should produce a handful of 1000 m gridlines
@@ -56,30 +58,56 @@ describe("buildUsngGrid — Lincoln NE (1000 m)", () => {
 });
 
 describe("buildUsngGrid — georeference accuracy", () => {
-  it("easting gridline for a point lands within 0.01 of the point's panel fraction", () => {
-    const [west, south, east, north] = LINCOLN_NE;
+  // Independently re-derive the UTM extent the generator walks, using the SAME
+  // shared primitives (atlas-core createUtmProjector + tilemath
+  // lngLatToPanelFraction). If buildUsngGrid used a different (e.g. linear)
+  // panel mapping, the overlay endpoints would diverge from this recomputation.
+  const proj = createUtmProjector(14);
+  const [west, south, east, north] = LINCOLN_NE;
+  const corners = [
+    proj.forward({ lng: west, lat: south }),
+    proj.forward({ lng: east, lat: south }),
+    proj.forward({ lng: west, lat: north }),
+    proj.forward({ lng: east, lat: north }),
+  ];
+  const eMin = Math.min(...corners.map(([e]) => e));
+  const eMax = Math.max(...corners.map(([e]) => e));
+  const nMin = Math.min(...corners.map(([, n]) => n));
+  const nMax = Math.max(...corners.map(([, n]) => n));
+
+  it("easting gridlines are placed via the shared Web-Mercator panel mapping (not a linear re-impl)", () => {
+    const overlay = buildUsngGrid(LINCOLN_NE, PANEL_W, PANEL_H);
+    const firstE = Math.ceil(eMin / 1000) * 1000;
+    // Expected endpoints of the first easting line, via the shared functions.
+    const [exTop] = lngLatToPanelFraction(proj.inverse([firstE, nMax]), LINCOLN_NE);
+    const eLine = overlay.lines.find((l) => l.axis === "easting");
+    expect(eLine).toBeDefined();
+    // x2 corresponds to the northing-max (top) endpoint in the generator.
+    expect(Math.abs(eLine!.x2 - Math.min(1, Math.max(0, exTop)))).toBeLessThan(1e-6);
+  });
+
+  it("northing gridlines register at their shared-mapping panel-v (catches linear drift)", () => {
+    const overlay = buildUsngGrid(LINCOLN_NE, PANEL_W, PANEL_H);
+    const firstN = Math.ceil(nMin / 1000) * 1000;
+    expect(firstN).toBeLessThanOrEqual(nMax);
+    // Expected v of the first northing line's west endpoint, via the shared map.
+    const [, vExpected] = lngLatToPanelFraction(proj.inverse([eMin, firstN]), LINCOLN_NE);
+    const nLine = overlay.lines.find((l) => l.axis === "northing");
+    expect(nLine).toBeDefined();
+    // y1 is the west (easting-min) endpoint in the generator.
+    expect(Math.abs(nLine!.y1 - Math.min(1, Math.max(0, vExpected)))).toBeLessThan(1e-6);
+  });
+
+  it("a known point's km easting gridline lands within 0.01 of the point's panel fraction", () => {
     const testLng = -96.70;
     const testLat = 40.815;
-
-    // Compute UTM easting for the test point in zone 14N.
-    const utmDef = "+proj=utm +zone=14 +datum=WGS84 +units=m +no_defs";
-    const [testE] = proj4("EPSG:4326", utmDef, [testLng, testLat]);
-
-    // Nearest 1 km easting gridline value.
+    const [testE] = proj.forward({ lng: testLng, lat: testLat });
     const nearestE = Math.round(testE / 1000) * 1000;
-
-    // Project that gridline back to lng at mid-northing to get its panel x.
-    const [, nMin] = proj4("EPSG:4326", utmDef, [west, south]);
-    const [, nMax] = proj4("EPSG:4326", utmDef, [east, north]);
-    const midN = (nMin + nMax) / 2;
-    const [gridLng] = proj4(utmDef, "EPSG:4326", [nearestE, midN]);
-    const gridX = (gridLng - west) / (east - west);
-
-    // Test point panel x.
-    const pointX = (testLng - west) / (east - west);
-
-    // The gridline should be within 1% of the panel width from the point.
-    const overlay = buildUsngGrid(LINCOLN_NE, 800, 1000);
+    // Panel x of the point itself and of its nearest km easting gridline, both via
+    // the shared mapping. The gridline should sit within 1% of the point.
+    const [pointX] = lngLatToPanelFraction({ lng: testLng, lat: testLat }, LINCOLN_NE);
+    const [gridX] = lngLatToPanelFraction(proj.inverse([nearestE, (nMin + nMax) / 2]), LINCOLN_NE);
+    const overlay = buildUsngGrid(LINCOLN_NE, PANEL_W, PANEL_H);
     expect(overlay.lines.length).toBeGreaterThan(0);
     expect(Math.abs(gridX - pointX)).toBeLessThan(0.01);
   });

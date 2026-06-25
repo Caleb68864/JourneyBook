@@ -1,62 +1,34 @@
-import proj4 from "proj4";
-import type { BBox, UsngGridOverlay } from "@journeybook/atlas-core";
-import { utmZoneForLongitude } from "@journeybook/atlas-core";
+import type { BBox, LngLat, UsngGridOverlay } from "@journeybook/atlas-core";
+import { utmZoneForLongitude, createUtmProjector } from "@journeybook/atlas-core";
+import { lngLatToPanelFraction } from "./tilemath.js";
 // `mgrs` is a CommonJS module — a named ESM import (`{ forward }`) typechecks and
 // works under vitest but throws "Named export 'forward' not found" at runtime under
 // Node's ESM loader (the render-worker container). Default-import the package object.
 import mgrs from "mgrs";
 const mgrsForward = mgrs.forward;
 
-// UTM is only defined for latitudes in [-80, 84].
-const UTM_LAT_MIN = -80;
+// UTM is only defined for latitudes in [-80, 84]; createUtmProjector is
+// northern-hemisphere only (CONUS), so the southern band is out of scope too.
+const UTM_LAT_MIN = 0;
 const UTM_LAT_MAX = 84;
 
 const MAX_GRID_LINES = 60;
 const DEFAULT_INTERVAL_M = 1000;
 const COARSE_INTERVAL_M = 10_000;
 
-const WGS84 = "EPSG:4326";
-
-function utmProjDef(zone: number, south: boolean): string {
-  return `+proj=utm +zone=${zone} +datum=WGS84 +units=m +no_defs${south ? " +south" : ""}`;
-}
-
-interface UtmProjector {
-  forward(lng: number, lat: number): [easting: number, northing: number];
-  inverse(easting: number, northing: number): [lng: number, lat: number];
-}
-
-function createUtmProjector(zone: number, south: boolean): UtmProjector {
-  const def = utmProjDef(zone, south);
-  return {
-    forward(lng, lat) {
-      const [e, n] = proj4(WGS84, def, [lng, lat]);
-      return [e, n];
-    },
-    inverse(e, n) {
-      const [lng, lat] = proj4(def, WGS84, [e, n]);
-      return [lng, lat];
-    },
-  };
-}
-
 function clamp01(v: number): number {
   return Math.min(1, Math.max(0, v));
 }
 
-/** Normalize a lng/lat to [0,1] panel fractions (top-left origin), clamped to [0,1]. */
-function lngLatToPanelFraction(
-  lng: number,
-  lat: number,
-  west: number,
-  east: number,
-  south: number,
-  north: number,
-): [x: number, y: number] {
-  return [
-    clamp01((lng - west) / (east - west)),
-    clamp01((north - lat) / (north - south)),
-  ];
+/**
+ * Project a WGS84 point to clamped [0,1] panel fractions using THE shared
+ * panel↔grid mapping (`lngLatToPanelFraction`, the same Web-Mercator transform
+ * `renderMapPanel` uses) — never a second, divergent mapping. Clamped so the
+ * overlay coordinates stay within the panel box.
+ */
+function panelFraction(point: LngLat, bbox: BBox): [number, number] {
+  const [u, v] = lngLatToPanelFraction(point, bbox);
+  return [clamp01(u), clamp01(v)];
 }
 
 /** Two-digit USNG km label for a UTM easting or northing value. */
@@ -95,15 +67,14 @@ export function buildUsngGrid(
   }
 
   const zone = utmZoneForLongitude(centreLng);
-  const isSouth = centreLat < 0;
-  const proj = createUtmProjector(zone, isSouth);
+  const proj = createUtmProjector(zone);
 
   // Project all four corners to find the full UTM extent of the bbox.
   const corners = [
-    proj.forward(west, south),
-    proj.forward(east, south),
-    proj.forward(west, north),
-    proj.forward(east, north),
+    proj.forward({ lng: west, lat: south }),
+    proj.forward({ lng: east, lat: south }),
+    proj.forward({ lng: west, lat: north }),
+    proj.forward({ lng: east, lat: north }),
   ];
   const utmEMin = Math.min(...corners.map(([e]) => e));
   const utmEMax = Math.max(...corners.map(([e]) => e));
@@ -135,10 +106,8 @@ export function buildUsngGrid(
 
   // Easting (vertical) lines — constant UTM easting, spans full northing range.
   for (let e = firstE; e <= lastE + 0.5; e += interval) {
-    const [lng1, lat1] = proj.inverse(e, utmNMin);
-    const [lng2, lat2] = proj.inverse(e, utmNMax);
-    const [x1, y1] = lngLatToPanelFraction(lng1, lat1, west, east, south, north);
-    const [x2, y2] = lngLatToPanelFraction(lng2, lat2, west, east, south, north);
+    const [x1, y1] = panelFraction(proj.inverse([e, utmNMin]), bbox);
+    const [x2, y2] = panelFraction(proj.inverse([e, utmNMax]), bbox);
 
     lines.push({ x1, y1, x2, y2, axis: "easting" });
 
@@ -150,10 +119,8 @@ export function buildUsngGrid(
 
   // Northing (horizontal) lines — constant UTM northing, spans full easting range.
   for (let n = firstN; n <= lastN + 0.5; n += interval) {
-    const [lng1, lat1] = proj.inverse(utmEMin, n);
-    const [lng2, lat2] = proj.inverse(utmEMax, n);
-    const [x1, y1] = lngLatToPanelFraction(lng1, lat1, west, east, south, north);
-    const [x2, y2] = lngLatToPanelFraction(lng2, lat2, west, east, south, north);
+    const [x1, y1] = panelFraction(proj.inverse([utmEMin, n]), bbox);
+    const [x2, y2] = panelFraction(proj.inverse([utmEMax, n]), bbox);
 
     lines.push({ x1, y1, x2, y2, axis: "northing" });
 
