@@ -85,8 +85,17 @@ public class HttpRenderWorkerClient(HttpClient http) : IRenderWorkerClient
     {
         var payload = ToWirePayload(request);
 
-        var response = await http.PostAsJsonAsync("/render", payload, s_writeOptions, ct);
-        response.EnsureSuccessStatusCode();
+        using var response = await http.PostAsJsonAsync("/render", payload, s_writeOptions, ct);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            // Preserve the worker's diagnostic (e.g. {"error":"outputPath traversal
+            // rejected"}) instead of the opaque "Response status code does not
+            // indicate success" that EnsureSuccessStatusCode would throw.
+            var body = await response.Content.ReadAsStringAsync(ct);
+            throw new InvalidOperationException(
+                $"Render worker returned {(int)response.StatusCode}: {body}");
+        }
 
         var result = await response.Content.ReadFromJsonAsync<RenderWorkerResult>(s_readOptions, ct);
         if (result is null)

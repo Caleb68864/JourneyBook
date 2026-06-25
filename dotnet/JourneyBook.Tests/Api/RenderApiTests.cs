@@ -90,7 +90,25 @@ public class RenderApiTests(RenderApiFactory factory) : IClassFixture<RenderApiF
             new CreateProjectRequest(name, "usgs-7-5-min"));
         var created = await post.Content.ReadFromJsonAsync<ProjectResponse>();
         Assert.NotNull(created);
-        return created!.Id;
+        // Give the project a renderable extent (a bbox grid) — RenderService now
+        // rejects projects with neither an extent nor any locations (400).
+        var ext = await _client.PutAsJsonAsync($"/api/projects/{created!.Id}/extent",
+            new BBoxDto(-96.75, 40.78, -96.65, 40.85));
+        Assert.Equal(HttpStatusCode.OK, ext.StatusCode);
+        return created.Id;
+    }
+
+    [Fact]
+    public async Task Render_with_no_extent_or_locations_returns_400()
+    {
+        var post = await _client.PostAsJsonAsync("/api/projects",
+            new CreateProjectRequest("Empty Render Project", "usgs-7-5-min"));
+        var created = await post.Content.ReadFromJsonAsync<ProjectResponse>();
+        Assert.NotNull(created);
+
+        var resp = await _client.PostAsJsonAsync($"/api/projects/{created!.Id}/render",
+            new RenderProjectRequest());
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
     }
 
     [Fact]

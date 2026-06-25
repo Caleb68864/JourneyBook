@@ -91,17 +91,30 @@ function normalizeProject(p: ApiProject): Project {
 const BASE = "/api";
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    method,
-    headers: body !== undefined ? { "Content-Type": "application/json" } : {},
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      method,
+      headers: body !== undefined ? { "Content-Type": "application/json" } : {},
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  } catch (err) {
+    // fetch rejects only on network-level failure (server down, DNS, CORS) — turn
+    // the raw TypeError into a readable message for the UI.
+    throw new Error(
+      `Network error calling ${method} ${BASE}${path}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText);
     throw new Error(`${method} ${BASE}${path} → ${res.status}: ${text}`);
   }
   if (res.status === 204) return undefined as T;
-  return res.json() as Promise<T>;
+  try {
+    return (await res.json()) as T;
+  } catch {
+    throw new Error(`${method} ${BASE}${path}: response was not valid JSON.`);
+  }
 }
 
 // ---------------------------------------------------------------------------

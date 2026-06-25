@@ -28,6 +28,7 @@ function isInputError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   const msg = err.message;
   return (
+    msg.startsWith("Invalid ") ||
     msg.startsWith("Unknown scalePresetId") ||
     msg.includes('requires center') ||
     msg.includes('requires bbox') ||
@@ -101,6 +102,7 @@ export async function renderRoute(app: FastifyInstance, opts: RenderWorkerOption
         tier: body.tier,
         outcome,
         elapsedMs,
+        error: message,
       });
 
       if (isInputError(err)) {

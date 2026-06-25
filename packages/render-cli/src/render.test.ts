@@ -68,6 +68,42 @@ describe("renderAtlas", () => {
         tier: 1,
         outputPath: "ignored.pdf",
       }),
-    ).rejects.toThrow(/requires center/);
+    ).rejects.toThrow(/Invalid center/);
+  });
+
+  it("rejects a tier outside 1–4", async () => {
+    await expect(
+      renderAtlas({
+        mode: "location",
+        center: { lng: -96.7, lat: 40.8 },
+        scalePresetId: "usgs-7-5-min",
+        tier: 9 as 1,
+        outputPath: "ignored.pdf",
+      }),
+    ).rejects.toThrow(/Invalid tier/);
+  });
+
+  it("rejects a reversed bbox (west >= east)", async () => {
+    await expect(
+      renderAtlas({
+        mode: "bbox",
+        bbox: [-96.6, 40.79, -96.73, 40.83], // west > east
+        scalePresetId: "usgs-7-5-min",
+        tier: 1,
+        outputPath: "ignored.pdf",
+      }),
+    ).rejects.toThrow(/Invalid bbox/);
+  });
+
+  it("rejects a non-finite center coordinate", async () => {
+    await expect(
+      renderAtlas({
+        mode: "location",
+        center: { lng: Number.NaN, lat: 40.8 },
+        scalePresetId: "usgs-7-5-min",
+        tier: 1,
+        outputPath: "ignored.pdf",
+      }),
+    ).rejects.toThrow(/Invalid center/);
   });
 });

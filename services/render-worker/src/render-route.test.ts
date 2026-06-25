@@ -84,4 +84,13 @@ describe("render-worker POST /render", () => {
     });
     expect(res.statusCode).toBe(400);
   });
+
+  it("rejects an out-of-range tier as an input error (400)", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/render",
+      payload: { ...validLocation, tier: 9, outputPath: "x.pdf" },
+    });
+    expect(res.statusCode).toBe(400);
+  });
 });

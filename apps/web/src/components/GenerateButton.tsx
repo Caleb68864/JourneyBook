@@ -11,14 +11,17 @@ interface GenerateButtonProps {
 export function GenerateButton({ projectId, tier, disabled }: GenerateButtonProps) {
   const [status, setStatus] = useState<"idle" | "generating" | "done" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
 
   async function handleGenerate() {
     setStatus("generating");
     setErrorMsg(null);
+    setPdfUrl(null);
     try {
       const result = await api.render.start(projectId, tier);
       const downloadUrl = result.downloadUrl || api.render.getContent(result.generatedPdfId);
-      // Open the PDF — works for both relative paths and absolute URLs
+      setPdfUrl(downloadUrl);
+      // Try to open the PDF; if a popup blocker stops it, the link below still works.
       window.open(downloadUrl, "_blank", "noopener,noreferrer");
       setStatus("done");
     } catch (err) {
@@ -56,7 +59,14 @@ export function GenerateButton({ projectId, tier, disabled }: GenerateButtonProp
         )}
       </button>
       {status === "done" && (
-        <p className="font-mono text-[11px] text-forest-700">PDF opened in new tab.</p>
+        <p className="font-mono text-[11px] text-forest-700">
+          PDF opened in a new tab.{" "}
+          {pdfUrl && (
+            <a href={pdfUrl} target="_blank" rel="noopener noreferrer" className="underline hover:text-forest-600">
+              Open / download
+            </a>
+          )}
+        </p>
       )}
       {status === "error" && errorMsg && (
         <p className="font-mono text-[11px] text-campfire-600">{errorMsg}</p>

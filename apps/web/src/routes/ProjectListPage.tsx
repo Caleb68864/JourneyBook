@@ -15,11 +15,13 @@ export function ProjectListPage({ onOpen }: ProjectListPageProps) {
   const [showForm, setShowForm] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     api.projects
       .list()
-      .then(setProjects)
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : "Failed to load."))
-      .finally(() => setLoading(false));
+      .then((p) => { if (!cancelled) setProjects(p); })
+      .catch((err: unknown) => { if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load."); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, []);
 
   async function handleCreate(e: React.SyntheticEvent<HTMLFormElement>) {

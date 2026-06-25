@@ -125,8 +125,13 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
   }
 
   async function handleDeleteLocation(id: string) {
-    await api.locations.delete(projectId, id);
-    setLocations((l) => l.filter((x) => x.id !== id));
+    try {
+      await api.locations.delete(projectId, id);
+      setLocations((l) => l.filter((x) => x.id !== id));
+    } catch (err) {
+      // Don't drop it from the UI if the server delete failed.
+      setError(err instanceof Error ? err.message : "Failed to delete location.");
+    }
   }
 
   const scale = SCALE_PRESETS.find((s) => s.id === (project?.scalePresetId ?? DEFAULT_SCALE_PRESET_ID));

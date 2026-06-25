@@ -9,10 +9,11 @@ public static class RenderEndpoints
         app.MapPost("/api/projects/{id:guid}/render", async (
             Guid id,
             RenderProjectRequest? request,
-            IRenderService renderService) =>
+            IRenderService renderService,
+            HttpContext httpContext) =>
         {
             var req = request ?? new RenderProjectRequest();
-            var result = await renderService.RenderProjectAsync(id, req);
+            var result = await renderService.RenderProjectAsync(id, req, httpContext.RequestAborted);
 
             return result.Outcome switch
             {

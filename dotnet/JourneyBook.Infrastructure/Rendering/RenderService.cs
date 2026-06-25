@@ -35,6 +35,13 @@ public class RenderService(
         if (project is null)
             return new RenderServiceResult(RenderOutcome.ProjectNotFound);
 
+        // Nothing to render: no extent (bbox grid) and no saved locations (location
+        // page). This is a user error (400), not a worker failure (502) — reject it
+        // before creating a Pending lifecycle record we'd only have to fail.
+        if (project.Extent?.Bounds is null && project.Locations.Count == 0)
+            return new RenderServiceResult(RenderOutcome.InvalidParameters,
+                Error: "Project has no extent and no locations — nothing to render. Set a bounding box or add a location first.");
+
         var grid = project.PageGrid;
         var scalePresetId = grid?.ScalePresetId ?? "usgs-7-5-min";
         var orientation = grid?.Orientation.ToString() ?? "Portrait";
@@ -84,12 +91,21 @@ public class RenderService(
             var downloadUrl = $"/api/generated-pdfs/{created.Id}/content";
             return new RenderServiceResult(RenderOutcome.Success, created.Id, "Completed", downloadUrl);
         }
+        catch (OperationCanceledException)
+        {
+            // Client disconnected / request aborted — not a worker failure. Mark the
+            // record Failed (best effort, with a token that won't itself be cancelled)
+            // and let the cancellation propagate.
+            await pdfService.UpdateStatusAsync(
+                created.Id, new UpdateGeneratedPdfStatusRequest("Failed"), CancellationToken.None);
+            throw;
+        }
         catch (Exception ex)
         {
             await pdfService.UpdateStatusAsync(
                 created.Id,
                 new UpdateGeneratedPdfStatusRequest("Failed"),
-                ct);
+                CancellationToken.None);
             return new RenderServiceResult(RenderOutcome.WorkerFailed, created.Id, Error: ex.Message);
         }
     }
