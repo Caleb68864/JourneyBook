@@ -11,5 +11,6 @@
   "references": [
     { "path": "../../packages/render-cli" }
   ],
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts"]
 }
