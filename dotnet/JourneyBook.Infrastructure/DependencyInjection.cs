@@ -1,9 +1,11 @@
 using JourneyBook.Application.GeneratedPdfs;
+using JourneyBook.Application.Landmarks;
 using JourneyBook.Application.Locations;
 using JourneyBook.Application.Projects;
 using JourneyBook.Application.Rendering;
 using JourneyBook.Application.TileSources;
 using JourneyBook.Infrastructure.GeneratedPdfs;
+using JourneyBook.Infrastructure.Landmarks;
 using JourneyBook.Infrastructure.Locations;
 using JourneyBook.Application.Tiles;
 using JourneyBook.Infrastructure.Persistence;
@@ -65,6 +67,18 @@ public static class DependencyInjection
         });
 
         services.AddScoped<IRenderService, RenderService>();
+
+        // --- Landmarks / Overpass (Stage 6) ---------------------------------
+        services.AddScoped<ILandmarkService, LandmarkService>();
+
+        var overpassBaseUrl = configuration["Overpass:BaseUrl"] is { Length: > 0 } ou ? ou : "https://overpass-api.de";
+        var overpassTimeout = int.TryParse(configuration["Overpass:TimeoutSeconds"], out var ot) ? ot : 30;
+
+        services.AddHttpClient<IOverpassClient, OverpassClient>(http =>
+        {
+            http.BaseAddress = new Uri(overpassBaseUrl);
+            http.Timeout = TimeSpan.FromSeconds(overpassTimeout);
+        });
 
         return services;
     }
