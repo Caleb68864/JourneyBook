@@ -227,8 +227,9 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
               <div className="grid grid-cols-2 gap-2">
                 {(["west", "south", "east", "north"] as const).map((key) => (
                   <div key={key} className="flex flex-col gap-0.5">
-                    <label className="font-mono text-[10px] uppercase text-bark-500">{key}</label>
+                    <label htmlFor={`bbox-${key}`} className="font-mono text-[10px] uppercase text-bark-500">{key}</label>
                     <input
+                      id={`bbox-${key}`}
                       type="text"
                       value={bboxInputs[key]}
                       onChange={(e) =>
