@@ -6,6 +6,10 @@
  * stages — reference them as utilities (bg-forest, text-bark, font-display…).
  * Palette derived from vault/branding-theme.md: rugged field-guide clarity
  * with junior-explorer warmth. Field guide meets junior-ranger packet.
+ *
+ * NOTE: Values in this @theme block intentionally mirror packages/ui/src/tokens.ts,
+ * which is the canonical typed export for non-Tailwind consumers (pdf-client, tests).
+ * Keep the two in sync when updating colors or font stacks.
  */
 @theme {
   /* Forest green — primary brand ink */

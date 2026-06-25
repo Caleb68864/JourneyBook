@@ -1,8 +1,10 @@
 /**
  * @journeybook/ui
  *
- * Shared UI/theme components and design tokens. Populated during Stage 4
- * (Brand and Visual System). Stage 0 skeleton placeholder.
+ * Shared UI/theme components and design tokens.
  */
 
-export const UI_VERSION = "0.0.0";
+export const UI_VERSION = "0.1.0";
+
+export { palette, fonts, brand } from "./tokens.js";
+export type { Palette, Fonts, Brand } from "./tokens.js";
