@@ -1,7 +1,7 @@
 namespace JourneyBook.Application.Rendering;
 
 /// <summary>Request body for POST /api/projects/{id}/render.</summary>
-public record RenderProjectRequest(int Tier = 1);
+public record RenderProjectRequest(int Tier = 1, bool Route = false);
 
 /// <summary>Successful render response (200): generated PDF id, status, and download URL.</summary>
 public record RenderProjectResponse(Guid GeneratedPdfId, string Status, string DownloadUrl);
@@ -34,7 +34,8 @@ public record RenderWorkerRequest(
     // this api's Stage 3 proxy ({TileBaseUrl}/{TileSourceId}/{z}/{x}/{y}) instead of
     // hitting USGS directly. Null → worker fetches USGS directly.
     string? TileBaseUrl = null,
-    string? TileSourceId = null);
+    string? TileSourceId = null,
+    bool Route = false);
 
 /// <summary>Safe margins (inches) forwarded to the render worker.</summary>
 public record RenderMarginsDto(double Top, double Right, double Bottom, double Left, double Gutter = 0);

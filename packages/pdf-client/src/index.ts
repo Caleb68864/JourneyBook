@@ -11,7 +11,7 @@
 import { renderToBuffer, renderToFile } from "@react-pdf/renderer";
 import { createElement } from "react";
 import type { AtlasContract, UsngGridOverlay } from "@journeybook/atlas-core";
-import { AtlasDocument } from "./AtlasDocument.js";
+import { AtlasDocument, type RouteOverlay } from "./AtlasDocument.js";
 
 export interface RenderPdfOptions {
   contract: AtlasContract;
@@ -21,6 +21,8 @@ export interface RenderPdfOptions {
   panels?: Record<string, string>;
   /** map pageId -> USNG grid overlay (from @journeybook/map-sources, tier >= 3 only). */
   grids?: Record<string, UsngGridOverlay>;
+  /** map pageId -> route overlay (corridor R# pages only); additive, mirrors panels/grids. */
+  routes?: Record<string, RouteOverlay>;
 }
 
 function documentElement(options: RenderPdfOptions) {
@@ -29,6 +31,7 @@ function documentElement(options: RenderPdfOptions) {
     title: options.title ?? "Journey Book",
     panels: options.panels,
     grids: options.grids,
+    routes: options.routes,
   });
 }
 
@@ -45,5 +48,5 @@ export async function renderAtlasPdfToBuffer(options: RenderPdfOptions): Promise
   return renderToBuffer(documentElement(options));
 }
 
-export { AtlasDocument } from "./AtlasDocument.js";
+export { AtlasDocument, type RouteOverlay } from "./AtlasDocument.js";
 export const PDF_CLIENT_VERSION = "0.0.0";
