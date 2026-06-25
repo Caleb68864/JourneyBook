@@ -11,6 +11,7 @@
  * headless, emitting the AtlasContract JSON — no UI, no PDF yet.
  */
 
+import { readFileSync } from "node:fs";
 import { argv, exit, stderr, stdout } from "node:process";
 import { fileURLToPath } from "node:url";
 import {
@@ -23,6 +24,7 @@ import {
   validateAtlas,
   type AtlasContract,
   type BBox,
+  type LandmarkMarker,
   type LngLat,
   type MapTier,
   type ScalePreset,
@@ -47,6 +49,8 @@ Usage:
   reusing its cache and enabling PMTiles sources; --tile-source <id> overrides the proxy source key.
   Omit --tile-base-url to fetch tiles directly (zero infrastructure).
 --tile-cache-dir <dir> reads/writes a shared local tile cache (default: no Node-side cache).
+--landmarks <file.json> reads a JSON array of LandmarkMarker objects and places them as
+  per-page furniture (each page picks/declutters the markers inside its bbox).
 validate runs the print-validation harness (true scale, neighbour integrity).
 
 Scale presets:
@@ -171,6 +175,18 @@ export async function runCli(args: readonly string[]): Promise<number> {
       const tileSourceId = flags.has("tile-source") ? flags.get("tile-source") : undefined;
       const cacheDir = flags.has("tile-cache-dir") ? flags.get("tile-cache-dir") : undefined;
 
+      // --landmarks <file.json>: read the JSON array of LandmarkMarker so the engine
+      // is testable without an Overpass round-trip; threaded into renderAtlas below.
+      let landmarks: LandmarkMarker[] | undefined;
+      const landmarksPath = flags.has("landmarks") ? flags.get("landmarks") : undefined;
+      if (landmarksPath && landmarksPath !== "true") {
+        const parsed = JSON.parse(readFileSync(landmarksPath, "utf8")) as unknown;
+        if (!Array.isArray(parsed)) {
+          throw new Error(`--landmarks "${landmarksPath}" must contain a JSON array of LandmarkMarker objects.`);
+        }
+        landmarks = parsed as LandmarkMarker[];
+      }
+
       let center: { lng: number; lat: number } | undefined;
       let bbox: [number, number, number, number] | undefined;
       let locations: { center: { lng: number; lat: number } }[] | undefined;
@@ -212,6 +228,7 @@ export async function runCli(args: readonly string[]): Promise<number> {
         tileBaseUrl: tileBaseUrl && tileBaseUrl !== "true" ? tileBaseUrl : undefined,
         tileSourceId: tileSourceId && tileSourceId !== "true" ? tileSourceId : undefined,
         cacheDir: cacheDir && cacheDir !== "true" ? cacheDir : undefined,
+        landmarks,
         outputPath: out,
       });
 
