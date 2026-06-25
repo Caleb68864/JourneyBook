@@ -48,6 +48,72 @@ describe("renderAtlas", () => {
     }
   });
 
+  it("renders a page per saved location alongside the bbox grid", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jb-render-combined-"));
+    try {
+      const out = join(dir, "combined.pdf");
+      const gridOnly = await renderAtlas({
+        mode: "bbox",
+        bbox: [-96.73, 40.79, -96.67, 40.83],
+        scalePresetId: "usgs-7-5-min",
+        tier: 1,
+        outputPath: join(dir, "grid-only.pdf"),
+      });
+      const combined = await renderAtlas({
+        mode: "bbox",
+        bbox: [-96.73, 40.79, -96.67, 40.83],
+        locations: [
+          { center: { lng: -96.7, lat: 40.8 }, label: "Home" },
+          { center: { lng: -95.9, lat: 41.25 }, label: "Grandma" },
+        ],
+        scalePresetId: "usgs-7-5-min",
+        tier: 1,
+        outputPath: out,
+      });
+      // Combined atlas = the grid pages PLUS one page per location.
+      expect(combined.pageCount).toBe(gridOnly.pageCount + 2);
+      expect(readFileSync(out).subarray(0, 4).toString("latin1")).toBe("%PDF");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("renders every location when no bbox is set (location mode, multiple)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jb-render-multiloc-"));
+    try {
+      const out = join(dir, "multiloc.pdf");
+      const res = await renderAtlas({
+        mode: "location",
+        center: { lng: -96.7, lat: 40.8 }, // first location, legacy field
+        locations: [
+          { center: { lng: -96.7, lat: 40.8 } },
+          { center: { lng: -95.9, lat: 41.25 } },
+          { center: { lng: -97.4, lat: 42.0 } },
+        ],
+        scalePresetId: "usgs-7-5-min",
+        tier: 1,
+        outputPath: out,
+      });
+      expect(res.pageCount).toBe(3);
+      expect(readFileSync(out).subarray(0, 4).toString("latin1")).toBe("%PDF");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a non-finite location coordinate", async () => {
+    await expect(
+      renderAtlas({
+        mode: "bbox",
+        bbox: [-96.73, 40.79, -96.67, 40.83],
+        locations: [{ center: { lng: -96.7, lat: Number.NaN } }],
+        scalePresetId: "usgs-7-5-min",
+        tier: 1,
+        outputPath: "ignored.pdf",
+      }),
+    ).rejects.toThrow(/Invalid location\[0\]\.center/);
+  });
+
   it("throws on an unknown scale preset", async () => {
     await expect(
       renderAtlas({
@@ -105,5 +171,65 @@ describe("renderAtlas", () => {
         outputPath: "ignored.pdf",
       }),
     ).rejects.toThrow(/Invalid center/);
+  });
+
+  it("[INTEGRATION] tier-3 render produces a valid PDF and a non-empty grids map", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jb-render-tier3-"));
+    try {
+      const out = join(dir, "tier3.pdf");
+      const res = await renderAtlas({
+        mode: "location",
+        center: { lng: -96.7, lat: 40.8 },
+        scalePresetId: "usgs-7-5-min",
+        tier: 3,
+        outputPath: out,
+      });
+      expect(res.pageCount).toBe(1);
+      const bytes = readFileSync(out);
+      expect(bytes.subarray(0, 4).toString("latin1")).toBe("%PDF");
+      // Verify the USNG grid was computed for the single page.
+      const gridEntries = Object.keys(res.grids);
+      expect(gridEntries.length).toBeGreaterThan(0);
+      const overlay = res.grids[gridEntries[0]!]!;
+      expect(overlay.lines.length).toBeGreaterThan(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("[BEHAVIORAL] tier-1 render produces no grids", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jb-render-t1-"));
+    try {
+      const out = join(dir, "tier1.pdf");
+      const res = await renderAtlas({
+        mode: "location",
+        center: { lng: -96.7, lat: 40.8 },
+        scalePresetId: "usgs-7-5-min",
+        tier: 1,
+        outputPath: out,
+      });
+      expect(readFileSync(out).subarray(0, 4).toString("latin1")).toBe("%PDF");
+      expect(Object.keys(res.grids).length).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("[BEHAVIORAL] tier-2 render produces no grids", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jb-render-t2-"));
+    try {
+      const out = join(dir, "tier2.pdf");
+      const res = await renderAtlas({
+        mode: "location",
+        center: { lng: -96.7, lat: 40.8 },
+        scalePresetId: "usgs-7-5-min",
+        tier: 2,
+        outputPath: out,
+      });
+      expect(readFileSync(out).subarray(0, 4).toString("latin1")).toBe("%PDF");
+      expect(Object.keys(res.grids).length).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

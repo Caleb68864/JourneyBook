@@ -39,6 +39,9 @@ services:
       Database__MigrateOnStartup: "true"
       # The api proxies render requests to the internal render-worker service.
       RenderWorker__BaseUrl: "http://render-worker:8090"
+      # Route the worker's basemap tile fetches back through THIS api's Stage 3 tile
+      # proxy (shared disk cache + attribution + PMTiles), not direct to USGS.
+      Tiles__ProxyBaseUrl: "http://api:8080/api/tiles"
     ports:
       - "${API_PORT:-5180}:8080"
     depends_on:

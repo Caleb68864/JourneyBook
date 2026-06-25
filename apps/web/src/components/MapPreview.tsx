@@ -6,6 +6,8 @@ import type { BBox, LngLat } from "@journeybook/atlas-core";
 interface MapPreviewProps {
   /** WGS84 extent to fit/show. */
   extent: BBox | null;
+  /** A bbox awaiting confirmation — drawn as a highlighted box and framed. */
+  pendingBbox?: BBox | null;
   /** Important locations to show as markers. */
   locations: Array<{ id: string; name: string; lng: number; lat: number }>;
   /** Called when user clicks the map in draw mode. */
@@ -17,7 +19,26 @@ interface MapPreviewProps {
 const TILE_URL = "/api/tiles/usgs-topo/{z}/{x}/{y}";
 const ATTRIBUTION = "USGS National Map";
 
-export function MapPreview({ extent, locations, onMapClick, drawMode }: MapPreviewProps) {
+const EMPTY_FC = { type: "FeatureCollection" as const, features: [] };
+
+/** A closed rectangle ring GeoJSON FeatureCollection from a [W,S,E,N] bbox. */
+function bboxFeatureCollection([w, s, e, n]: BBox) {
+  return {
+    type: "FeatureCollection" as const,
+    features: [
+      {
+        type: "Feature" as const,
+        properties: {},
+        geometry: {
+          type: "Polygon" as const,
+          coordinates: [[[w, s], [e, s], [e, n], [w, n], [w, s]]],
+        },
+      },
+    ],
+  };
+}
+
+export function MapPreview({ extent, pendingBbox, locations, onMapClick, drawMode }: MapPreviewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<maplibregl.Marker[]>([]);
@@ -41,12 +62,25 @@ export function MapPreview({ extent, locations, onMapClick, drawMode }: MapPrevi
             minzoom: 0,
             maxzoom: 16,
           },
+          "pending-bbox": { type: "geojson", data: EMPTY_FC },
         },
         layers: [
           {
             id: "usgs-topo",
             type: "raster",
             source: "usgs-topo",
+          },
+          {
+            id: "pending-bbox-fill",
+            type: "fill",
+            source: "pending-bbox",
+            paint: { "fill-color": "#c2410c", "fill-opacity": 0.12 },
+          },
+          {
+            id: "pending-bbox-line",
+            type: "line",
+            source: "pending-bbox",
+            paint: { "line-color": "#c2410c", "line-width": 2, "line-dasharray": [2, 1] },
           },
         ],
       },
@@ -81,6 +115,25 @@ export function MapPreview({ extent, locations, onMapClick, drawMode }: MapPrevi
     }
     map.fitBounds([west, south, east, north], { padding: 40, animate: true });
   }, [extent, ready]);
+
+  // Draw + frame the pending (unconfirmed) bbox.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+    const src = map.getSource("pending-bbox") as maplibregl.GeoJSONSource | undefined;
+    if (!src) return;
+    if (!pendingBbox) {
+      src.setData(EMPTY_FC);
+      return;
+    }
+    src.setData(bboxFeatureCollection(pendingBbox));
+    const [w, s, e, n] = pendingBbox;
+    if (w === e || s === n) {
+      map.flyTo({ center: [(w + e) / 2, (s + n) / 2], zoom: 12 });
+    } else {
+      map.fitBounds([w, s, e, n], { padding: 60, animate: true });
+    }
+  }, [pendingBbox, ready]);
 
   // Auto-frame locations when no extent
   useEffect(() => {

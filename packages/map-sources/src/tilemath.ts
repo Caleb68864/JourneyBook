@@ -1,4 +1,4 @@
-import type { BBox } from "@journeybook/atlas-core";
+import type { BBox, LngLat } from "@journeybook/atlas-core";
 
 /** Web Mercator (EPSG:3857) tile/pixel math, 256 px tiles. */
 export const TILE_SIZE = 256;
@@ -46,6 +46,30 @@ export function zoomForBBox(bbox: BBox, targetWidthPx: number): number {
     if (widthPx >= targetWidthPx) return zoom;
   }
   return 20;
+}
+
+/**
+ * Reference zoom for panel-fraction math. The normalization below divides out
+ * the world pixel size, so any zoom yields the same fraction; this is fixed for
+ * determinism and to match the transform `renderMapPanel` builds on.
+ */
+const PANEL_FRACTION_ZOOM = 20;
+
+/**
+ * Map a WGS84 point to normalized panel coordinates `[u, v]` in `[0,1]²` within
+ * `bbox`, using the same Web-Mercator transform `renderMapPanel` uses. `u`
+ * increases east; `v` increases **down** (top-left origin, image/SVG pixel
+ * space). The bbox SW corner maps to ≈`[0,1]`, the NE corner to ≈`[1,0]`, and
+ * the centre to ≈`[0.5,0.5]`. This is THE shared panel↔grid mapping.
+ */
+export function lngLatToPanelFraction(point: LngLat, bbox: BBox): [number, number] {
+  const [west, south, east, north] = bbox;
+  const topLeft = lngLatToGlobalPixel(west, north, PANEL_FRACTION_ZOOM);
+  const bottomRight = lngLatToGlobalPixel(east, south, PANEL_FRACTION_ZOOM);
+  const px = lngLatToGlobalPixel(point.lng, point.lat, PANEL_FRACTION_ZOOM);
+  const u = (px.x - topLeft.x) / (bottomRight.x - topLeft.x);
+  const v = (px.y - topLeft.y) / (bottomRight.y - topLeft.y);
+  return [u, v];
 }
 
 /** Inclusive XYZ tile index range covering a bbox at a zoom. */

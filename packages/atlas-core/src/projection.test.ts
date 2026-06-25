@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   utmZoneForLongitude,
   createProjector,
+  createUtmProjector,
   geodesicDistanceMeters,
 } from "./projection.js";
 import type { LngLat } from "./index.js";
@@ -46,6 +47,26 @@ describe("createProjector", () => {
     expect(high).toBeGreaterThan(999.5);
     expect(high).toBeLessThan(1000.5);
     expect(Math.abs(low - high)).toBeLessThan(0.2);
+  });
+});
+
+describe("createUtmProjector", () => {
+  it("round-trips lng/lat through the UTM plane within 1e-6 deg", () => {
+    const projector = createUtmProjector(14);
+    const p: LngLat = { lng: -99, lat: 40 };
+
+    const back = projector.inverse(projector.forward(p));
+
+    expect(back.lng).toBeCloseTo(p.lng, 6);
+    expect(back.lat).toBeCloseTo(p.lat, 6);
+  });
+
+  it("produces an easting inside the UTM 100-900 km band", () => {
+    const projector = createUtmProjector(14);
+    const [easting] = projector.forward({ lng: -99, lat: 40 });
+
+    expect(easting).toBeGreaterThan(100_000);
+    expect(easting).toBeLessThan(900_000);
   });
 });
 

@@ -2,6 +2,7 @@ using JourneyBook.Application.GeneratedPdfs;
 using JourneyBook.Application.Rendering;
 using JourneyBook.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace JourneyBook.Infrastructure.Rendering;
@@ -15,6 +16,7 @@ public class RenderService(
     JourneyBookDbContext db,
     IGeneratedPdfService pdfService,
     IRenderWorkerClient workerClient,
+    IConfiguration configuration,
     ILogger<RenderService> logger) : IRenderService
 {
     public async Task<RenderServiceResult> RenderProjectAsync(
@@ -71,6 +73,13 @@ public class RenderService(
             .Select(l => new RenderLocationDto(l.Location.X, l.Location.Y, l.Name))
             .ToList();
 
+        // Route the worker's basemap tile fetches through THIS api's Stage 3 tile
+        // proxy (one tile path: shared disk cache, attribution, and PMTiles support)
+        // when configured. When unset (e.g. a bare `dotnet run` with no worker), the
+        // worker falls back to fetching USGS directly.
+        var tileProxyBaseUrl = configuration["Tiles:ProxyBaseUrl"] is { Length: > 0 } u ? u : null;
+        var tileSourceId = configuration["Tiles:DefaultSource"] is { Length: > 0 } s ? s : "usgs-topo";
+
         var workerReq = new RenderWorkerRequest(
             ScalePresetId: scalePresetId,
             Tier: request.Tier,
@@ -79,7 +88,9 @@ public class RenderService(
             Margins: margins,
             Extent: extent,
             Locations: locations,
-            OutputFileName: outputFileName);
+            OutputFileName: outputFileName,
+            TileBaseUrl: tileProxyBaseUrl,
+            TileSourceId: tileProxyBaseUrl is null ? null : tileSourceId);
 
         // 5. Invoke the worker; mark Completed or Failed.
         try

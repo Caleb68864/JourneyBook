@@ -29,7 +29,12 @@ public record RenderWorkerRequest(
     RenderMarginsDto Margins,
     RenderBBoxDto? Extent,
     IReadOnlyList<RenderLocationDto> Locations,
-    string OutputFileName);
+    string OutputFileName,
+    // Optional tile-proxy routing: when set, the worker fetches basemap tiles via
+    // this api's Stage 3 proxy ({TileBaseUrl}/{TileSourceId}/{z}/{x}/{y}) instead of
+    // hitting USGS directly. Null → worker fetches USGS directly.
+    string? TileBaseUrl = null,
+    string? TileSourceId = null);
 
 /// <summary>Safe margins (inches) forwarded to the render worker.</summary>
 public record RenderMarginsDto(double Top, double Right, double Bottom, double Left, double Gutter = 0);

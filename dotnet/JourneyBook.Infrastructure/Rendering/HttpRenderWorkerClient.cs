@@ -34,13 +34,19 @@ public class HttpRenderWorkerClient(HttpClient http) : IRenderWorkerClient
         string Mode,
         double[]? Bbox,
         WorkerCenter? Center,
+        WorkerLocation[]? Locations,
         string ScalePresetId,
         int Tier,
         double Overlap,
         bool Basemap,
-        string OutputPath);
+        string OutputPath,
+        string? TileBaseUrl,
+        string? TileSourceId);
 
     private sealed record WorkerCenter(double Lng, double Lat);
+
+    /// <summary>A saved location → the worker's <c>RenderLocation</c> ({ center, label }).</summary>
+    private sealed record WorkerLocation(WorkerCenter Center, string? Label);
 
     /// <summary>
     /// Translate the C# <see cref="RenderWorkerRequest"/> into the worker's
@@ -48,19 +54,33 @@ public class HttpRenderWorkerClient(HttpClient http) : IRenderWorkerClient
     /// </summary>
     private static WorkerRenderPayload ToWirePayload(RenderWorkerRequest request)
     {
-        // Extent-driven (bbox grid) takes precedence; otherwise scale-driven
-        // (single location page) from the first saved location.
+        // Every saved location renders as its own fixed-scale L# page. They are
+        // sent alongside the extent so a project with BOTH a bbox and locations
+        // produces the grid pages PLUS one page per location (previously only the
+        // bbox grid rendered and the locations were silently dropped).
+        var locations = request.Locations.Count > 0
+            ? request.Locations
+                .Select(l => new WorkerLocation(new WorkerCenter(l.Longitude, l.Latitude), l.Label))
+                .ToArray()
+            : null;
+
+        // Extent-driven (bbox grid) is the base when an extent exists; the
+        // locations are appended. With no extent, render the locations alone
+        // (mode "location"), passing the first as `center` for legacy validation.
         if (request.Extent is { } e)
         {
             return new WorkerRenderPayload(
                 Mode: "bbox",
                 Bbox: [e.West, e.South, e.East, e.North],
                 Center: null,
+                Locations: locations,
                 ScalePresetId: request.ScalePresetId,
                 Tier: request.Tier,
                 Overlap: request.Overlap,
                 Basemap: true,
-                OutputPath: request.OutputFileName);
+                OutputPath: request.OutputFileName,
+                TileBaseUrl: request.TileBaseUrl,
+                TileSourceId: request.TileSourceId);
         }
 
         if (request.Locations.Count > 0)
@@ -70,11 +90,14 @@ public class HttpRenderWorkerClient(HttpClient http) : IRenderWorkerClient
                 Mode: "location",
                 Bbox: null,
                 Center: new WorkerCenter(first.Longitude, first.Latitude),
+                Locations: locations,
                 ScalePresetId: request.ScalePresetId,
                 Tier: request.Tier,
                 Overlap: request.Overlap,
                 Basemap: true,
-                OutputPath: request.OutputFileName);
+                OutputPath: request.OutputFileName,
+                TileBaseUrl: request.TileBaseUrl,
+                TileSourceId: request.TileSourceId);
         }
 
         throw new InvalidOperationException(

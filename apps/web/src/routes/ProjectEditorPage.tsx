@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { DEFAULT_MAP_TIER, DEFAULT_SCALE_PRESET_ID, SCALE_PRESETS } from "@journeybook/atlas-core";
+import {
+  DEFAULT_MAP_TIER,
+  DEFAULT_SCALE_PRESET_ID,
+  LETTER_PORTRAIT,
+  MAX_ATLAS_PAGES,
+  SCALE_PRESETS,
+  buildPageGrid,
+} from "@journeybook/atlas-core";
 import type { BBox, LngLat, MapTier } from "@journeybook/atlas-core";
 import { api, type Location, type Project } from "../api/client";
 import { MapPreview } from "../components/MapPreview";
@@ -29,6 +36,9 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
 
   // Manual bbox entry
   const [bboxInputs, setBboxInputs] = useState({ west: "", south: "", east: "", north: "" });
+  // A drawn/entered bbox awaiting confirmation. Shown as a box on the map; only
+  // written to the project (PUT /extent) when the user confirms it.
+  const [pendingBbox, setPendingBbox] = useState<BBox | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -62,7 +72,8 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
     setProject((p) => (p ? { ...p, scalePresetId } : p));
   }
 
-  async function applyBboxInputs() {
+  // Typed bbox → preview box (not saved until confirmed).
+  function previewBboxInputs() {
     const w = parseFloat(bboxInputs.west);
     const s = parseFloat(bboxInputs.south);
     const e = parseFloat(bboxInputs.east);
@@ -76,15 +87,34 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
       return;
     }
     setError(null);
-    const bbox: BBox = [w, s, e, n];
+    setPendingBbox([w, s, e, n]);
+  }
+
+  // Commit the previewed box to the project.
+  async function confirmPendingExtent() {
+    if (!pendingBbox) return;
+    setError(null);
     setSaving(true);
     try {
-      const updated = await api.projects.setExtent(projectId, bbox);
+      const updated = await api.projects.setExtent(projectId, pendingBbox);
       setProject(updated);
+      setPendingBbox(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save extent.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  // Discard the previewed box and restore the inputs to the saved extent.
+  function cancelPendingExtent() {
+    setPendingBbox(null);
+    setError(null);
+    if (project?.extent) {
+      const [w, s, e, n] = project.extent;
+      setBboxInputs({ west: String(w), south: String(s), east: String(e), north: String(n) });
+    } else {
+      setBboxInputs({ west: "", south: "", east: "", north: "" });
     }
   }
 
@@ -102,17 +132,10 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
         ];
         setDrawMode("none");
         setBboxFirst(null);
-        setSaving(true);
-        try {
-          const updated = await api.projects.setExtent(projectId, bbox);
-          setProject(updated);
-          const [w, s, e, n] = bbox;
-          setBboxInputs({ west: String(w), south: String(s), east: String(e), north: String(n) });
-        } catch (err) {
-          setError(err instanceof Error ? err.message : "Failed to save extent.");
-        } finally {
-          setSaving(false);
-        }
+        // Show the drawn box for review; don't save until the user confirms.
+        const [w, s, e, n] = bbox;
+        setBboxInputs({ west: String(w), south: String(s), east: String(e), north: String(n) });
+        setPendingBbox(bbox);
       } else if (drawMode === "location") {
         setDrawMode("none");
         const name = `Location ${locations.length + 1}`;
@@ -165,6 +188,25 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
   }
 
   const hasGeometry = project.extent !== null || locations.length > 0;
+
+  // Page count for a bbox at the project's scale — comes straight from the engine
+  // (buildPageGrid), not reimplemented here (ADR 0004). Used to warn/block before a
+  // too-large extent is confirmed or rendered (the render caps at MAX_ATLAS_PAGES).
+  const countPages = (bbox: BBox | null): number | null => {
+    if (!bbox || !scale) return null;
+    try {
+      return buildPageGrid({
+        bbox, scale, page: LETTER_PORTRAIT, overlap: project.overlap ?? 0, tier: DEFAULT_MAP_TIER,
+      }).pages.length;
+    } catch {
+      return null;
+    }
+  };
+  const pendingPageCount = countPages(pendingBbox);
+  const pendingOverLimit = pendingPageCount !== null && pendingPageCount > MAX_ATLAS_PAGES;
+  const savedPageCount = countPages(project.extent);
+  const savedOverLimit = savedPageCount !== null && savedPageCount > MAX_ATLAS_PAGES;
+
   const drawActive = drawMode !== "none";
   const drawCursor = drawMode === "bbox-first"
     ? "Click first corner"
@@ -201,6 +243,7 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
           <div className="h-[calc(100vh-3.5rem)]">
             <MapPreview
               extent={project.extent}
+              pendingBbox={pendingBbox}
               locations={locations}
               onMapClick={drawActive ? handleMapClick : undefined}
               drawMode={drawActive}
@@ -260,20 +303,54 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={() => void applyBboxInputs()}
+                  onClick={previewBboxInputs}
                   disabled={saving}
                   className="flex-1 border border-forest-700 bg-cream-50 px-3 py-1.5 font-mono text-xs text-forest-700 hover:bg-parchment-200 disabled:opacity-50"
                 >
-                  Apply
+                  Preview Box
                 </button>
                 <button
                   type="button"
-                  onClick={() => setDrawMode("bbox-first")}
+                  onClick={() => { setPendingBbox(null); setDrawMode("bbox-first"); }}
                   className="flex-1 border border-bark-400 bg-cream-50 px-3 py-1.5 font-mono text-xs text-bark-700 hover:bg-parchment-200"
                 >
                   Draw on Map
                 </button>
               </div>
+              {pendingBbox && (
+                <div className="flex flex-col gap-2 border border-campfire-600/40 bg-campfire-50/40 p-2">
+                  <p className="font-mono text-[10px] text-bark-600">
+                    Review the highlighted box on the map. It isn't saved until you confirm.
+                  </p>
+                  {pendingPageCount !== null && (
+                    <p className={`font-mono text-[10px] ${pendingOverLimit ? "font-bold text-campfire-700" : "text-bark-600"}`}>
+                      {pendingOverLimit ? "⚠ " : ""}This box ≈ {pendingPageCount} page{pendingPageCount === 1 ? "" : "s"}
+                      {pendingOverLimit
+                        ? ` — over the ${MAX_ATLAS_PAGES}-page limit. Draw a smaller box or pick a coarser scale.`
+                        : "."}
+                    </p>
+                  )}
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void confirmPendingExtent()}
+                      disabled={saving || pendingOverLimit}
+                      title={pendingOverLimit ? `Box exceeds the ${MAX_ATLAS_PAGES}-page limit` : undefined}
+                      className="flex-1 bg-forest-700 px-3 py-1.5 font-mono text-xs text-cream-50 hover:bg-forest-600 disabled:opacity-50"
+                    >
+                      {saving ? "Saving…" : pendingOverLimit ? "Too Large" : "Confirm Box"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={cancelPendingExtent}
+                      disabled={saving}
+                      className="flex-1 border border-bark-400 bg-cream-50 px-3 py-1.5 font-mono text-xs text-bark-700 hover:bg-parchment-200 disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
             </section>
 
             {/* Locations */}
@@ -288,10 +365,15 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
 
             {/* Generate */}
             <section>
-              <GenerateButton projectId={projectId} tier={tier} disabled={!hasGeometry} />
+              <GenerateButton projectId={projectId} tier={tier} disabled={!hasGeometry || savedOverLimit} />
               {!hasGeometry && (
                 <p className="mt-1 font-mono text-[10px] text-bark-500">
                   Set a bounding box or add a location to generate an atlas.
+                </p>
+              )}
+              {savedOverLimit && (
+                <p className="mt-1 font-mono text-[10px] font-bold text-campfire-700">
+                  ⚠ The current bounding box ≈ {savedPageCount} pages, over the {MAX_ATLAS_PAGES}-page limit. Shrink the box before generating.
                 </p>
               )}
             </section>
