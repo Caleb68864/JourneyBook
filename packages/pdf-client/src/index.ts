@@ -48,5 +48,5 @@ export async function renderAtlasPdfToBuffer(options: RenderPdfOptions): Promise
   return renderToBuffer(documentElement(options));
 }
 
-export { AtlasDocument } from "./AtlasDocument.js";
+export { AtlasDocument, type RouteOverlay } from "./AtlasDocument.js";
 export const PDF_CLIENT_VERSION = "0.0.0";
