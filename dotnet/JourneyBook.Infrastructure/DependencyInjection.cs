@@ -1,12 +1,14 @@
 using JourneyBook.Application.GeneratedPdfs;
 using JourneyBook.Application.Locations;
 using JourneyBook.Application.Projects;
+using JourneyBook.Application.Rendering;
 using JourneyBook.Application.TileSources;
 using JourneyBook.Infrastructure.GeneratedPdfs;
 using JourneyBook.Infrastructure.Locations;
 using JourneyBook.Application.Tiles;
 using JourneyBook.Infrastructure.Persistence;
 using JourneyBook.Infrastructure.Projects;
+using JourneyBook.Infrastructure.Rendering;
 using JourneyBook.Infrastructure.TileSources;
 using JourneyBook.Infrastructure.Tiles;
 using Microsoft.EntityFrameworkCore;
@@ -51,6 +53,18 @@ public static class DependencyInjection
         services.AddScoped<ITileFetcher>(sp => sp.GetRequiredService<PmTilesFetcher>());
 
         services.AddScoped<ITileService, TileService>();
+
+        // --- Render worker (Stage 3) ----------------------------------------
+        var workerBaseUrl = configuration["RenderWorker:BaseUrl"] is { Length: > 0 } u ? u : "http://render-worker:8090";
+        var workerTimeout = int.TryParse(configuration["RenderWorker:TimeoutSeconds"], out var wt) ? wt : 120;
+
+        services.AddHttpClient<IRenderWorkerClient, HttpRenderWorkerClient>(http =>
+        {
+            http.BaseAddress = new Uri(workerBaseUrl);
+            http.Timeout = TimeSpan.FromSeconds(workerTimeout);
+        });
+
+        services.AddScoped<IRenderService, RenderService>();
 
         return services;
     }

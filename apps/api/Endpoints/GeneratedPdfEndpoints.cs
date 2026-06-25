@@ -1,4 +1,5 @@
 using JourneyBook.Application.GeneratedPdfs;
+using Microsoft.Extensions.Configuration;
 
 namespace JourneyBook.Api.Endpoints;
 
@@ -29,6 +30,28 @@ public static class GeneratedPdfEndpoints
 
         generatedPdfs.MapPost("/prune", async (IGeneratedPdfService service) =>
             Results.Ok(new PruneResult(await service.PruneExpiredAsync())));
+
+        generatedPdfs.MapGet("/{id:guid}/content", async (
+            Guid id,
+            IGeneratedPdfService service,
+            IConfiguration configuration) =>
+        {
+            var record = await service.GetAsync(id);
+            if (record is null || record.FilePath is null || record.Status != "Completed")
+                return Results.NotFound();
+
+            var generatedDir = configuration["GeneratedPdf:GeneratedDir"] is { Length: > 0 } d ? d : "data/generated";
+            var root = Path.GetFullPath(generatedDir);
+            var resolved = Path.GetFullPath(Path.Combine(generatedDir, record.FilePath));
+
+            if (!resolved.StartsWith(root, StringComparison.Ordinal))
+                return Results.NotFound();
+
+            if (!File.Exists(resolved))
+                return Results.NotFound();
+
+            return Results.File(resolved, "application/pdf");
+        });
 
         return app;
     }
