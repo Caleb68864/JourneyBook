@@ -25,6 +25,8 @@ public class ImportantLocationConfiguration : IEntityTypeConfiguration<Important
         builder.Property(l => l.Notes).HasMaxLength(2000);
         builder.Property(l => l.GeocodedFrom).HasMaxLength(500);
         builder.Property(l => l.GeocodeProvider).HasMaxLength(50);
+        // Optional per-location scale override; matches the ScalePresets PK width.
+        builder.Property(l => l.ScalePresetId).HasMaxLength(32);
 
         builder.HasIndex(l => l.ProjectId);
         builder.HasIndex(l => new { l.ProjectId, l.LocationNumber }).IsUnique();

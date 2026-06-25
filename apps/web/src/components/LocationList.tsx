@@ -1,20 +1,44 @@
 import { useState } from "react";
 import type { Location } from "../api/client";
 
+interface ScalePresetOption {
+  id: string;
+  label: string;
+}
+
 interface LocationListProps {
   locations: Location[];
-  onAdd: (name: string, lng: number, lat: number) => Promise<void>;
+  /** Available scale presets for the per-location zoom picker. */
+  scalePresets: readonly ScalePresetOption[];
+  /** The project's scale id, shown as the "inherit" default. */
+  projectScaleId: string;
+  onAdd: (name: string, lng: number, lat: number, scalePresetId?: string | null) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
+  /** Override (or clear) a saved location's scale. null → inherit project scale. */
+  onSetScale: (loc: Location, scalePresetId: string | null) => Promise<void>;
   /** If true, user can click map to drop pin — communicated to parent */
   onStartDrop?: () => void;
 }
 
-export function LocationList({ locations, onAdd, onDelete, onStartDrop }: LocationListProps) {
+export function LocationList({
+  locations,
+  scalePresets,
+  projectScaleId,
+  onAdd,
+  onDelete,
+  onSetScale,
+  onStartDrop,
+}: LocationListProps) {
   const [name, setName] = useState("");
   const [lng, setLng] = useState("");
   const [lat, setLat] = useState("");
+  // "" = inherit the project scale.
+  const [scaleId, setScaleId] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const projectScaleLabel =
+    scalePresets.find((s) => s.id === projectScaleId)?.label ?? projectScaleId;
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
@@ -27,10 +51,11 @@ export function LocationList({ locations, onAdd, onDelete, onStartDrop }: Locati
     setError(null);
     setSaving(true);
     try {
-      await onAdd(name.trim(), lngNum, latNum);
+      await onAdd(name.trim(), lngNum, latNum, scaleId || null);
       setName("");
       setLng("");
       setLat("");
+      setScaleId("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save location.");
     } finally {
@@ -67,6 +92,23 @@ export function LocationList({ locations, onAdd, onDelete, onStartDrop }: Locati
                 <p className="font-mono text-[10px] text-bark-500">
                   {loc.lng.toFixed(5)}, {loc.lat.toFixed(5)}
                 </p>
+                {/* Per-location zoom: own scale overrides the project scale. */}
+                <label className="mt-1 flex items-center gap-1 font-mono text-[10px] text-bark-600">
+                  <span className="uppercase tracking-wide">Zoom</span>
+                  <select
+                    value={loc.scalePresetId ?? ""}
+                    onChange={(e) => void onSetScale(loc, e.target.value || null)}
+                    className="max-w-[10rem] truncate border border-bark-300 bg-cream-50 px-1 py-0.5 font-mono text-[10px] text-charcoal-900 focus:outline-none focus:ring-1 focus:ring-forest-700"
+                    aria-label={`Scale for ${loc.name}`}
+                  >
+                    <option value="">Project default ({projectScaleLabel})</option>
+                    {scalePresets.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               </div>
               <button
                 type="button"
@@ -105,6 +147,21 @@ export function LocationList({ locations, onAdd, onDelete, onStartDrop }: Locati
             className="w-1/2 border border-bark-400 bg-cream-50 px-3 py-1.5 font-mono text-sm text-charcoal-900 placeholder:text-bark-400 focus:outline-none focus:ring-1 focus:ring-forest-700"
           />
         </div>
+        <label className="flex flex-col gap-1 font-mono text-[11px] text-bark-600">
+          <span className="uppercase tracking-widest">Zoom / scale for this location</span>
+          <select
+            value={scaleId}
+            onChange={(e) => setScaleId(e.target.value)}
+            className="border border-bark-400 bg-cream-50 px-3 py-1.5 font-mono text-sm text-charcoal-900 focus:outline-none focus:ring-1 focus:ring-forest-700"
+          >
+            <option value="">Project default ({projectScaleLabel})</option>
+            {scalePresets.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+        </label>
         {error && <p className="font-mono text-[11px] text-campfire-600">{error}</p>}
         <button
           type="submit"

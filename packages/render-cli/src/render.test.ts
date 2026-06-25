@@ -101,6 +101,49 @@ describe("renderAtlas", () => {
     }
   });
 
+  it("renders a location at its own (finer) scale, tagged on the page", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jb-render-locscale-"));
+    try {
+      const coarse = await renderAtlas({
+        mode: "location",
+        locations: [{ center: { lng: -96.7, lat: 40.8 } }],
+        scalePresetId: "1-100000", // 1:100,000 project default
+        tier: 2,
+        outputPath: join(dir, "coarse.pdf"),
+      });
+      const zoomed = await renderAtlas({
+        mode: "location",
+        locations: [{ center: { lng: -96.7, lat: 40.8 }, scalePresetId: "usgs-7-5-min" }], // 1:24,000 override
+        scalePresetId: "1-100000",
+        tier: 2,
+        outputPath: join(dir, "zoomed.pdf"),
+      });
+      expect(coarse.pageCount).toBe(1);
+      expect(zoomed.pageCount).toBe(1);
+      // A finer scale covers less ground → a smaller bbox span.
+      const span = (b: readonly number[]) => (b[2]! - b[0]!) * (b[3]! - b[1]!);
+      expect(span(zoomed.contract.pages[0]!.bbox)).toBeLessThan(span(coarse.contract.pages[0]!.bbox));
+      // The page carries its own (overriding) scale for a truthful scale bar.
+      expect(zoomed.contract.pages[0]!.scale?.id).toBe("usgs-7-5-min");
+      expect(coarse.contract.pages[0]!.scale?.id).toBe("1-100000");
+      expect(readFileSync(join(dir, "zoomed.pdf")).subarray(0, 4).toString("latin1")).toBe("%PDF");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("throws on an unknown per-location scale preset", async () => {
+    await expect(
+      renderAtlas({
+        mode: "location",
+        locations: [{ center: { lng: -96.7, lat: 40.8 }, scalePresetId: "nope" }],
+        scalePresetId: "usgs-7-5-min",
+        tier: 1,
+        outputPath: "ignored.pdf",
+      }),
+    ).rejects.toThrow(/Unknown scalePresetId "nope"/);
+  });
+
   it("rejects a non-finite location coordinate", async () => {
     await expect(
       renderAtlas({

@@ -79,6 +79,40 @@ public class LocationsApiTests(PostgisApiFactory factory) : IClassFixture<Postgi
     }
 
     [Fact]
+    public async Task Create_with_per_location_scale_preset_round_trips()
+    {
+        var projectId = await CreateProjectAsync();
+
+        var post = await _client.PostAsJsonAsync($"/api/projects/{projectId}/locations",
+            new CreateLocationRequest("Country House", -98.0, 41.0, ScalePresetId: "usgs-7-5-min"));
+        Assert.Equal(HttpStatusCode.Created, post.StatusCode);
+        var created = await post.Content.ReadFromJsonAsync<LocationResponse>();
+        Assert.NotNull(created);
+        Assert.Equal("usgs-7-5-min", created!.ScalePresetId);
+
+        // Persists and round-trips on fetch.
+        var fetched = await _client.GetFromJsonAsync<LocationResponse>($"/api/locations/{created.Id}");
+        Assert.Equal("usgs-7-5-min", fetched!.ScalePresetId);
+
+        // Clearing it on update falls back to the project scale (null).
+        var put = await _client.PutAsJsonAsync($"/api/locations/{created.Id}",
+            new UpdateLocationRequest("Country House", -98.0, 41.0, "Other", null, "Unknown", ScalePresetId: null));
+        Assert.Equal(HttpStatusCode.OK, put.StatusCode);
+        var updated = await put.Content.ReadFromJsonAsync<LocationResponse>();
+        Assert.Null(updated!.ScalePresetId);
+    }
+
+    [Fact]
+    public async Task Create_with_unknown_scale_preset_returns_400()
+    {
+        var projectId = await CreateProjectAsync();
+
+        var post = await _client.PostAsJsonAsync($"/api/projects/{projectId}/locations",
+            new CreateLocationRequest("Bad Scale", -98.0, 41.0, ScalePresetId: "not-a-scale"));
+        Assert.Equal(HttpStatusCode.BadRequest, post.StatusCode);
+    }
+
+    [Fact]
     public async Task List_returns_locations_ordered_by_L_series()
     {
         var projectId = await CreateProjectAsync();

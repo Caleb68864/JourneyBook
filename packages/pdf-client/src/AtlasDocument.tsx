@@ -223,7 +223,7 @@ function AtlasPageView({
 
         <View style={styles.footer}>
           <View>
-            {showTier2 ? <ScaleBar scale={contract.scale} maxInches={maxBarInches} /> : null}
+            {showTier2 ? <ScaleBar scale={page.scale ?? contract.scale} maxInches={maxBarInches} /> : null}
             <Text style={styles.attribution}>
               {"© OpenStreetMap contributors · USGS — Journey Book"}
             </Text>

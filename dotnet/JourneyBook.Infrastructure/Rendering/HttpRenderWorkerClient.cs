@@ -45,8 +45,8 @@ public class HttpRenderWorkerClient(HttpClient http) : IRenderWorkerClient
 
     private sealed record WorkerCenter(double Lng, double Lat);
 
-    /// <summary>A saved location → the worker's <c>RenderLocation</c> ({ center, label }).</summary>
-    private sealed record WorkerLocation(WorkerCenter Center, string? Label);
+    /// <summary>A saved location → the worker's <c>RenderLocation</c> ({ center, label, scalePresetId }).</summary>
+    private sealed record WorkerLocation(WorkerCenter Center, string? Label, string? ScalePresetId);
 
     /// <summary>
     /// Translate the C# <see cref="RenderWorkerRequest"/> into the worker's
@@ -60,7 +60,7 @@ public class HttpRenderWorkerClient(HttpClient http) : IRenderWorkerClient
         // bbox grid rendered and the locations were silently dropped).
         var locations = request.Locations.Count > 0
             ? request.Locations
-                .Select(l => new WorkerLocation(new WorkerCenter(l.Longitude, l.Latitude), l.Label))
+                .Select(l => new WorkerLocation(new WorkerCenter(l.Longitude, l.Latitude), l.Label, l.ScalePresetId))
                 .ToArray()
             : null;
 

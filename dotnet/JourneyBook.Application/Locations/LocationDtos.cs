@@ -11,7 +11,8 @@ public record CreateLocationRequest(
     double Lat,
     string Category = "Other",
     string? Notes = null,
-    string SourceConfidence = "Unknown");
+    string SourceConfidence = "Unknown",
+    string? ScalePresetId = null);
 
 /// <summary>Replace the mutable fields of an existing important location.</summary>
 public record UpdateLocationRequest(
@@ -20,7 +21,8 @@ public record UpdateLocationRequest(
     double Lat,
     string Category,
     string? Notes,
-    string SourceConfidence);
+    string SourceConfidence,
+    string? ScalePresetId = null);
 
 /// <summary>
 /// An important location with its stable L-series label.
@@ -40,4 +42,5 @@ public record LocationResponse(
     string Label,
     string ReferenceLabel,
     string? GeocodedFrom,
-    string? GeocodeProvider);
+    string? GeocodeProvider,
+    string? ScalePresetId);

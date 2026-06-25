@@ -150,14 +150,34 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
     [drawMode, bboxFirst, projectId, locations.length],
   );
 
-  async function handleAddLocation(name: string, lng: number, lat: number) {
-    const loc = await api.locations.create(projectId, name, lng, lat);
+  async function handleAddLocation(
+    name: string,
+    lng: number,
+    lat: number,
+    scalePresetId?: string | null,
+  ) {
+    const loc = await api.locations.create(projectId, name, lng, lat, undefined, scalePresetId);
     setLocations((l) => [...l, loc]);
+  }
+
+  async function handleSetLocationScale(loc: Location, scalePresetId: string | null) {
+    try {
+      const updated = await api.locations.update(loc.id, {
+        name: loc.name,
+        lng: loc.lng,
+        lat: loc.lat,
+        notes: loc.notes,
+        scalePresetId,
+      });
+      setLocations((l) => l.map((x) => (x.id === loc.id ? updated : x)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update location scale.");
+    }
   }
 
   async function handleDeleteLocation(id: string) {
     try {
-      await api.locations.delete(projectId, id);
+      await api.locations.delete(id);
       setLocations((l) => l.filter((x) => x.id !== id));
     } catch (err) {
       // Don't drop it from the UI if the server delete failed.
@@ -357,8 +377,11 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
             <section className="border-b border-bark-300 pb-5">
               <LocationList
                 locations={locations}
+                scalePresets={SCALE_PRESETS}
+                projectScaleId={project?.scalePresetId ?? DEFAULT_SCALE_PRESET_ID}
                 onAdd={handleAddLocation}
                 onDelete={handleDeleteLocation}
+                onSetScale={handleSetLocationScale}
                 onStartDrop={() => setDrawMode("location")}
               />
             </section>

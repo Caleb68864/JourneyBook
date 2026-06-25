@@ -37,6 +37,8 @@ export interface Location {
   label: string;
   /** e.g. "see page L1" (C# `referenceLabel`). */
   referenceLabel: string;
+  /** Optional per-location scale override; null → inherit the project scale. */
+  scalePresetId: string | null;
 }
 
 export interface RenderResult {
@@ -145,15 +147,37 @@ export const api = {
   locations: {
     list: (projectId: string) =>
       request<Location[]>("GET", `/projects/${projectId}/locations`),
-    create: (projectId: string, name: string, lng: number, lat: number, notes?: string) =>
+    create: (
+      projectId: string,
+      name: string,
+      lng: number,
+      lat: number,
+      notes?: string,
+      scalePresetId?: string | null,
+    ) =>
       request<Location>("POST", `/projects/${projectId}/locations`, {
         name,
         lng,
         lat,
         notes: notes ?? null,
+        scalePresetId: scalePresetId ?? null,
       }),
-    delete: (projectId: string, locationId: string) =>
-      request<void>("DELETE", `/projects/${projectId}/locations/${locationId}`),
+    // Update/delete are on the flat /api/locations/{id} group (not project-scoped).
+    update: (
+      locationId: string,
+      body: { name: string; lng: number; lat: number; notes?: string | null; category?: string; sourceConfidence?: string; scalePresetId?: string | null },
+    ) =>
+      request<Location>("PUT", `/locations/${locationId}`, {
+        name: body.name,
+        lng: body.lng,
+        lat: body.lat,
+        category: body.category ?? "Other",
+        notes: body.notes ?? null,
+        sourceConfidence: body.sourceConfidence ?? "Unknown",
+        scalePresetId: body.scalePresetId ?? null,
+      }),
+    delete: (locationId: string) =>
+      request<void>("DELETE", `/locations/${locationId}`),
   },
 
   render: {

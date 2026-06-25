@@ -70,7 +70,7 @@ public class RenderService(
         }
 
         var locations = project.Locations
-            .Select(l => new RenderLocationDto(l.Location.X, l.Location.Y, l.Name))
+            .Select(l => new RenderLocationDto(l.Location.X, l.Location.Y, l.Name, l.ScalePresetId))
             .ToList();
 
         // Route the worker's basemap tile fetches through THIS api's Stage 3 tile

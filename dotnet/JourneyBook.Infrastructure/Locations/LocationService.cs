@@ -19,6 +19,7 @@ public class LocationService(JourneyBookDbContext db) : ILocationService
 
         var category = ParseCategory(request.Category);
         var sourceConfidence = ParseSourceConfidence(request.SourceConfidence);
+        await ValidateScalePresetAsync(request.ScalePresetId, ct);
 
         var maxNumber = await db.ImportantLocations
             .Where(l => l.ProjectId == projectId)
@@ -33,6 +34,7 @@ public class LocationService(JourneyBookDbContext db) : ILocationService
             Category = category,
             Notes = request.Notes,
             SourceConfidence = sourceConfidence,
+            ScalePresetId = request.ScalePresetId,
             LocationNumber = maxNumber + 1,
         };
 
@@ -68,12 +70,14 @@ public class LocationService(JourneyBookDbContext db) : ILocationService
 
         var category = ParseCategory(request.Category);
         var sourceConfidence = ParseSourceConfidence(request.SourceConfidence);
+        await ValidateScalePresetAsync(request.ScalePresetId, ct);
 
         location.Name = request.Name;
         location.Location = ToPoint(request.Lng, request.Lat);
         location.Category = category;
         location.Notes = request.Notes;
         location.SourceConfidence = sourceConfidence;
+        location.ScalePresetId = request.ScalePresetId;
 
         await db.SaveChangesAsync(ct);
         return ToResponse(location);
@@ -104,6 +108,17 @@ public class LocationService(JourneyBookDbContext db) : ILocationService
             ? s
             : throw new LocationValidationException($"Invalid source confidence '{value}'.");
 
+    /// <summary>
+    /// A per-location scale override must reference a seeded scale preset (or be
+    /// null = inherit the project scale). Rejects unknown ids → 400, like Category.
+    /// </summary>
+    private async Task ValidateScalePresetAsync(string? scalePresetId, CancellationToken ct)
+    {
+        if (scalePresetId is null) return;
+        if (!await db.ScalePresets.AnyAsync(s => s.Id == scalePresetId, ct))
+            throw new LocationValidationException($"Invalid scale preset '{scalePresetId}'.");
+    }
+
     private static LocationResponse ToResponse(ImportantLocation l) =>
         new(
             l.Id,
@@ -118,5 +133,6 @@ public class LocationService(JourneyBookDbContext db) : ILocationService
             $"L{l.LocationNumber}",
             $"see page L{l.LocationNumber}",
             l.GeocodedFrom,
-            l.GeocodeProvider);
+            l.GeocodeProvider,
+            l.ScalePresetId);
 }

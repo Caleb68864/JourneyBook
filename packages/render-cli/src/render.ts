@@ -20,6 +20,12 @@ export interface RenderLocation {
   center: LngLat;
   /** Optional human label, carried for logging/future furniture. */
   label?: string;
+  /**
+   * Optional per-location scale preset id, overriding the project scale so this
+   * location's page can zoom in (e.g. a small town at 1:24,000). Falls back to
+   * the project `scalePresetId` when omitted.
+   */
+  scalePresetId?: string;
 }
 
 export interface RenderAtlasInput {
@@ -48,6 +54,8 @@ export interface RenderAtlasResult {
   outputPath: string;
   pageCount: number;
   attribution: string;
+  /** The assembled contract (pages, per-page scale, margins) that was rendered. */
+  contract: AtlasContract;
   /** USNG grid overlays built for tier-3+ pages (empty for tier 1–2). */
   grids: Record<string, UsngGridOverlay>;
 }
@@ -153,7 +161,19 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
     pages.push(...grid.pages);
   }
   locationList.forEach((loc, i) => {
-    pages.push(buildLocationPage(loc.center, scale, LETTER_PORTRAIT, `L${i + 1}`, input.tier));
+    // Each location may carry its own scale (zoom in for a small town/house);
+    // fall back to the project scale. buildLocationPage stamps page.scale, so the
+    // page renders a truthful scale bar even in a mixed-scale atlas.
+    const locScale =
+      loc.scalePresetId !== undefined
+        ? SCALE_PRESETS.find((p) => p.id === loc.scalePresetId)
+        : scale;
+    if (!locScale) {
+      throw new Error(
+        `Unknown scalePresetId "${loc.scalePresetId}" for location ${loc.label ?? `L${i + 1}`}. Available: ${SCALE_PRESETS.map((p) => p.id).join(", ")}`,
+      );
+    }
+    pages.push(buildLocationPage(loc.center, locScale, LETTER_PORTRAIT, `L${i + 1}`, input.tier));
   });
 
   if (pages.length === 0) {
@@ -222,6 +242,7 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
     attribution: input.basemap
       ? "Map data: USGS National Map (public domain)"
       : "JourneyBook atlas",
+    contract,
     grids: grids ?? {},
   };
 }

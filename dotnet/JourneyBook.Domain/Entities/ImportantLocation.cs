@@ -23,6 +23,12 @@ public class ImportantLocation : EntityBase
 
     public SourceConfidence SourceConfidence { get; set; } = SourceConfidence.Unknown;
 
+    /// <summary>
+    /// Optional per-location scale preset id (e.g. "usgs-7-5-min"), overriding the
+    /// project scale so this location's page can zoom in. Null → use the project scale.
+    /// </summary>
+    public string? ScalePresetId { get; set; }
+
     // --- Geocode-search planning (UI deferred to Stage 9) -----------------
     /// <summary>Original query/text the position was geocoded from, if any.</summary>
     public string? GeocodedFrom { get; set; }

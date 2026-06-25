@@ -61,7 +61,9 @@ export function validateAtlas(
       orientation: page.orientation,
       margins: contract.margins,
     };
-    const expected = groundFootprintMeters(contract.scale, spec);
+    // Validate each page against its own scale when set (mixed-scale atlases),
+    // falling back to the contract scale.
+    const expected = groundFootprintMeters(page.scale ?? contract.scale, spec);
     const actual = pageGroundSize(page);
     const relW = Math.abs(actual.width - expected.widthMeters) / expected.widthMeters;
     const relH = Math.abs(actual.height - expected.heightMeters) / expected.heightMeters;

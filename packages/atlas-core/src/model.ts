@@ -100,6 +100,13 @@ export interface AtlasPage {
   orientation: PageOrientation;
   /** map tier (learning-curve level) driving page furniture */
   tier: MapTier;
+  /**
+   * Optional per-page scale, overriding the contract scale for this page. Lets a
+   * single atlas mix scales — e.g. a small-town/country-house location page zoomed
+   * in at 1:24,000 while a regional page stays coarse. Falls back to
+   * {@link AtlasContract.scale} when undefined (the common case; grid pages omit it).
+   */
+  scale?: ScalePreset;
   /** neighbor page ids by cardinal direction, when present */
   neighbors: Partial<Record<"north" | "south" | "east" | "west", string>>;
 }
