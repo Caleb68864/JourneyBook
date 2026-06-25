@@ -14,6 +14,7 @@ import { ScalePicker } from "../components/ScalePicker";
 import { TierPicker } from "../components/TierPicker";
 import { LocationList } from "../components/LocationList";
 import { GenerateButton } from "../components/GenerateButton";
+import { LandmarkImportControl } from "../components/LandmarkImportControl";
 
 interface ProjectEditorPageProps {
   projectId: string;
@@ -37,6 +38,10 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
   // corridor (R#) pages alongside the location (L#) pages. Carried in the render
   // request body, like tier.
   const [route, setRoute] = useState(false);
+  // Include-landmarks toggle (default on). Generate sends includeLandmarks so the
+  // worker draws landmark furniture from the project's imported landmarks; unchecking
+  // it generates a clean map without them. Carried in the render body, like route.
+  const [includeLandmarks, setIncludeLandmarks] = useState(true);
 
   // Manual bbox entry
   const [bboxInputs, setBboxInputs] = useState({ west: "", south: "", east: "", north: "" });
@@ -461,6 +466,14 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
               />
             </section>
 
+            {/* Landmarks */}
+            <section className="border-b border-bark-300 pb-5">
+              <LandmarkImportControl
+                projectId={projectId}
+                hasExtent={project.extent !== null}
+              />
+            </section>
+
             {/* Generate */}
             <section>
               <label className="mb-3 flex items-start gap-2">
@@ -479,7 +492,23 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
                   </span>
                 </span>
               </label>
-              <GenerateButton projectId={projectId} tier={tier} route={route} disabled={!hasGeometry || savedOverLimit} />
+              <label className="mb-3 flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  checked={includeLandmarks}
+                  onChange={(e) => setIncludeLandmarks(e.target.checked)}
+                  className="mt-0.5 accent-forest-700"
+                />
+                <span className="flex flex-col gap-0.5">
+                  <span className="font-mono text-[11px] uppercase tracking-widest text-bark-600">
+                    Include Landmarks
+                  </span>
+                  <span className="font-mono text-[10px] text-bark-500">
+                    Draws your imported landmarks as map furniture, distinct from the L# location markers.
+                  </span>
+                </span>
+              </label>
+              <GenerateButton projectId={projectId} tier={tier} route={route} includeLandmarks={includeLandmarks} disabled={!hasGeometry || savedOverLimit} />
               {!hasGeometry && (
                 <p className="mt-1 font-mono text-[10px] text-bark-500">
                   Set a bounding box or add a location to generate an atlas.

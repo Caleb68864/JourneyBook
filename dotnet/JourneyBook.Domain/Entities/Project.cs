@@ -19,5 +19,6 @@ public class Project : EntityBase
 
     // One-to-many
     public ICollection<ImportantLocation> Locations { get; set; } = [];
+    public ICollection<Landmark> Landmarks { get; set; } = [];
     public ICollection<GeneratedPdf> GeneratedPdfs { get; set; } = [];
 }

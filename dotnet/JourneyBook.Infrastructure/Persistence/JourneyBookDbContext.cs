@@ -17,6 +17,7 @@ public class JourneyBookDbContext(DbContextOptions<JourneyBookDbContext> options
     public DbSet<AtlasPageGrid> AtlasPageGrids => Set<AtlasPageGrid>();
     public DbSet<AtlasPage> AtlasPages => Set<AtlasPage>();
     public DbSet<ImportantLocation> ImportantLocations => Set<ImportantLocation>();
+    public DbSet<Landmark> Landmarks => Set<Landmark>();
     public DbSet<TileSource> TileSources => Set<TileSource>();
     public DbSet<GeneratedPdf> GeneratedPdfs => Set<GeneratedPdf>();
     public DbSet<ScalePreset> ScalePresets => Set<ScalePreset>();

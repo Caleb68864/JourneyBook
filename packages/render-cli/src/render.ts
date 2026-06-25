@@ -6,11 +6,14 @@ import {
   buildPageGrid,
   buildLocationPage,
   buildRouteAtlas,
+  selectPageLandmarks,
   type AtlasContract,
   type AtlasPage,
   type BBox,
+  type LandmarkMarker,
   type LngLat,
   type MapTier,
+  type PlacedLandmark,
   type UsngGridOverlay,
 } from "@journeybook/atlas-core";
 import { renderAtlasPdfToFile, type RouteOverlay } from "@journeybook/pdf-client";
@@ -54,6 +57,12 @@ export interface RenderAtlasInput {
    * `locations` centres and appended after the L# pages. Requires ≥2 locations.
    */
   route?: boolean;
+  /**
+   * Optional landmark markers (e.g. from Overpass) placed as per-page furniture.
+   * Each page runs {@link selectPageLandmarks} to pick/declutter the markers that
+   * fall inside its bbox; the result is threaded into the PDF like grids/routes.
+   */
+  landmarks?: LandmarkMarker[];
 }
 
 export interface RenderAtlasResult {
@@ -64,6 +73,8 @@ export interface RenderAtlasResult {
   contract: AtlasContract;
   /** USNG grid overlays built for tier-3+ pages (empty for tier 1–2). */
   grids: Record<string, UsngGridOverlay>;
+  /** Per-page selected landmark furniture, keyed by page id (empty when no landmarks). */
+  landmarks: Record<string, PlacedLandmark[]>;
   /** Route polyline (global LngLat) when route mode was used, undefined otherwise. */
   polyline?: LngLat[];
 }
@@ -325,7 +336,19 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
     if (Object.keys(routesMap).length > 0) routes = routesMap;
   }
 
-  await renderAtlasPdfToFile({ contract, outputPath: input.outputPath, panels, grids, routes });
+  // Select per-page landmark furniture: for each page, pick/declutter the markers
+  // that fall inside its bbox (selectPageLandmarks). Runs after the MAX_ATLAS_PAGES
+  // guard above, so landmark selection never bypasses the page-count limit. The
+  // map mirrors grids/routes and is threaded into the PDF the same way.
+  const landmarks: Record<string, PlacedLandmark[]> = {};
+  if (input.landmarks && input.landmarks.length > 0) {
+    for (const page of contract.pages) {
+      const placed = selectPageLandmarks(input.landmarks, page);
+      if (placed.length > 0) landmarks[page.id] = placed;
+    }
+  }
+
+  await renderAtlasPdfToFile({ contract, outputPath: input.outputPath, panels, grids, routes, landmarks });
 
   return {
     outputPath: input.outputPath,
@@ -335,6 +358,7 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
       : "JourneyBook atlas",
     contract,
     grids: grids ?? {},
+    landmarks,
     polyline: routePolyline,
   };
 }

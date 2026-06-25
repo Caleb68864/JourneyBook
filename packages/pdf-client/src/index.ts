@@ -10,7 +10,7 @@
 
 import { renderToBuffer, renderToFile } from "@react-pdf/renderer";
 import { createElement } from "react";
-import type { AtlasContract, UsngGridOverlay } from "@journeybook/atlas-core";
+import type { AtlasContract, PlacedLandmark, UsngGridOverlay } from "@journeybook/atlas-core";
 import { AtlasDocument, type RouteOverlay } from "./AtlasDocument.js";
 
 export interface RenderPdfOptions {
@@ -23,6 +23,8 @@ export interface RenderPdfOptions {
   grids?: Record<string, UsngGridOverlay>;
   /** map pageId -> route overlay (corridor R# pages only); additive, mirrors panels/grids. */
   routes?: Record<string, RouteOverlay>;
+  /** map pageId -> selected landmarks; additive furniture, mirrors panels/grids/routes. */
+  landmarks?: Record<string, PlacedLandmark[]>;
 }
 
 function documentElement(options: RenderPdfOptions) {
@@ -32,6 +34,7 @@ function documentElement(options: RenderPdfOptions) {
     panels: options.panels,
     grids: options.grids,
     routes: options.routes,
+    landmarks: options.landmarks,
   });
 }
 

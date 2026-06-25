@@ -29,11 +29,12 @@ public class RenderService(
             return new RenderServiceResult(RenderOutcome.InvalidParameters,
                 Error: $"Tier must be 1–4, got {request.Tier}.");
 
-        // 2. Resolve project with PageGrid + Extent + Locations.
+        // 2. Resolve project with PageGrid + Extent + Locations + Landmarks.
         var project = await db.Projects
             .Include(p => p.PageGrid)
             .Include(p => p.Extent)
             .Include(p => p.Locations)
+            .Include(p => p.Landmarks)
             .FirstOrDefaultAsync(p => p.Id == projectId, ct);
 
         if (project is null)
@@ -73,6 +74,17 @@ public class RenderService(
             .Select(l => new RenderLocationDto(l.Location.X, l.Location.Y, l.Name, l.ScalePresetId))
             .ToList();
 
+        // Persisted landmarks forwarded as additive vector furniture, carried like
+        // the Route flag. The caller's IncludeLandmarks toggle gates the forward, so
+        // a user can generate a clean map without their imported landmarks; a project
+        // with none renders exactly as before regardless of the flag.
+        var landmarks = request.IncludeLandmarks
+            ? project.Landmarks
+                .Select(lm => new RenderLandmarkDto(
+                    lm.Location.X, lm.Location.Y, lm.Name, lm.Category.ToString(), lm.Score))
+                .ToList()
+            : new List<RenderLandmarkDto>();
+
         // Route the worker's basemap tile fetches through THIS api's Stage 3 tile
         // proxy (one tile path: shared disk cache, attribution, and PMTiles support)
         // when configured. When unset (e.g. a bare `dotnet run` with no worker), the
@@ -91,7 +103,9 @@ public class RenderService(
             OutputFileName: outputFileName,
             TileBaseUrl: tileProxyBaseUrl,
             TileSourceId: tileProxyBaseUrl is null ? null : tileSourceId,
-            Route: request.Route);
+            Route: request.Route,
+            Landmarks: landmarks,
+            IncludeLandmarks: landmarks.Count > 0);
 
         // 5. Invoke the worker; mark Completed or Failed.
         try

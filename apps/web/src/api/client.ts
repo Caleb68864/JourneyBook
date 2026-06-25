@@ -46,6 +46,24 @@ export interface ImportLocationsResult {
   locations: Location[];
 }
 
+export interface Landmark {
+  id: string;
+  projectId: string;
+  /** Display name from the OSM source. */
+  name: string;
+  lng: number;
+  lat: number;
+  /** Curated `LandmarkCategory` (e.g. "Peak", "Tower"). */
+  category: string;
+  /** Import-time ranking score used for per-page selection. */
+  score: number;
+}
+
+export interface ImportLandmarksResult {
+  imported: number;
+  landmarks: Landmark[];
+}
+
 export interface RenderResult {
   generatedPdfId: string;
   status: string;
@@ -187,12 +205,22 @@ export const api = {
       request<ImportLocationsResult>("POST", `/projects/${projectId}/locations/import`, { csv }),
   },
 
+  landmarks: {
+    list: (projectId: string) =>
+      request<Landmark[]>("GET", `/projects/${projectId}/landmarks`),
+    // Fetches OSM landmarks for the project extent via Overpass, ranks + persists
+    // them, and returns the imported count (0 on Overpass failure/timeout).
+    import: (projectId: string) =>
+      request<ImportLandmarksResult>("POST", `/projects/${projectId}/landmarks/import`),
+  },
+
   render: {
     // The render endpoint reads scalePresetId from the persisted project grid;
     // tier is chosen at render time and carried in the request body. When
     // `route` is set, the worker also tiles corridor (R#) pages between stops.
-    start: (projectId: string, tier: MapTier, route?: boolean) =>
-      request<RenderResult>("POST", `/projects/${projectId}/render`, { tier, route }),
+    // `includeLandmarks` is forwarded like `route` to draw landmark furniture.
+    start: (projectId: string, tier: MapTier, route?: boolean, includeLandmarks?: boolean) =>
+      request<RenderResult>("POST", `/projects/${projectId}/render`, { tier, route, includeLandmarks }),
     getContent: (pdfId: string) => `${BASE}/generated-pdfs/${pdfId}/content`,
   },
 };

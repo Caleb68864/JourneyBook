@@ -42,12 +42,18 @@ public class HttpRenderWorkerClient(HttpClient http) : IRenderWorkerClient
         string OutputPath,
         string? TileBaseUrl,
         string? TileSourceId,
-        bool Route);
+        bool Route,
+        // Optional additive landmark furniture (camelCase `landmarks`, omitted when
+        // null). Forwarded only when the include-landmarks flag is set, like Route.
+        WorkerLandmark[]? Landmarks);
 
     private sealed record WorkerCenter(double Lng, double Lat);
 
     /// <summary>A saved location → the worker's <c>RenderLocation</c> ({ center, label, scalePresetId }).</summary>
     private sealed record WorkerLocation(WorkerCenter Center, string? Label, string? ScalePresetId);
+
+    /// <summary>A persisted landmark → the worker's landmark furniture ({ lng, lat, name, category, score }).</summary>
+    private sealed record WorkerLandmark(double Lng, double Lat, string Name, string Category, double Score);
 
     /// <summary>
     /// Translate the C# <see cref="RenderWorkerRequest"/> into the worker's
@@ -62,6 +68,15 @@ public class HttpRenderWorkerClient(HttpClient http) : IRenderWorkerClient
         var locations = request.Locations.Count > 0
             ? request.Locations
                 .Select(l => new WorkerLocation(new WorkerCenter(l.Longitude, l.Latitude), l.Label, l.ScalePresetId))
+                .ToArray()
+            : null;
+
+        // Landmarks are forwarded only when the project opted in (IncludeLandmarks),
+        // mirroring how the Route flag gates the route overlay. Null → the wire
+        // `landmarks` field is omitted entirely (WhenWritingNull).
+        var landmarks = request is { IncludeLandmarks: true, Landmarks.Count: > 0 }
+            ? request.Landmarks
+                .Select(l => new WorkerLandmark(l.Longitude, l.Latitude, l.Name, l.Category, l.Score))
                 .ToArray()
             : null;
 
@@ -82,7 +97,8 @@ public class HttpRenderWorkerClient(HttpClient http) : IRenderWorkerClient
                 OutputPath: request.OutputFileName,
                 TileBaseUrl: request.TileBaseUrl,
                 TileSourceId: request.TileSourceId,
-                Route: request.Route);
+                Route: request.Route,
+                Landmarks: landmarks);
         }
 
         if (request.Locations.Count > 0)
@@ -100,7 +116,8 @@ public class HttpRenderWorkerClient(HttpClient http) : IRenderWorkerClient
                 OutputPath: request.OutputFileName,
                 TileBaseUrl: request.TileBaseUrl,
                 TileSourceId: request.TileSourceId,
-                Route: request.Route);
+                Route: request.Route,
+                Landmarks: landmarks);
         }
 
         throw new InvalidOperationException(

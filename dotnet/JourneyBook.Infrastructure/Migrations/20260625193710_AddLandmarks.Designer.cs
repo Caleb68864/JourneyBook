@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using JourneyBook.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NetTopologySuite.Geometries;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -13,9 +14,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace JourneyBook.Infrastructure.Migrations
 {
     [DbContext(typeof(JourneyBookDbContext))]
-    partial class JourneyBookDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260625193710_AddLandmarks")]
+    partial class AddLandmarks
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

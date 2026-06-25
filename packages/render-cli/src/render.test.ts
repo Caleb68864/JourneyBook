@@ -320,4 +320,48 @@ describe("renderAtlas", () => {
       }),
     ).rejects.toThrow(/^Invalid request:.*200/);
   });
+
+  it("[BEHAVIORAL] renders a bbox atlas with landmark furniture and a valid PDF", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jb-render-landmarks-"));
+    try {
+      const out = join(dir, "landmarks.pdf");
+      // Two markers inside the bbox so at least one page selects landmark furniture.
+      const res = await renderAtlas({
+        mode: "bbox",
+        bbox: [-96.73, 40.79, -96.67, 40.83],
+        scalePresetId: "usgs-7-5-min",
+        tier: 1,
+        landmarks: [
+          { lng: -96.7, lat: 40.81, name: "Capitol", category: "civic", score: 10 },
+          { lng: -96.69, lat: 40.8, name: "Library", category: "civic", score: 8 },
+        ],
+        outputPath: out,
+      });
+      // The result references landmark furniture keyed by page id for the relevant page(s).
+      const placedPages = Object.keys(res.landmarks);
+      expect(placedPages.length).toBeGreaterThan(0);
+      const placed = res.landmarks[placedPages[0]!]!;
+      expect(placed.length).toBeGreaterThan(0);
+      expect(placed.map((p) => p.name)).toContain("Capitol");
+      expect(readFileSync(out).subarray(0, 4).toString("latin1")).toBe("%PDF");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("[BEHAVIORAL] landmark selection does not bypass the MAX_ATLAS_PAGES guard", async () => {
+    // A ~6°×6° extent at usgs-7-5-min (1:24,000) tiles into far more than the
+    // 200-page cap; supplying landmarks must not suppress the page-limit error
+    // (selection runs only after the guard).
+    await expect(
+      renderAtlas({
+        mode: "bbox",
+        bbox: [-100, 38, -94, 44],
+        scalePresetId: "usgs-7-5-min",
+        tier: 1,
+        landmarks: [{ lng: -97, lat: 41, name: "Midpoint", category: "civic", score: 5 }],
+        outputPath: "ignored.pdf",
+      }),
+    ).rejects.toThrow(/^Invalid request:.*200/);
+  });
 });
