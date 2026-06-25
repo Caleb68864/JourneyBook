@@ -8,7 +8,11 @@ public static class TileEndpoints
 {
     public static IEndpointRouteBuilder MapTileEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/api/tiles/{source}/{z:int}/{x:int}/{y:int}", async (
+        // Unconditionally allow anonymous access to the whole tile route group so a
+        // future global authorization policy can never gate it (spec SS-03 [AUTH]).
+        var tilesGroup = app.MapGroup("/api/tiles").AllowAnonymous();
+
+        tilesGroup.MapGet("/{source}/{z:int}/{x:int}/{y:int}", async (
             string source,
             int z,
             int x,
@@ -19,16 +23,24 @@ public static class TileEndpoints
             HttpResponse response,
             CancellationToken ct) =>
         {
-            // Cheap coordinate validation first (no source lookup required).
-            if (z < 0 || x < 0 || y < 0 || z > 30)
+            // Cheap coordinate validation first (no source lookup required). The
+            // per-source MaxZoom ceiling is enforced by the service (ZoomOutOfRange),
+            // not a hardcoded bound here (spec SS-03).
+            if (z < 0 || x < 0 || y < 0)
             {
                 return Results.BadRequest(new { error = "Invalid tile coordinates." });
             }
 
-            var perAxis = 1 << z; // 2^z tiles per axis
-            if (x >= perAxis || y >= perAxis)
+            // Bound x/y against the tile pyramid. Guard the shift so an out-of-band z
+            // can't overflow; for any z beyond a real source the service returns
+            // ZoomOutOfRange below.
+            if (z <= 30)
             {
-                return Results.BadRequest(new { error = $"Tile x/y out of range for zoom {z}." });
+                var perAxis = 1 << z; // 2^z tiles per axis
+                if (x >= perAxis || y >= perAxis)
+                {
+                    return Results.BadRequest(new { error = $"Tile x/y out of range for zoom {z}." });
+                }
             }
 
             var tile = await tiles.GetTileAsync(source, z, x, y, ct);
