@@ -220,7 +220,7 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
         `Unknown scalePresetId "${loc.scalePresetId}" for location ${loc.label ?? `L${i + 1}`}. Available: ${SCALE_PRESETS.map((p) => p.id).join(", ")}`,
       );
     }
-    pages.push(buildLocationPage(loc.center, locScale, LETTER_PORTRAIT, `L${i + 1}`, input.tier));
+    pages.push(buildLocationPage(loc.center, locScale, LETTER_PORTRAIT, `L${i + 1}`, input.tier, loc.label));
   });
 
   if (pages.length === 0) {

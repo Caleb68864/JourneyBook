@@ -59,6 +59,20 @@ const styles = StyleSheet.create({
   },
   small: { fontSize: 7, color: INK },
   attribution: { fontSize: 6, color: BARK, maxWidth: 280 },
+  // Locations table of contents (front-matter page).
+  tocHeading: { fontSize: 11, fontFamily: "Helvetica-Bold", color: FOREST, marginTop: 10, marginBottom: 8 },
+  tocRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    paddingVertical: 3.5,
+    borderBottomWidth: 0.5,
+    borderBottomColor: BARK,
+    borderStyle: "dotted",
+  },
+  tocLabel: { fontSize: 9, fontFamily: "Helvetica-Bold", color: FOREST, width: 30 },
+  tocName: { fontSize: 10, color: INK, flexGrow: 1, flexShrink: 1 },
+  tocPage: { fontSize: 10, fontFamily: "Helvetica-Bold", color: INK, marginLeft: 8 },
   // Per-page landmark legend, pinned in the panel corner; distinct from the
   // route/L# furniture (BARK diamond glyph, not a FOREST circle).
   landmarkLegend: {
@@ -408,6 +422,49 @@ function AtlasPageView({
   );
 }
 
+/** A location's table-of-contents entry: its L# id, name, and 1-based PDF page. */
+interface TocEntry {
+  id: string;
+  name: string;
+  page: number;
+}
+
+/**
+ * Front-matter page listing the atlas's saved locations with the PDF page number
+ * to flip to. Page numbers are physical (this TOC is page 1), so a reader can find
+ * any location at a glance.
+ */
+function TableOfContents({ title, entries }: { title: string; entries: TocEntry[] }) {
+  return (
+    <Page
+      size="LETTER"
+      orientation="portrait"
+      style={[styles.page, { padding: 0.75 * PT }]}
+    >
+      <View style={[styles.neatline, { padding: 18 }]}>
+        <View style={styles.header}>
+          <Text style={styles.title}>{title}</Text>
+          <Text style={styles.pageId}>CONTENTS</Text>
+        </View>
+        <Text style={styles.tocHeading}>Locations</Text>
+        <View>
+          {entries.map((e) => (
+            <View key={e.id} style={styles.tocRow} wrap={false}>
+              <Text style={styles.tocLabel}>{e.id}</Text>
+              <Text style={styles.tocName}>{e.name}</Text>
+              <Text style={styles.tocPage}>{e.page}</Text>
+            </View>
+          ))}
+        </View>
+        <View style={{ flexGrow: 1 }} />
+        <Text style={[styles.small, { color: BARK }]}>
+          {entries.length} location{entries.length === 1 ? "" : "s"} · page numbers refer to this PDF
+        </Text>
+      </View>
+    </Page>
+  );
+}
+
 export function AtlasDocument({
   contract,
   title,
@@ -415,6 +472,7 @@ export function AtlasDocument({
   grids,
   routes,
   landmarks,
+  toc = true,
 }: {
   contract: AtlasContract;
   title: string;
@@ -426,9 +484,20 @@ export function AtlasDocument({
   routes?: Record<string, RouteOverlay>;
   /** map pageId -> selected landmarks; additive furniture, mirrors panels/grids/routes */
   landmarks?: Record<string, PlacedLandmark[]>;
+  /** Prepend a locations table-of-contents page when titled location pages exist. Default true. */
+  toc?: boolean;
 }) {
+  // Locations TOC: every titled (location) page, with its physical PDF page number.
+  // The TOC itself is page 1, so a page at contract index i lands at PDF page i + 2.
+  const tocEntries: TocEntry[] = contract.pages
+    .map((page, i) => ({ page, i }))
+    .filter(({ page }) => typeof page.title === "string" && page.title.length > 0)
+    .map(({ page, i }) => ({ id: page.id, name: page.title!, page: i + 2 }));
+  const showToc = toc && tocEntries.length > 0;
+
   return (
     <Document title={title}>
+      {showToc && <TableOfContents title={title} entries={tocEntries} />}
       {contract.pages.map((page) => (
         <AtlasPageView
           key={page.id}

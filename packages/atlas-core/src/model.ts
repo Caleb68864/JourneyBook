@@ -98,6 +98,12 @@ export interface AtlasPage {
   /** projected extent of this page's printable map area */
   bbox: BBox;
   orientation: PageOrientation;
+  /**
+   * Optional human title for the page — the location's name on a location (`L#`)
+   * page. Drives the locations table of contents in the rendered PDF. Grid and
+   * corridor pages leave it undefined.
+   */
+  title?: string;
   /** map tier (learning-curve level) driving page furniture */
   tier: MapTier;
   /**

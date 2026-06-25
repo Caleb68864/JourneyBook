@@ -25,6 +25,8 @@ export interface RenderPdfOptions {
   routes?: Record<string, RouteOverlay>;
   /** map pageId -> selected landmarks; additive furniture, mirrors panels/grids/routes. */
   landmarks?: Record<string, PlacedLandmark[]>;
+  /** Prepend a locations table-of-contents page (when location pages exist). Default true. */
+  tableOfContents?: boolean;
 }
 
 function documentElement(options: RenderPdfOptions) {
@@ -35,6 +37,7 @@ function documentElement(options: RenderPdfOptions) {
     grids: options.grids,
     routes: options.routes,
     landmarks: options.landmarks,
+    toc: options.tableOfContents ?? true,
   });
 }
 

@@ -132,6 +132,43 @@ describe("renderAtlas", () => {
     }
   });
 
+  it("prepends a locations table-of-contents page (locations) but not for a bbox grid", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jb-render-toc-"));
+    // Total PDF page count from the page tree (includes the front-matter TOC page).
+    const pdfPageCount = (file: string): number => {
+      const counts = [...readFileSync(file).toString("latin1").matchAll(/\/Count (\d+)/g)].map((m) => Number(m[1]));
+      return Math.max(...counts);
+    };
+    try {
+      const locOut = join(dir, "loc.pdf");
+      const loc = await renderAtlas({
+        mode: "location",
+        locations: [
+          { center: { lng: -96.7, lat: 40.81 }, label: "Capitol" },
+          { center: { lng: -95.9, lat: 41.25 }, label: "Grandma" },
+        ],
+        scalePresetId: "usgs-7-5-min",
+        tier: 1,
+        outputPath: locOut,
+      });
+      expect(loc.pageCount).toBe(2); // contract page count (location pages only)
+      expect(pdfPageCount(locOut)).toBe(3); // + 1 TOC front-matter page
+
+      const gridOut = join(dir, "grid.pdf");
+      const grid = await renderAtlas({
+        mode: "bbox",
+        bbox: [-96.73, 40.79, -96.67, 40.83],
+        scalePresetId: "usgs-7-5-min",
+        tier: 1,
+        outputPath: gridOut,
+      });
+      // A bbox-only atlas has no titled location pages → no TOC page added.
+      expect(pdfPageCount(gridOut)).toBe(grid.pageCount);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("throws on an unknown per-location scale preset", async () => {
     await expect(
       renderAtlas({
