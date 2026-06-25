@@ -105,7 +105,8 @@ public class RenderService(
             TileSourceId: tileProxyBaseUrl is null ? null : tileSourceId,
             Route: request.Route,
             Landmarks: landmarks,
-            IncludeLandmarks: landmarks.Count > 0);
+            IncludeLandmarks: landmarks.Count > 0,
+            TableOfContents: request.TableOfContents);
 
         // 5. Invoke the worker; mark Completed or Failed.
         try

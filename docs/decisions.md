@@ -190,3 +190,9 @@ Each entry follows this shape:
 - Surfaces: packages/atlas-core/src/{model.ts,grid.ts}, packages/render-cli/src/render.ts, packages/pdf-client/src/{AtlasDocument.tsx,index.ts}
 - Watch: `RenderAtlasResult.pageCount` is the CONTENT page count (excludes the TOC); the physical PDF has one more page when locations exist. TOC entries key off `page.title`, so any future titled page (not just `L#`) would list — intentional.
 - Commit: (populated at commit time)
+
+## 2026-06-25 — Web toggle for the locations table of contents
+- Followed the includeLandmarks/route toggle pattern to make the TOC user-controllable. `RenderProjectRequest.TableOfContents` (default true) → `RenderService` → `RenderWorkerRequest.TableOfContents` → `ToWirePayload` (camelCase `tableOfContents`) → worker `RenderAtlasInput.tableOfContents` → `renderAtlasPdfToFile`. Web: a "Table of Contents" checkbox (default on) in the Generate section → `api.render.start(…, tableOfContents)` via `GenerateButton`.
+- Verified: render-cli 20 (TOC on adds a page, off does not, bbox-only none), .NET render 11; live Docker round-trip on the 3-location project — `tableOfContents:true` → PDF /Count 4 (TOC + 3), `false` → /Count 3 (no TOC); Playwright confirmed the checkbox renders checked.
+- Surfaces: packages/render-cli/src/{render.ts,render.test.ts}, dotnet/.../Rendering/{RenderDtos.cs,RenderService.cs,HttpRenderWorkerClient.cs}, apps/web/src/{api/client.ts,components/GenerateButton.tsx,routes/ProjectEditorPage.tsx}
+- Commit: (populated at commit time)

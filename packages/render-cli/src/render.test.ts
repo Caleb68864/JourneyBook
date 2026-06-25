@@ -154,6 +154,21 @@ describe("renderAtlas", () => {
       expect(loc.pageCount).toBe(2); // contract page count (location pages only)
       expect(pdfPageCount(locOut)).toBe(3); // + 1 TOC front-matter page
 
+      // tableOfContents:false suppresses the TOC page.
+      const noTocOut = join(dir, "no-toc.pdf");
+      const noToc = await renderAtlas({
+        mode: "location",
+        locations: [
+          { center: { lng: -96.7, lat: 40.81 }, label: "Capitol" },
+          { center: { lng: -95.9, lat: 41.25 }, label: "Grandma" },
+        ],
+        scalePresetId: "usgs-7-5-min",
+        tier: 1,
+        tableOfContents: false,
+        outputPath: noTocOut,
+      });
+      expect(pdfPageCount(noTocOut)).toBe(noToc.pageCount); // no front-matter page
+
       const gridOut = join(dir, "grid.pdf");
       const grid = await renderAtlas({
         mode: "bbox",

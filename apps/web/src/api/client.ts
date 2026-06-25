@@ -246,9 +246,21 @@ export const api = {
     // The render endpoint reads scalePresetId from the persisted project grid;
     // tier is chosen at render time and carried in the request body. When
     // `route` is set, the worker also tiles corridor (R#) pages between stops.
-    // `includeLandmarks` is forwarded like `route` to draw landmark furniture.
-    start: (projectId: string, tier: MapTier, route?: boolean, includeLandmarks?: boolean) =>
-      request<RenderResult>("POST", `/projects/${projectId}/render`, { tier, route, includeLandmarks }),
+    // `includeLandmarks` is forwarded like `route` to draw landmark furniture;
+    // `tableOfContents` toggles the front-matter locations contents page.
+    start: (
+      projectId: string,
+      tier: MapTier,
+      route?: boolean,
+      includeLandmarks?: boolean,
+      tableOfContents?: boolean,
+    ) =>
+      request<RenderResult>("POST", `/projects/${projectId}/render`, {
+        tier,
+        route,
+        includeLandmarks,
+        tableOfContents,
+      }),
     getContent: (pdfId: string) => `${BASE}/generated-pdfs/${pdfId}/content`,
   },
 };

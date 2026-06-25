@@ -45,7 +45,9 @@ public class HttpRenderWorkerClient(HttpClient http) : IRenderWorkerClient
         bool Route,
         // Optional additive landmark furniture (camelCase `landmarks`, omitted when
         // null). Forwarded only when the include-landmarks flag is set, like Route.
-        WorkerLandmark[]? Landmarks);
+        WorkerLandmark[]? Landmarks,
+        // Prepend a locations table-of-contents page (camelCase `tableOfContents`).
+        bool TableOfContents);
 
     private sealed record WorkerCenter(double Lng, double Lat);
 
@@ -98,7 +100,8 @@ public class HttpRenderWorkerClient(HttpClient http) : IRenderWorkerClient
                 TileBaseUrl: request.TileBaseUrl,
                 TileSourceId: request.TileSourceId,
                 Route: request.Route,
-                Landmarks: landmarks);
+                Landmarks: landmarks,
+                TableOfContents: request.TableOfContents);
         }
 
         if (request.Locations.Count > 0)
@@ -117,7 +120,8 @@ public class HttpRenderWorkerClient(HttpClient http) : IRenderWorkerClient
                 TileBaseUrl: request.TileBaseUrl,
                 TileSourceId: request.TileSourceId,
                 Route: request.Route,
-                Landmarks: landmarks);
+                Landmarks: landmarks,
+                TableOfContents: request.TableOfContents);
         }
 
         throw new InvalidOperationException(

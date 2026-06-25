@@ -63,6 +63,11 @@ export interface RenderAtlasInput {
    * fall inside its bbox; the result is threaded into the PDF like grids/routes.
    */
   landmarks?: LandmarkMarker[];
+  /**
+   * Prepend a locations table-of-contents page when location pages exist.
+   * Default true; set false to suppress the TOC.
+   */
+  tableOfContents?: boolean;
 }
 
 export interface RenderAtlasResult {
@@ -348,7 +353,15 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
     }
   }
 
-  await renderAtlasPdfToFile({ contract, outputPath: input.outputPath, panels, grids, routes, landmarks });
+  await renderAtlasPdfToFile({
+    contract,
+    outputPath: input.outputPath,
+    panels,
+    grids,
+    routes,
+    landmarks,
+    tableOfContents: input.tableOfContents ?? true,
+  });
 
   return {
     outputPath: input.outputPath,
