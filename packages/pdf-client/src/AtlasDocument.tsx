@@ -18,6 +18,7 @@ import {
   type AtlasPage,
   type PageMargins,
   type ScalePreset,
+  type UsngGridOverlay,
 } from "@journeybook/atlas-core";
 import { brand } from "@journeybook/ui";
 
@@ -122,18 +123,56 @@ function continuation(dir: string, id: string | undefined) {
   return id ? `CONTINUE ${dir} · ${id}` : "";
 }
 
+/** SVG grid overlay for a USNG/tier-3 page, drawn over the map panel. */
+function UsngGridLayer({ overlay }: { overlay: UsngGridOverlay }) {
+  const SIZE = 1000;
+  return (
+    <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}>
+      <Svg width="100%" height="100%" viewBox={`0 0 ${SIZE} ${SIZE}`}>
+        {overlay.lines.map((line, i) => (
+          <Line
+            key={i}
+            x1={line.x1 * SIZE}
+            y1={line.y1 * SIZE}
+            x2={line.x2 * SIZE}
+            y2={line.y2 * SIZE}
+            stroke={FOREST}
+            strokeOpacity={0.45}
+            strokeWidth={2}
+          />
+        ))}
+      </Svg>
+    </View>
+  );
+}
+
+/** USNG collar badge shown in the tier-3 footer. */
+function UsngCollar({ collar }: { collar: UsngGridOverlay["collar"] }) {
+  if (!collar.zoneDesignator && !collar.hundredKmSquare) return null;
+  return (
+    <View style={{ alignItems: "center" }}>
+      <Text style={[styles.small, { fontFamily: "Helvetica-Bold" }]}>
+        {collar.zoneDesignator} {collar.hundredKmSquare} · USNG
+      </Text>
+    </View>
+  );
+}
+
 function AtlasPageView({
   page,
   contract,
   title,
   panel,
+  grid,
 }: {
   page: AtlasPage;
   contract: AtlasContract;
   title: string;
   panel?: string;
+  grid?: UsngGridOverlay;
 }) {
   const showTier2 = page.tier >= 2;
+  const showTier3 = page.tier >= 3;
   const maxBarInches = printableWidthInches(contract.margins, page.orientation) * 0.45;
   const { gutter = 0 } = contract.margins;
 
@@ -163,12 +202,17 @@ function AtlasPageView({
           <Text style={[styles.edgeLabel, { width: 54, alignSelf: "center" }]}>
             {continuation("WEST", page.neighbors.west)}
           </Text>
-          <View style={styles.panel}>
+          <View style={[styles.panel, { position: "relative" }]}>
             {panel ? (
-              <Image src={panel} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              showTier3 ? (
+                <Image src={panel} style={{ width: "100%", height: "100%" }} />
+              ) : (
+                <Image src={panel} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              )
             ) : (
               <Text style={styles.panelNote}>map panel — pass --basemap to render</Text>
             )}
+            {showTier3 && grid ? <UsngGridLayer overlay={grid} /> : null}
           </View>
           <Text style={[styles.edgeLabel, { width: 54, alignSelf: "center" }]}>
             {continuation("EAST", page.neighbors.east)}
@@ -186,6 +230,7 @@ function AtlasPageView({
           </View>
           <CalibrationTick />
           {showTier2 ? <CompassRose /> : null}
+          {showTier3 && grid ? <UsngCollar collar={grid.collar} /> : null}
         </View>
       </View>
     </Page>
@@ -196,11 +241,14 @@ export function AtlasDocument({
   contract,
   title,
   panels,
+  grids,
 }: {
   contract: AtlasContract;
   title: string;
   /** map pageId -> map-panel image data URI (e.g. "data:image/png;base64,…") */
   panels?: Record<string, string>;
+  /** map pageId -> USNG grid overlay (tier >= 3 only) */
+  grids?: Record<string, UsngGridOverlay>;
 }) {
   return (
     <Document title={title}>
@@ -211,6 +259,7 @@ export function AtlasDocument({
           contract={contract}
           title={title}
           panel={panels?.[page.id]}
+          grid={grids?.[page.id]}
         />
       ))}
     </Document>

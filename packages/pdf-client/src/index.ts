@@ -10,7 +10,7 @@
 
 import { renderToBuffer, renderToFile } from "@react-pdf/renderer";
 import { createElement } from "react";
-import type { AtlasContract } from "@journeybook/atlas-core";
+import type { AtlasContract, UsngGridOverlay } from "@journeybook/atlas-core";
 import { AtlasDocument } from "./AtlasDocument.js";
 
 export interface RenderPdfOptions {
@@ -19,6 +19,8 @@ export interface RenderPdfOptions {
   title?: string;
   /** map pageId -> map-panel image data URI (from @journeybook/map-sources). */
   panels?: Record<string, string>;
+  /** map pageId -> USNG grid overlay (from @journeybook/map-sources, tier >= 3 only). */
+  grids?: Record<string, UsngGridOverlay>;
 }
 
 function documentElement(options: RenderPdfOptions) {
@@ -26,6 +28,7 @@ function documentElement(options: RenderPdfOptions) {
     contract: options.contract,
     title: options.title ?? "Journey Book",
     panels: options.panels,
+    grids: options.grids,
   });
 }
 

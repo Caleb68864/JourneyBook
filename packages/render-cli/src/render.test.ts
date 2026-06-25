@@ -106,4 +106,64 @@ describe("renderAtlas", () => {
       }),
     ).rejects.toThrow(/Invalid center/);
   });
+
+  it("[INTEGRATION] tier-3 render produces a valid PDF and a non-empty grids map", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jb-render-tier3-"));
+    try {
+      const out = join(dir, "tier3.pdf");
+      const res = await renderAtlas({
+        mode: "location",
+        center: { lng: -96.7, lat: 40.8 },
+        scalePresetId: "usgs-7-5-min",
+        tier: 3,
+        outputPath: out,
+      });
+      expect(res.pageCount).toBe(1);
+      const bytes = readFileSync(out);
+      expect(bytes.subarray(0, 4).toString("latin1")).toBe("%PDF");
+      // Verify the USNG grid was computed for the single page.
+      const gridEntries = Object.keys(res.grids);
+      expect(gridEntries.length).toBeGreaterThan(0);
+      const overlay = res.grids[gridEntries[0]!]!;
+      expect(overlay.lines.length).toBeGreaterThan(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("[BEHAVIORAL] tier-1 render produces no grids", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jb-render-t1-"));
+    try {
+      const out = join(dir, "tier1.pdf");
+      const res = await renderAtlas({
+        mode: "location",
+        center: { lng: -96.7, lat: 40.8 },
+        scalePresetId: "usgs-7-5-min",
+        tier: 1,
+        outputPath: out,
+      });
+      expect(readFileSync(out).subarray(0, 4).toString("latin1")).toBe("%PDF");
+      expect(Object.keys(res.grids).length).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("[BEHAVIORAL] tier-2 render produces no grids", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jb-render-t2-"));
+    try {
+      const out = join(dir, "tier2.pdf");
+      const res = await renderAtlas({
+        mode: "location",
+        center: { lng: -96.7, lat: 40.8 },
+        scalePresetId: "usgs-7-5-min",
+        tier: 2,
+        outputPath: out,
+      });
+      expect(readFileSync(out).subarray(0, 4).toString("latin1")).toBe("%PDF");
+      expect(Object.keys(res.grids).length).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

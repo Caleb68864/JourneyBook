@@ -8,9 +8,10 @@ import {
   type BBox,
   type LngLat,
   type MapTier,
+  type UsngGridOverlay,
 } from "@journeybook/atlas-core";
 import { renderAtlasPdfToFile } from "@journeybook/pdf-client";
-import { renderMapPanel } from "@journeybook/map-sources";
+import { renderMapPanel, buildUsngGrid } from "@journeybook/map-sources";
 
 export interface RenderAtlasInput {
   mode: "bbox" | "location";
@@ -31,6 +32,8 @@ export interface RenderAtlasResult {
   outputPath: string;
   pageCount: number;
   attribution: string;
+  /** USNG grid overlays built for tier-3+ pages (empty for tier 1–2). */
+  grids: Record<string, UsngGridOverlay>;
 }
 
 /**
@@ -136,7 +139,23 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
     }
   }
 
-  await renderAtlasPdfToFile({ contract, outputPath: input.outputPath, panels });
+  // Build USNG grid overlays for tier-3+ pages (vector furniture, independent of basemap).
+  const PANEL_PX = 1000;
+  let grids: Record<string, UsngGridOverlay> | undefined;
+  for (const page of contract.pages) {
+    if (page.tier >= 3) {
+      try {
+        const overlay = buildUsngGrid(page.bbox, PANEL_PX, PANEL_PX);
+        if (!grids) grids = {};
+        grids[page.id] = overlay;
+      } catch (err) {
+        // Non-fatal: bad coordinates produce an empty overlay rather than aborting.
+        stderr.write(`  grid skipped for page ${page.id} (bbox ${page.bbox.join(",")}): ${err instanceof Error ? err.message : String(err)}\n`);
+      }
+    }
+  }
+
+  await renderAtlasPdfToFile({ contract, outputPath: input.outputPath, panels, grids });
 
   return {
     outputPath: input.outputPath,
@@ -144,5 +163,6 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
     attribution: input.basemap
       ? "Map data: USGS National Map (public domain)"
       : "JourneyBook atlas",
+    grids: grids ?? {},
   };
 }
