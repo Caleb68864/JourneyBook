@@ -123,6 +123,80 @@ function continuation(dir: string, id: string | undefined) {
   return id ? `CONTINUE ${dir} · ${id}` : "";
 }
 
+/**
+ * Per-page route furniture for a corridor (R#) page. Geometry is expressed in
+ * normalized panel coordinates (0..1, origin top-left) so it maps onto the same
+ * 1000×1000 viewBox the map panel/grid use. Keyed by `page.id` in the `routes`
+ * map exactly like `panels`/`grids`, so the core `AtlasContract`/`AtlasPage`
+ * types stay untouched — the overlay is purely additive.
+ */
+export interface RouteOverlay {
+  /** Normalized (0..1) polyline vertices tracing the route across this page. */
+  points: { x: number; y: number }[];
+  /** Normalized (0..1) stop-marker centres for stops that fall on/near this page. */
+  stops?: { x: number; y: number; label?: string }[];
+}
+
+/**
+ * SVG route overlay for a corridor page, drawn over the map panel: a thin,
+ * print-friendly polyline (light casing under a dark stroke) plus stop markers.
+ * Built from the already-imported Svg/Line/Circle primitives.
+ */
+function RouteLayer({ overlay }: { overlay: RouteOverlay }) {
+  const SIZE = 1000;
+  const segments = overlay.points.reduce<{ a: { x: number; y: number }; b: { x: number; y: number } }[]>(
+    (acc, b, i) => {
+      const a = overlay.points[i - 1];
+      if (i > 0 && a) acc.push({ a, b });
+      return acc;
+    },
+    [],
+  );
+  return (
+    <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}>
+      <Svg width="100%" height="100%" viewBox={`0 0 ${SIZE} ${SIZE}`}>
+        {/* Light casing drawn under the dark stroke so the route reads over any basemap. */}
+        {segments.map((s, i) => (
+          <Line
+            key={`casing-${i}`}
+            x1={s.a.x * SIZE}
+            y1={s.a.y * SIZE}
+            x2={s.b.x * SIZE}
+            y2={s.b.y * SIZE}
+            stroke={PARCHMENT}
+            strokeOpacity={0.95}
+            strokeWidth={10}
+          />
+        ))}
+        {/* Dark route stroke on top. */}
+        {segments.map((s, i) => (
+          <Line
+            key={`route-${i}`}
+            x1={s.a.x * SIZE}
+            y1={s.a.y * SIZE}
+            x2={s.b.x * SIZE}
+            y2={s.b.y * SIZE}
+            stroke={INK}
+            strokeWidth={4}
+          />
+        ))}
+        {/* Stop markers where a stop lands on/near this page. */}
+        {(overlay.stops ?? []).map((stop, i) => (
+          <Circle
+            key={`stop-${i}`}
+            cx={stop.x * SIZE}
+            cy={stop.y * SIZE}
+            r={11}
+            fill={FOREST}
+            stroke={PARCHMENT}
+            strokeWidth={3}
+          />
+        ))}
+      </Svg>
+    </View>
+  );
+}
+
 /** SVG grid overlay for a USNG/tier-3 page, drawn over the map panel. */
 function UsngGridLayer({ overlay }: { overlay: UsngGridOverlay }) {
   const SIZE = 1000;
@@ -164,12 +238,14 @@ function AtlasPageView({
   title,
   panel,
   grid,
+  route,
 }: {
   page: AtlasPage;
   contract: AtlasContract;
   title: string;
   panel?: string;
   grid?: UsngGridOverlay;
+  route?: RouteOverlay;
 }) {
   const showTier2 = page.tier >= 2;
   const showTier3 = page.tier >= 3;
@@ -213,6 +289,8 @@ function AtlasPageView({
               <Text style={styles.panelNote}>map panel — pass --basemap to render</Text>
             )}
             {showTier3 && grid ? <UsngGridLayer overlay={grid} /> : null}
+            {/* Route furniture is additive and only present for corridor (R#) pages. */}
+            {route && page.id.startsWith("R") ? <RouteLayer overlay={route} /> : null}
           </View>
           <Text style={[styles.edgeLabel, { width: 54, alignSelf: "center" }]}>
             {continuation("EAST", page.neighbors.east)}
@@ -242,6 +320,7 @@ export function AtlasDocument({
   title,
   panels,
   grids,
+  routes,
 }: {
   contract: AtlasContract;
   title: string;
@@ -249,6 +328,8 @@ export function AtlasDocument({
   panels?: Record<string, string>;
   /** map pageId -> USNG grid overlay (tier >= 3 only) */
   grids?: Record<string, UsngGridOverlay>;
+  /** map pageId -> route overlay (corridor R# pages only); additive, mirrors panels/grids */
+  routes?: Record<string, RouteOverlay>;
 }) {
   return (
     <Document title={title}>
@@ -260,6 +341,7 @@ export function AtlasDocument({
           title={title}
           panel={panels?.[page.id]}
           grid={grids?.[page.id]}
+          route={routes?.[page.id]}
         />
       ))}
     </Document>
