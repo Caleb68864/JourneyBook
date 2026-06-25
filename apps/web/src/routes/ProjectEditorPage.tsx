@@ -106,6 +106,49 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
     }
   }
 
+  // Box → location: save the previewed box's centre as an important location
+  // instead of as the project extent.
+  async function saveBoxAsLocation() {
+    if (!pendingBbox) return;
+    const [w, s, e, n] = pendingBbox;
+    setError(null);
+    setSaving(true);
+    try {
+      const loc = await api.locations.create(
+        projectId,
+        `Area ${locations.length + 1}`,
+        (w + e) / 2,
+        (s + n) / 2,
+      );
+      setLocations((l) => [...l, loc]);
+      setPendingBbox(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save location.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // Locations → bbox: enclose all saved locations in a box (padded so points
+  // aren't on the edge / a single point still yields a usable box), shown as a
+  // pending box for review before it becomes the project extent.
+  function encloseLocations() {
+    if (locations.length === 0) return;
+    let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
+    for (const loc of locations) {
+      w = Math.min(w, loc.lng);
+      e = Math.max(e, loc.lng);
+      s = Math.min(s, loc.lat);
+      n = Math.max(n, loc.lat);
+    }
+    const padX = Math.max((e - w) * 0.05, 0.02);
+    const padY = Math.max((n - s) * 0.05, 0.02);
+    const bbox: BBox = [w - padX, s - padY, e + padX, n + padY];
+    setError(null);
+    setBboxInputs({ west: String(bbox[0]), south: String(bbox[1]), east: String(bbox[2]), north: String(bbox[3]) });
+    setPendingBbox(bbox);
+  }
+
   // Discard the previewed box and restore the inputs to the saved extent.
   function cancelPendingExtent() {
     setPendingBbox(null);
@@ -343,6 +386,17 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
                   Draw on Map
                 </button>
               </div>
+              {locations.length > 0 && (
+                <button
+                  type="button"
+                  onClick={encloseLocations}
+                  disabled={saving}
+                  className="border border-forest-700 bg-cream-50 px-3 py-1.5 font-mono text-xs text-forest-700 hover:bg-parchment-200 disabled:opacity-50"
+                  title="Set the bounding box to enclose every saved location"
+                >
+                  Enclose {locations.length} Location{locations.length === 1 ? "" : "s"}
+                </button>
+              )}
               {pendingBbox && (
                 <div className="flex flex-col gap-2 border border-campfire-600/40 bg-campfire-50/40 p-2">
                   <p className="font-mono text-[10px] text-bark-600">
@@ -375,6 +429,16 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
                       Cancel
                     </button>
                   </div>
+                  {/* Box → location: keep the box's centre as a saved place instead. */}
+                  <button
+                    type="button"
+                    onClick={() => void saveBoxAsLocation()}
+                    disabled={saving}
+                    className="border border-bark-400 bg-cream-50 px-3 py-1.5 font-mono text-[11px] text-bark-700 hover:bg-parchment-200 disabled:opacity-50"
+                    title="Save this box's centre as an important location instead of the project extent"
+                  >
+                    Save Centre as Location
+                  </button>
                 </div>
               )}
             </section>

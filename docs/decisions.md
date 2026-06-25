@@ -143,3 +143,12 @@ Each entry follows this shape:
 - Surfaces: dotnet/JourneyBook.Application/Locations/{LocationDtos,ILocationService}.cs, dotnet/JourneyBook.Infrastructure/Locations/{LocationCsv,LocationService}.cs, apps/api/Endpoints/LocationEndpoints.cs, apps/web/src/{api/client.ts,components/LocationList.tsx,routes/ProjectEditorPage.tsx}, data/fixtures/sample-locations.csv
 - Watch: import is all-or-nothing — a single bad row fails the batch with a row-numbered message (intentional; partial import would orphan L-numbers ambiguously). The parser is minimal (no multi-line quoted fields); good enough for name/lng/lat/notes/scale.
 - Commit: (populated at commit time)
+
+## 2026-06-25 — Box→location and locations→bbox (client-only, reuse the preview/confirm flow)
+- Two small map-gen conveniences, both pure web additions in ProjectEditorPage (the API endpoints already exist):
+  - **Box → location:** the pending-box confirm bar gained "Save Centre as Location" — creates an ImportantLocation at the box centre `((w+e)/2,(s+n)/2)` (auto-named `Area N`) via the Stage 2C create endpoint, instead of `PUT /extent`.
+  - **Locations → bbox:** "Enclose N Locations" computes min/max over all saved locations, pads (5% of span, min 0.02° so a single point still yields a usable box), and stages it as a **pending box** — deliberately routed through the existing review/confirm flow so the buildPageGrid page-count guard (MAX_ATLAS_PAGES) and the dashed-box preview apply, rather than writing the extent directly.
+- Verified live under Docker (Playwright): a project with Lincoln+Omaha → "Enclose 2 Locations" produced a padded box (W -96.7385 … N 41.272, ~12 pages) → Confirm persisted it as the extent; "Save Centre as Location" on a previewed box created L3 "Area 3" at the centre (-96.315, 41.030).
+- Surfaces: apps/web/src/routes/ProjectEditorPage.tsx (saveBoxAsLocation, encloseLocations + two buttons)
+- Watch: encloseLocations stages a pending box (not a direct PUT) on purpose — keep it that way so a wide trip can't silently set an over-limit extent. Box→location saves only the centre point (matches the point-geometry location model), not a polygon area.
+- Commit: (populated at commit time)
