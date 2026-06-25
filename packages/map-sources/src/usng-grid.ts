@@ -1,7 +1,11 @@
 import proj4 from "proj4";
 import type { BBox, UsngGridOverlay } from "@journeybook/atlas-core";
 import { utmZoneForLongitude } from "@journeybook/atlas-core";
-import { forward as mgrsForward } from "mgrs";
+// `mgrs` is a CommonJS module — a named ESM import (`{ forward }`) typechecks and
+// works under vitest but throws "Named export 'forward' not found" at runtime under
+// Node's ESM loader (the render-worker container). Default-import the package object.
+import mgrs from "mgrs";
+const mgrsForward = mgrs.forward;
 
 // UTM is only defined for latitudes in [-80, 84].
 const UTM_LAT_MIN = -80;

@@ -118,3 +118,10 @@ Each entry follows this shape:
 - Surfaces: packages/render-cli/src/render.ts, packages/render-cli/src/render.test.ts, dotnet/JourneyBook.Infrastructure/Rendering/HttpRenderWorkerClient.cs, RenderLocation, ToWirePayload
 - Watch: The render pipeline is no longer single-mode — bbox and locations compose. The TS `AtlasContract` carries ONE scale, so per-location zoom (roadmap "Per-location scale level") needs per-page scale plumbed into pdf-client furniture before it can ship, not just an input field. CLI multi-location flags were not added (capability reaches via `renderAtlas`/the API, not yet the CLI surface).
 - Commit: (populated at commit time)
+
+## 2026-06-25 — USNG grid: `mgrs` is CommonJS — default-import it, not a named ESM import
+- Symptom: With the rebuilt worker image, the render-worker container crashed on startup: `SyntaxError: Named export 'forward' not found. The requested module 'mgrs' is a CommonJS module`. Stage 6B SS-02 wrote `import { forward as mgrsForward } from "mgrs"`, which typechecks (tsc) and passes vitest (its transform synthesizes named exports) but fails at runtime under Node's real ESM loader — the path the factory's mechanical checks never exercised.
+- Fix: `import mgrs from "mgrs"; const mgrsForward = mgrs.forward;` in `packages/map-sources/src/usng-grid.ts`. Verified by running the BUILT dist under `node --input-type=module` (not just vitest): `buildUsngGrid` returns a real grid (17 lines, collar 14T PL for Lincoln).
+- Surfaces: packages/map-sources/src/usng-grid.ts
+- Watch: A green vitest run does NOT prove a CommonJS dep imports under Node ESM — vitest's loader is more forgiving than `node`'s. For new deps consumed by the render-worker (ESM, "type":"module"), smoke the built `dist` under `node` or in the container. This is the kind of gap only the live Docker round-trip catches (the factory passed it).
+- Commit: (populated at commit time)
