@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { DEFAULT_MAP_TIER, DEFAULT_SCALE_PRESET_ID } from "@journeybook/atlas-core";
+import { DEFAULT_SCALE_PRESET_ID } from "@journeybook/atlas-core";
 import { api, type Project } from "../api/client";
 
 interface ProjectListPageProps {
@@ -27,11 +27,7 @@ export function ProjectListPage({ onOpen }: ProjectListPageProps) {
     if (!newName.trim()) return;
     setCreating(true);
     try {
-      const proj = await api.projects.create(
-        newName.trim(),
-        DEFAULT_SCALE_PRESET_ID,
-        DEFAULT_MAP_TIER,
-      );
+      const proj = await api.projects.create(newName.trim(), DEFAULT_SCALE_PRESET_ID);
       setProjects((p) => [proj, ...p]);
       setNewName("");
       setShowForm(false);
@@ -121,8 +117,7 @@ export function ProjectListPage({ onOpen }: ProjectListPageProps) {
                   <div>
                     <p className="font-display text-base text-forest-700">{proj.name}</p>
                     <p className="mt-0.5 font-mono text-[11px] text-bark-500">
-                      {proj.scalePresetId} · Tier {proj.tier} ·{" "}
-                      {new Date(proj.createdAt).toLocaleDateString()}
+                      {proj.scalePresetId} · {new Date(proj.createdAt).toLocaleDateString()}
                     </p>
                   </div>
                   <svg

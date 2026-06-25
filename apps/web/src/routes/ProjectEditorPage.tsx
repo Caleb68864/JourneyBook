@@ -23,6 +23,9 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
   const [drawMode, setDrawMode] = useState<DrawMode>("none");
   const [bboxFirst, setBboxFirst] = useState<LngLat | null>(null);
   const [saving, setSaving] = useState(false);
+  // Tier is chosen at render time (the API has no project-level tier field); it is
+  // carried in the render request body when Generate is clicked.
+  const [tier, setTier] = useState<MapTier>(DEFAULT_MAP_TIER);
 
   // Manual bbox entry
   const [bboxInputs, setBboxInputs] = useState({ west: "", south: "", east: "", north: "" });
@@ -51,13 +54,12 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
     return () => { cancelled = true; };
   }, [projectId]);
 
-  async function saveScaleAndTier(scalePresetId: string, tier: MapTier) {
-    if (!project) return;
-    // Scale + tier are persisted on the project at creation time (POST /api/projects)
-    // and are what the render endpoint reads when Generate is clicked. There is no
-    // PATCH endpoint to mutate them after creation yet, so changing the pickers here
-    // updates the working view only — see the note rendered below the pickers.
-    setProject((p) => p ? { ...p, scalePresetId, tier } : p);
+  function setScaleView(scalePresetId: string) {
+    // scalePresetId is persisted on the project's grid at creation (POST /api/projects)
+    // and is what the render endpoint reads. There is no PATCH endpoint to mutate it
+    // after creation yet, so changing the picker updates the working view only — see
+    // the note rendered below the pickers. Tier, by contrast, is sent at render time.
+    setProject((p) => (p ? { ...p, scalePresetId } : p));
   }
 
   async function applyBboxInputs() {
@@ -105,9 +107,9 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
         }
       } else if (drawMode === "location") {
         setDrawMode("none");
-        const label = `Location ${locations.length + 1}`;
+        const name = `Location ${locations.length + 1}`;
         try {
-          const loc = await api.locations.create(projectId, label, lngLat.lng, lngLat.lat);
+          const loc = await api.locations.create(projectId, name, lngLat.lng, lngLat.lat);
           setLocations((l) => [...l, loc]);
         } catch (err) {
           setError(err instanceof Error ? err.message : "Failed to save location.");
@@ -117,8 +119,8 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
     [drawMode, bboxFirst, projectId, locations.length],
   );
 
-  async function handleAddLocation(label: string, lng: number, lat: number) {
-    const loc = await api.locations.create(projectId, label, lng, lat);
+  async function handleAddLocation(name: string, lng: number, lat: number) {
+    const loc = await api.locations.create(projectId, name, lng, lat);
     setLocations((l) => [...l, loc]);
   }
 
@@ -199,11 +201,11 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
             <section className="flex flex-col gap-4 border-b border-bark-300 pb-5">
               <ScalePicker
                 value={project.scalePresetId}
-                onChange={(id) => void saveScaleAndTier(id, project.tier)}
+                onChange={setScaleView}
               />
               <TierPicker
-                value={project.tier ?? DEFAULT_MAP_TIER}
-                onChange={(tier) => void saveScaleAndTier(project.scalePresetId, tier)}
+                value={tier}
+                onChange={setTier}
               />
               {footprintLabel && (
                 <p className="font-mono text-[10px] text-bark-500">
@@ -214,8 +216,8 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
                 Preview uses Web Mercator; printed pages are true-scale at the chosen preset.
               </p>
               <p className="font-mono text-[10px] italic text-bark-400">
-                Scale &amp; tier are saved when the project is created and drive Generate;
-                changing them here updates this view only.
+                Scale is fixed when the project is created (view-only here); the tier you
+                pick is applied to the atlas when you click Generate.
               </p>
             </section>
 
@@ -271,7 +273,7 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
 
             {/* Generate */}
             <section>
-              <GenerateButton projectId={projectId} />
+              <GenerateButton projectId={projectId} tier={tier} />
             </section>
           </div>
         </aside>

@@ -3,14 +3,14 @@ import type { Location } from "../api/client";
 
 interface LocationListProps {
   locations: Location[];
-  onAdd: (label: string, lng: number, lat: number) => Promise<void>;
+  onAdd: (name: string, lng: number, lat: number) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   /** If true, user can click map to drop pin — communicated to parent */
   onStartDrop?: () => void;
 }
 
 export function LocationList({ locations, onAdd, onDelete, onStartDrop }: LocationListProps) {
-  const [label, setLabel] = useState("");
+  const [name, setName] = useState("");
   const [lng, setLng] = useState("");
   const [lat, setLat] = useState("");
   const [saving, setSaving] = useState(false);
@@ -20,15 +20,15 @@ export function LocationList({ locations, onAdd, onDelete, onStartDrop }: Locati
     e.preventDefault();
     const lngNum = parseFloat(lng);
     const latNum = parseFloat(lat);
-    if (!label.trim() || isNaN(lngNum) || isNaN(latNum)) {
-      setError("Enter a label, longitude, and latitude.");
+    if (!name.trim() || isNaN(lngNum) || isNaN(latNum)) {
+      setError("Enter a name, longitude, and latitude.");
       return;
     }
     setError(null);
     setSaving(true);
     try {
-      await onAdd(label.trim(), lngNum, latNum);
-      setLabel("");
+      await onAdd(name.trim(), lngNum, latNum);
+      setName("");
       setLng("");
       setLat("");
     } catch (err) {
@@ -60,7 +60,10 @@ export function LocationList({ locations, onAdd, onDelete, onStartDrop }: Locati
           {locations.map((loc) => (
             <li key={loc.id} className="flex items-center justify-between gap-2 px-3 py-2">
               <div className="min-w-0">
-                <p className="truncate font-mono text-sm font-medium text-charcoal-900">{loc.label}</p>
+                <p className="truncate font-mono text-sm font-medium text-charcoal-900">
+                  <span className="mr-1.5 rounded bg-forest-700 px-1 text-[10px] font-bold text-cream-50">{loc.label}</span>
+                  {loc.name}
+                </p>
                 <p className="font-mono text-[10px] text-bark-500">
                   {loc.lng.toFixed(5)}, {loc.lat.toFixed(5)}
                 </p>
@@ -69,7 +72,7 @@ export function LocationList({ locations, onAdd, onDelete, onStartDrop }: Locati
                 type="button"
                 onClick={() => void onDelete(loc.id)}
                 className="shrink-0 font-mono text-[11px] text-campfire-600 hover:text-campfire-700"
-                aria-label={`Remove ${loc.label}`}
+                aria-label={`Remove ${loc.name}`}
               >
                 Remove
               </button>
@@ -81,9 +84,9 @@ export function LocationList({ locations, onAdd, onDelete, onStartDrop }: Locati
       <form onSubmit={(e) => void handleAdd(e)} className="flex flex-col gap-2">
         <input
           type="text"
-          placeholder="Label (e.g. Grandma's House)"
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
+          placeholder="Name (e.g. Grandma's House)"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
           className="border border-bark-400 bg-cream-50 px-3 py-1.5 font-mono text-sm text-charcoal-900 placeholder:text-bark-400 focus:outline-none focus:ring-1 focus:ring-forest-700"
         />
         <div className="flex gap-2">

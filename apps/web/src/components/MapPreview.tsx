@@ -7,7 +7,7 @@ interface MapPreviewProps {
   /** WGS84 extent to fit/show. */
   extent: BBox | null;
   /** Important locations to show as markers. */
-  locations: Array<{ id: string; label: string; lng: number; lat: number }>;
+  locations: Array<{ id: string; name: string; lng: number; lat: number }>;
   /** Called when user clicks the map in draw mode. */
   onMapClick?: (lngLat: LngLat) => void;
   /** When true, the cursor shows crosshair and clicks emit onMapClick. */
@@ -99,10 +99,10 @@ export function MapPreview({ extent, locations, onMapClick, drawMode }: MapPrevi
       const el = document.createElement("div");
       el.className =
         "w-3 h-3 rounded-full bg-campfire-600 border-2 border-cream-50 shadow cursor-default";
-      el.title = loc.label;
+      el.title = loc.name;
       return new maplibregl.Marker({ element: el })
         .setLngLat([loc.lng, loc.lat])
-        .setPopup(new maplibregl.Popup({ offset: 12 }).setText(loc.label))
+        .setPopup(new maplibregl.Popup({ offset: 12 }).setText(loc.name))
         .addTo(mapRef.current!);
     });
   }, [locations, ready]);

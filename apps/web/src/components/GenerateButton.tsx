@@ -1,12 +1,14 @@
 import { useState } from "react";
+import type { MapTier } from "@journeybook/atlas-core";
 import { api } from "../api/client";
 
 interface GenerateButtonProps {
   projectId: string;
+  tier: MapTier;
   disabled?: boolean;
 }
 
-export function GenerateButton({ projectId, disabled }: GenerateButtonProps) {
+export function GenerateButton({ projectId, tier, disabled }: GenerateButtonProps) {
   const [status, setStatus] = useState<"idle" | "generating" | "done" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -14,8 +16,8 @@ export function GenerateButton({ projectId, disabled }: GenerateButtonProps) {
     setStatus("generating");
     setErrorMsg(null);
     try {
-      const result = await api.render.start(projectId);
-      const downloadUrl = result.downloadUrl ?? api.render.getContent(result.jobId);
+      const result = await api.render.start(projectId, tier);
+      const downloadUrl = result.downloadUrl || api.render.getContent(result.generatedPdfId);
       // Open the PDF — works for both relative paths and absolute URLs
       window.open(downloadUrl, "_blank", "noopener,noreferrer");
       setStatus("done");
