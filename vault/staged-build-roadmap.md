@@ -42,7 +42,7 @@ The build order is deliberately **risk-first and headless-first**: the riskiest 
 
 ## Current Status (2026-06-25)
 
-**Phase A (headless engine), Phase B (persistence), Stage 3 (tile proxy), and Phase C (first usable web UI) are all complete.** The product now runs end-to-end in a browser. Built and verified:
+**Phase A (headless engine), Phase B (persistence), Stage 3 (tile proxy), Phase C (first usable web UI), and Stages 6 / 6B / 6C (landmarks, USNG grid, route atlas) are all complete.** The product runs end-to-end in a browser; **every Phase-C-and-earlier stage plus the land-nav (6B), route-atlas (6C), and landmark (6) stages are built and merged.** Built and verified:
 
 - ✅ **Stage 0** — monorepo skeleton, layered .NET 10 backend, Docker Compose, branded web shell.
 - ✅ **Stage 1B** — scale + per-page true-scale projection + page-grid/location engine (`atlas-core`, TDD).
@@ -59,14 +59,17 @@ The build order is deliberately **risk-first and headless-first**: the riskiest 
 - ✅ **Stage 5** — React web app: project list, MapLibre preview (wired to the tile proxy), scale + tier pickers (bound to `SCALE_PRESETS`/`MapTier`), bbox draw/enter, important-location drop/edit, **Generate + download**. Rendering goes through a dedicated **Node `render-worker`** (Fastify wrapping `renderAtlas`) that the C# API proxies to — geometry/render stays in TS (ADR 0004/0005).
 - ✅ **Stage 6B — Level 3 (USNG grid)** — self-generated 1000 m USNG/MGRS grid overlay on tier-3 pages: `createUtmProjector` (atlas-core) + the shared `lngLatToPanelFraction` (map-sources), `buildUsngGrid` → `UsngGridOverlay`, an SVG overlay + USNG collar in `pdf-client`, wired through `renderAtlas`. Built by the **dark factory**, then driven to **CONVERGED** by `/forge-converge` (6 passes — caught a *linear* panel-mapping false positive that would mis-register the grid, and made `buildUsngGrid` self-degrade on bad coords), and verified live (tier-3 CLI + Docker). Georeferenced-correct against `mgrs`. **Level 4 (full MGRS + declination) is still deferred.**
 - ✅ **Combined render (page per location)** — `renderAtlas` now composes the bbox grid **plus** a fixed-scale `L#` page per saved location (was single-mode: an extent dropped all locations). Verified live under Docker (extent-only → 2 pages; extent + 2 locations → 4). See [Planned Enhancements](#planned-enhancements--locations-extent--route-atlases-user-requested-post-phase-c).
+- ✅ **All six map-generation enhancements** — per-location zoom, page-per-location combined render, CSV import, box→location, locations→bbox, and the **route atlas** (`buildRouteAtlas` → `R#` corridor pages along an ordered-stops polyline). See [Planned Enhancements](#planned-enhancements--locations-extent--route-atlases-user-requested-post-phase-c).
+- ✅ **Stage 6C — Route Atlas** — a `route` render mode: ordered stops → `L#` location pages + `R#` corridor pages tiled along the straight-line polyline, de-duplicated, route polyline + stop markers drawn, under the page cap. Built via the full forge chain; reachable via `render-cli --route` and a web **Generate Route Atlas** toggle.
+- ✅ **Stage 6 — Landmarks** — OSM Overpass import → PostGIS `Landmark` table → per-page distributed selection + greedy label collision avoidance (atlas-core) → markers + legend distinct from L# locations, with an **Include Landmarks** toggle. Built via the full forge chain. (The "simple routes" half of Stage 6 is Stage 6C.)
 
 **Phase C** was built by the **dark factory** (SS-01–06), then driven to **CONVERGED** by `/forge-converge` (3 passes — caught missing tests, a C#→worker wire-contract mismatch, and web↔API contract drift), **hardened** (10 adversarial passes — input validation, error mapping, cancellation safety, SSRF/page-count caps, map-crash guards, observability), had its **Docker images repaired** (all three were broken — the factory only ran `compose config`, never `docker build`), and was **verified end-to-end**: full `create → extent → render → download` round-trip under `docker compose up` (4 healthy containers) + a passing Playwright UI smoke test. See `docs/decisions.md` (Phase C entries + ADR 0004/0005).
 
 The headless pipeline still runs with **zero UI** (`journeybook render … --out atlas.pdf`); the same `renderAtlas` now also backs the web app via the render-worker.
 
-**Test tally:** atlas-core 28 · map-sources 26 · render-cli 13 · render-worker 6 · backend **71** — all green. Merged to `master` (Stage 6B Level 3 + combined-render on top of the Phase C merge).
+**Test tally:** atlas-core **50** · map-sources 26 · render-cli **19** · render-worker 6 (TS **101**) · backend **86** — all green. Merged to `master` (Phase C → Stage 6B → all six map-gen enhancements → Stage 6C route atlas → Stage 6 landmarks).
 
-**Next (decided): all six map-generation options are now built and live** (tier work stays parked; Level 4 deferred): per-location zoom, the page-per-location combined render, CSV import, box→location, locations→bbox, and the **route atlas** (the last one, built via the full forge chain). After this: Stage 6 (landmarks + simple routes) → Stage 7 (PMTiles offline packages + optional self-hosted tile server) → Stage 9 (MVP polish: geocode search, project rename/duplicate, error UX). Stage 8 (QuestPDF) stays conditional; Stages 10–11 are post-MVP.
+**Next (decided): Stages 6, 6B, 6C and all six map-generation options are built and live** (tier work stays parked; Level 4 deferred). Remaining toward MVP: **Stage 7** (PMTiles offline packages + optional self-hosted tile server) → **Stage 9** (MVP polish: geocode search, project rename/duplicate, error UX). Stage 8 (QuestPDF) stays conditional; Stages 10–11 are post-MVP.
 
 ## Planned Enhancements — Locations, Extent & Route Atlases (user-requested, post-Phase-C)
 
@@ -486,9 +489,11 @@ Done when (met):
 - Each page can show a few useful landmarks, clearly distinct from saved important locations. ✅
 - A route can be highlighted across multiple pages with continuation labels at boundaries. ✅ (Stage 6C)
 
-## Stage 6B: Land-Nav Fidelity Pass (tiered templates)
+## Stage 6B: Land-Nav Fidelity Pass (tiered templates) — 🟡 Level 3 built (2026-06-25); Level 4 deferred
 
 Goal: implement the [Map Tiers (Learning Curve)](#map-tiers-learning-curve-feature) as concrete page-furniture templates, so the same engine yields a clean road-atlas page for a 5-year-old and a TC 3-25.26-credible land-nav page for a teen. See [[Progressive Map Skills Curriculum]] and [[Land Nav Learning Curve Recommendation]].
+
+**Status:** Levels 1–2 (road-atlas grid + true scale bar/compass) shipped in Stage 1D; **Level 3 (self-generated USNG/MGRS grid) is built, converged, and merged** (see Current Status). **Level 4 (full MGRS + azimuth/declination diagram + G-M conversion + worksheets) is deferred** — parked behind the map-generation work, now done.
 
 Folders touched: `packages/atlas-core/`, `packages/map-sources/`, `packages/pdf-client/`, `apps/web/`, `vault/source-docs/`, `docs/decisions/`.
 
