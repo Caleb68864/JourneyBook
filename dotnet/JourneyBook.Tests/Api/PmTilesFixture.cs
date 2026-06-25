@@ -17,7 +17,19 @@ public static class PmTilesFixture
     public const int AbsentX = 0;
     public const int AbsentY = 0;
 
-    public static readonly byte[] TilePayload = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 42, 7];
+    /// <summary>
+    /// A 38-byte minimal PNG stub: the 8-byte PNG signature followed by a placeholder IHDR-shaped
+    /// body. The reader round-trips these bytes verbatim (it never parses PNG internals), so the
+    /// exact contents are irrelevant beyond byte-equality — only the length matches the spec stub.
+    /// </summary>
+    public static readonly byte[] TilePayload =
+    [
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // PNG signature
+        0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, // IHDR chunk length + type
+        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, // width=1, height=1
+        0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4, // bit depth/colour/CRC stub
+        0x89, 0x00, 0x00, 0x00, 0x00, 0x00,             // pad to 38 bytes
+    ];
 
     public static byte[] Build()
     {
