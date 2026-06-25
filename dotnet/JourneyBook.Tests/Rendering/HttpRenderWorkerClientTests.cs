@@ -108,6 +108,53 @@ public class HttpRenderWorkerClientTests
     }
 
     [Fact]
+    public async Task Route_flag_serializes_to_camelCase_route_true_on_the_wire()
+    {
+        var (client, handler) = Build();
+        var req = new RenderWorkerRequest(
+            ScalePresetId: "usgs-7-5-min",
+            Tier: 2,
+            Orientation: "Portrait",
+            Overlap: 0.05,
+            Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
+            Extent: new RenderBBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Locations: [],
+            OutputFileName: "atlas-route.pdf",
+            Route: true);
+
+        await client.RenderAsync(req);
+
+        using var doc = JsonDocument.Parse(handler.CapturedBody!);
+        var root = doc.RootElement;
+
+        // Worker's RenderAtlasInput receives camelCase `route: true`.
+        Assert.True(root.TryGetProperty("route", out var route));
+        Assert.True(route.GetBoolean());
+    }
+
+    [Fact]
+    public async Task Route_defaults_to_false_on_the_wire_when_unset()
+    {
+        var (client, handler) = Build();
+        var req = new RenderWorkerRequest(
+            ScalePresetId: "usgs-7-5-min",
+            Tier: 1,
+            Orientation: "Portrait",
+            Overlap: 0,
+            Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
+            Extent: null,
+            Locations: [new RenderLocationDto(-96.70, 40.81, "Home")],
+            OutputFileName: "atlas-loc.pdf");
+
+        await client.RenderAsync(req);
+
+        using var doc = JsonDocument.Parse(handler.CapturedBody!);
+        var root = doc.RootElement;
+        Assert.True(root.TryGetProperty("route", out var route));
+        Assert.False(route.GetBoolean());
+    }
+
+    [Fact]
     public async Task No_geometry_throws_rather_than_sending_an_unrenderable_request()
     {
         var (client, _) = Build();
