@@ -46,6 +46,31 @@ export function createProjector(center: LngLat): Projector {
 }
 
 /**
+ * Build a fixed UTM-zone projector for the given zone (northern hemisphere,
+ * k0 = 0.9996). Unlike <see cref="createProjector"/>, this is a standard UTM
+ * grid — the correct metric plane for USNG/MGRS grid lines, which are defined
+ * in UTM zones rather than a page-centred tmerc. Northern hemisphere only (no
+ * `+south` false-northing offset); correct for CONUS, and the polar/southern
+ * cases are out of scope.
+ */
+export function createUtmProjector(zone: number): Projector {
+  const definition =
+    `+proj=utm +zone=${zone} +datum=WGS84 +units=m +no_defs`;
+
+  return {
+    definition,
+    forward(point) {
+      const [x, y] = proj4(WGS84, definition, [point.lng, point.lat]);
+      return [x, y];
+    },
+    inverse([x, y]) {
+      const [lng, lat] = proj4(definition, WGS84, [x, y]);
+      return { lng, lat };
+    },
+  };
+}
+
+/**
  * Straight-line ground distance between two WGS84 points, in metres, computed
  * on the WGS84 ellipsoid via ECEF. This is the chord, which is within ~0.2 m of
  * the geodesic for spans up to a few hundred km — accurate enough for atlas
