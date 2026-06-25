@@ -189,9 +189,10 @@ export const api = {
 
   render: {
     // The render endpoint reads scalePresetId from the persisted project grid;
-    // tier is chosen at render time and carried in the request body.
-    start: (projectId: string, tier: MapTier) =>
-      request<RenderResult>("POST", `/projects/${projectId}/render`, { tier }),
+    // tier is chosen at render time and carried in the request body. When
+    // `route` is set, the worker also tiles corridor (R#) pages between stops.
+    start: (projectId: string, tier: MapTier, route?: boolean) =>
+      request<RenderResult>("POST", `/projects/${projectId}/render`, { tier, route }),
     getContent: (pdfId: string) => `${BASE}/generated-pdfs/${pdfId}/content`,
   },
 };
