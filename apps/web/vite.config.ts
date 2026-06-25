@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import path from "path";
 
 // In dev, proxy API calls to the ASP.NET Core service so the browser can use
 // same-origin relative URLs (/health, /api/*). Override the target with
@@ -9,6 +10,11 @@ const apiProxyTarget = process.env.VITE_API_PROXY ?? "http://localhost:5180";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+    },
+  },
   server: {
     port: 5173,
     proxy: {
