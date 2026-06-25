@@ -65,7 +65,9 @@ services:
       # Same shared volume as api so worker-written PDFs are visible to the api.
       - ../../data/generated:/app/data/generated
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8090/health || exit 1"]
+      # 127.0.0.1 (not localhost): the worker binds IPv4 0.0.0.0, but localhost
+      # resolves to IPv6 ::1 first in the container → connection refused.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8090/health || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 10
