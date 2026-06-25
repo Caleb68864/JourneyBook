@@ -113,6 +113,80 @@ public class LocationsApiTests(PostgisApiFactory factory) : IClassFixture<Postgi
     }
 
     [Fact]
+    public async Task Import_csv_bulk_creates_locations_continuing_the_L_series()
+    {
+        var projectId = await CreateProjectAsync();
+
+        // One pre-existing location, so the import must continue from L2.
+        await _client.PostAsJsonAsync($"/api/projects/{projectId}/locations",
+            new CreateLocationRequest("Existing", -98.0, 41.0));
+
+        const string csv =
+            "name,lng,lat,notes,scale\n" +
+            "Home Base,-96.7026,40.8136,Start,\n" +
+            "Grandma,-95.9345,41.2565,Omaha,usgs-7-5-min\n" +
+            "Mahoney,-96.3447,41.0144,\"Camping, trails\",\n";
+
+        var post = await _client.PostAsJsonAsync($"/api/projects/{projectId}/locations/import",
+            new ImportLocationsRequest(csv));
+        Assert.Equal(HttpStatusCode.OK, post.StatusCode);
+        var result = await post.Content.ReadFromJsonAsync<ImportLocationsResponse>();
+        Assert.NotNull(result);
+        Assert.Equal(3, result!.Imported);
+
+        var list = await _client.GetFromJsonAsync<List<LocationResponse>>($"/api/projects/{projectId}/locations");
+        Assert.NotNull(list);
+        Assert.Equal(4, list!.Count); // 1 existing + 3 imported
+        Assert.Equal("L2", list[1].Label);
+        Assert.Equal("L4", list[3].Label);
+        // Per-location scale + quoted-comma notes parsed.
+        var grandma = list.Single(l => l.Name == "Grandma");
+        Assert.Equal("usgs-7-5-min", grandma.ScalePresetId);
+        var mahoney = list.Single(l => l.Name == "Mahoney");
+        Assert.Equal("Camping, trails", mahoney.Notes);
+        Assert.Null(mahoney.ScalePresetId);
+    }
+
+    [Fact]
+    public async Task Import_csv_with_a_bad_row_returns_400_and_imports_nothing()
+    {
+        var projectId = await CreateProjectAsync();
+
+        const string csv =
+            "name,lng,lat\n" +
+            "Good,-96.7,40.8\n" +
+            "Bad,not-a-number,40.8\n";
+
+        var post = await _client.PostAsJsonAsync($"/api/projects/{projectId}/locations/import",
+            new ImportLocationsRequest(csv));
+        Assert.Equal(HttpStatusCode.BadRequest, post.StatusCode);
+
+        // All-or-nothing: the valid row was not persisted.
+        var list = await _client.GetFromJsonAsync<List<LocationResponse>>($"/api/projects/{projectId}/locations");
+        Assert.Empty(list!);
+    }
+
+    [Fact]
+    public async Task Import_csv_with_unknown_scale_returns_400()
+    {
+        var projectId = await CreateProjectAsync();
+
+        const string csv = "name,lng,lat,scale\nX,-96.7,40.8,not-a-scale\n";
+        var post = await _client.PostAsJsonAsync($"/api/projects/{projectId}/locations/import",
+            new ImportLocationsRequest(csv));
+        Assert.Equal(HttpStatusCode.BadRequest, post.StatusCode);
+    }
+
+    [Fact]
+    public async Task Import_under_unknown_project_returns_404()
+    {
+        const string csv = "name,lng,lat\nX,-96.7,40.8\n";
+        var post = await _client.PostAsJsonAsync($"/api/projects/{Guid.NewGuid()}/locations/import",
+            new ImportLocationsRequest(csv));
+        Assert.Equal(HttpStatusCode.NotFound, post.StatusCode);
+    }
+
+    [Fact]
     public async Task List_returns_locations_ordered_by_L_series()
     {
         var projectId = await CreateProjectAsync();

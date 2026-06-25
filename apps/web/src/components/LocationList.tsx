@@ -16,6 +16,8 @@ interface LocationListProps {
   onDelete: (id: string) => Promise<void>;
   /** Override (or clear) a saved location's scale. null → inherit project scale. */
   onSetScale: (loc: Location, scalePresetId: string | null) => Promise<void>;
+  /** Bulk-import from CSV text; resolves to the number imported. */
+  onImport: (csv: string) => Promise<number>;
   /** If true, user can click map to drop pin — communicated to parent */
   onStartDrop?: () => void;
 }
@@ -27,6 +29,7 @@ export function LocationList({
   onAdd,
   onDelete,
   onSetScale,
+  onImport,
   onStartDrop,
 }: LocationListProps) {
   const [name, setName] = useState("");
@@ -36,9 +39,29 @@ export function LocationList({
   const [scaleId, setScaleId] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState<string | null>(null);
 
   const projectScaleLabel =
     scalePresets.find((s) => s.id === projectScaleId)?.label ?? projectScaleId;
+
+  async function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-importing the same file
+    if (!file) return;
+    setImportMsg(null);
+    setError(null);
+    setImporting(true);
+    try {
+      const text = await file.text();
+      const count = await onImport(text);
+      setImportMsg(`Imported ${count} location${count === 1 ? "" : "s"}.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to import CSV.");
+    } finally {
+      setImporting(false);
+    }
+  }
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
@@ -69,16 +92,29 @@ export function LocationList({
         <span className="font-mono text-[11px] uppercase tracking-widest text-bark-600">
           Important Locations
         </span>
-        {onStartDrop && (
-          <button
-            type="button"
-            onClick={onStartDrop}
-            className="font-mono text-[11px] uppercase tracking-widest text-forest-700 underline hover:text-forest-600"
-          >
-            Drop on Map
-          </button>
-        )}
+        <div className="flex items-center gap-3">
+          <label className="cursor-pointer font-mono text-[11px] uppercase tracking-widest text-forest-700 underline hover:text-forest-600">
+            {importing ? "Importing…" : "Import CSV"}
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              onChange={(e) => void handleImportFile(e)}
+              disabled={importing}
+              className="hidden"
+            />
+          </label>
+          {onStartDrop && (
+            <button
+              type="button"
+              onClick={onStartDrop}
+              className="font-mono text-[11px] uppercase tracking-widest text-forest-700 underline hover:text-forest-600"
+            >
+              Drop on Map
+            </button>
+          )}
+        </div>
       </div>
+      {importMsg && <p className="font-mono text-[11px] text-forest-700">{importMsg}</p>}
 
       {locations.length > 0 && (
         <ul className="divide-y divide-bark-200 border border-bark-300">

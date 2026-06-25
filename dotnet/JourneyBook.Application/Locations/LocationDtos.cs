@@ -14,6 +14,17 @@ public record CreateLocationRequest(
     string SourceConfidence = "Unknown",
     string? ScalePresetId = null);
 
+/// <summary>
+/// Bulk-import locations from CSV text. Header row required; columns
+/// (case-insensitive): <c>name</c>, <c>lng</c>|<c>longitude</c>, <c>lat</c>|
+/// <c>latitude</c> (required); <c>notes</c>, <c>scale</c>|<c>scalePresetId</c>
+/// (optional). All-or-nothing: any invalid row rejects the whole import (400).
+/// </summary>
+public record ImportLocationsRequest(string Csv);
+
+/// <summary>Result of a CSV import: the created locations and their count.</summary>
+public record ImportLocationsResponse(int Imported, IReadOnlyList<LocationResponse> Locations);
+
 /// <summary>Replace the mutable fields of an existing important location.</summary>
 public record UpdateLocationRequest(
     string Name,

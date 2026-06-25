@@ -21,6 +21,14 @@ public interface ILocationService
     /// </summary>
     Task<LocationResponse?> CreateAsync(Guid projectId, CreateLocationRequest request, CancellationToken ct = default);
 
+    /// <summary>
+    /// Bulk-create important locations from CSV text (continuing the L-series).
+    /// Returns <c>null</c> when the project does not exist (→ 404); throws
+    /// <see cref="LocationValidationException"/> with aggregated row errors (→ 400)
+    /// when the CSV is malformed or any row is invalid (all-or-nothing).
+    /// </summary>
+    Task<ImportLocationsResponse?> ImportAsync(Guid projectId, ImportLocationsRequest request, CancellationToken ct = default);
+
     /// <summary>List the important locations for a project, ordered by L-series number.</summary>
     Task<IReadOnlyList<LocationResponse>?> ListAsync(Guid projectId, CancellationToken ct = default);
 

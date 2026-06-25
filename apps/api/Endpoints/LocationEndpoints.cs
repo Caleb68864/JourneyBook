@@ -22,6 +22,20 @@ public static class LocationEndpoints
             }
         });
 
+        projectScoped.MapPost("/import", async (Guid projectId, ImportLocationsRequest request, ILocationService service) =>
+        {
+            try
+            {
+                return await service.ImportAsync(projectId, request) is { } result
+                    ? Results.Ok(result)
+                    : Results.NotFound();
+            }
+            catch (LocationValidationException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
+
         projectScoped.MapGet("/", async (Guid projectId, ILocationService service) =>
             await service.ListAsync(projectId) is { } locations ? Results.Ok(locations) : Results.NotFound());
 

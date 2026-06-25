@@ -43,6 +43,58 @@ public class LocationService(JourneyBookDbContext db) : ILocationService
         return ToResponse(location);
     }
 
+    public async Task<ImportLocationsResponse?> ImportAsync(Guid projectId, ImportLocationsRequest request, CancellationToken ct = default)
+    {
+        if (!await db.Projects.AnyAsync(p => p.Id == projectId, ct))
+        {
+            return null;
+        }
+
+        // Parse + per-row validate (throws LocationValidationException → 400).
+        var rows = LocationCsv.Parse(request.Csv);
+
+        // Validate every per-location scale override up front (all-or-nothing).
+        var scaleIds = rows.Where(r => r.ScalePresetId is not null)
+            .Select(r => r.ScalePresetId!)
+            .Distinct()
+            .ToList();
+        if (scaleIds.Count > 0)
+        {
+            var known = await db.ScalePresets
+                .Where(s => scaleIds.Contains(s.Id))
+                .Select(s => s.Id)
+                .ToListAsync(ct);
+            var unknown = scaleIds.Except(known).ToList();
+            if (unknown.Count > 0)
+                throw new LocationValidationException($"Unknown scale preset(s): {string.Join(", ", unknown)}.");
+        }
+
+        // Continue the L-series from the current max (single query, then increment).
+        var maxNumber = await db.ImportantLocations
+            .Where(l => l.ProjectId == projectId)
+            .Select(l => (int?)l.LocationNumber)
+            .MaxAsync(ct) ?? 0;
+
+        var created = new List<ImportantLocation>(rows.Count);
+        foreach (var row in rows)
+        {
+            var location = new ImportantLocation
+            {
+                ProjectId = projectId,
+                Name = row.Name,
+                Location = ToPoint(row.Lng, row.Lat),
+                Notes = row.Notes,
+                ScalePresetId = row.ScalePresetId,
+                LocationNumber = ++maxNumber,
+            };
+            db.ImportantLocations.Add(location);
+            created.Add(location);
+        }
+
+        await db.SaveChangesAsync(ct);
+        return new ImportLocationsResponse(created.Count, created.Select(ToResponse).ToList());
+    }
+
     public async Task<IReadOnlyList<LocationResponse>?> ListAsync(Guid projectId, CancellationToken ct = default)
     {
         if (!await db.Projects.AnyAsync(p => p.Id == projectId, ct))

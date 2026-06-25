@@ -175,6 +175,12 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
     }
   }
 
+  async function handleImportCsv(csv: string): Promise<number> {
+    const result = await api.locations.import(projectId, csv);
+    setLocations((l) => [...l, ...result.locations]);
+    return result.imported;
+  }
+
   async function handleDeleteLocation(id: string) {
     try {
       await api.locations.delete(id);
@@ -382,6 +388,7 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
                 onAdd={handleAddLocation}
                 onDelete={handleDeleteLocation}
                 onSetScale={handleSetLocationScale}
+                onImport={handleImportCsv}
                 onStartDrop={() => setDrawMode("location")}
               />
             </section>

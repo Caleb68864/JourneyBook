@@ -41,6 +41,11 @@ export interface Location {
   scalePresetId: string | null;
 }
 
+export interface ImportLocationsResult {
+  imported: number;
+  locations: Location[];
+}
+
 export interface RenderResult {
   generatedPdfId: string;
   status: string;
@@ -178,6 +183,8 @@ export const api = {
       }),
     delete: (locationId: string) =>
       request<void>("DELETE", `/locations/${locationId}`),
+    import: (projectId: string, csv: string) =>
+      request<ImportLocationsResult>("POST", `/projects/${projectId}/locations/import`, { csv }),
   },
 
   render: {
