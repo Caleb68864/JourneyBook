@@ -37,15 +37,43 @@ services:
       Cors__AllowedOrigins__0: "http://localhost:8080"
       # The api waits for a healthy db, so apply migrations on boot here.
       Database__MigrateOnStartup: "true"
+      # The api proxies render requests to the internal render-worker service.
+      RenderWorker__BaseUrl: "http://render-worker:8090"
     ports:
       - "${API_PORT:-5180}:8080"
     depends_on:
       db:
         condition: service_healthy
+      render-worker:
+        condition: service_healthy
     volumes:
       # Short-lived render artifacts / generated PDFs (kept out of the image).
       - ../../data/generated:/app/data/generated
       - ../../data/cache:/app/data/cache
+
+  render-worker:
+    build:
+      context: ../..
+      dockerfile: infra/docker/render-worker.Dockerfile
+    environment:
+      GENERATED_DIR: /app/data/generated
+    # Port 8090 stays internal to the compose network; the unauthenticated
+    # worker is not reachable from the host (expose, not host-published ports).
+    expose:
+      - "8090"
+    volumes:
+      # Same shared volume as api so worker-written PDFs are visible to the api.
+      - ../../data/generated:/app/data/generated
+    healthcheck:
+      # 127.0.0.1 (not localhost): the worker binds IPv4 0.0.0.0, but localhost
+      # resolves to IPv6 ::1 first in the container → connection refused.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8090/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      # Give the Node service time to boot before failures count against the
+      # api's `depends_on: service_healthy` gate.
+      start_period: 20s
 
   web:
     build:

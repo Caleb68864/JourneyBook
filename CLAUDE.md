@@ -16,6 +16,7 @@ JourneyBook generates printable, true-to-scale land-navigation atlases (PDF) fro
 
 - `packages/` — TS monorepo: `atlas-core` (geometry: scale/projection/grid/validation), `map-sources` (Web Mercator tile math + USGS panels), `pdf-client` (@react-pdf), `render-cli` (headless CLI), `ui`.
 - `apps/web` — React 19 + Vite + Tailwind v4. `apps/api` — ASP.NET Core .NET 10 host.
+- `services/render-worker` — Node/Fastify service wrapping `renderAtlas` (the C# API proxies render jobs to it over HTTP at `RenderWorker:BaseUrl`; it returns PDFs under the shared `data/generated` volume). The API owns no geometry/render (ADR 0004/0005).
 - `dotnet/` — Clean Architecture libs: `JourneyBook.{Domain,Application,Infrastructure,Tests}`.
 - `infra/` — Docker (db/api/web) + Compose. `vault/` — research + staged-build-roadmap. `docs/` — ADRs, specs, notes.
 

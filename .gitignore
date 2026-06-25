@@ -49,6 +49,12 @@ dist-ssr/
 build/
 .vite/
 .turbo/
+
+# Playwright (test output + MCP session artifacts)
+test-results/
+playwright-report/
+.playwright-mcp/
+*.tsbuildinfo
 .cache/
 
 # Test / coverage

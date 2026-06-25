@@ -5,13 +5,17 @@ FROM node:22-alpine AS build
 WORKDIR /repo
 RUN corepack enable
 
-# Workspace manifests first for cached installs.
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
-COPY packages/ packages/
-COPY apps/web/ apps/web/
+# Copy the whole monorepo source (heavy/irrelevant dirs are excluded via
+# .dockerignore). The FULL workspace must be present so pnpm produces a complete
+# install with typescript hoisted to the workspace root .bin — a partial copy
+# (missing services/*) yields a degraded install where `tsc` isn't found when
+# building the workspace dependency packages.
+COPY . .
 
 RUN pnpm install --frozen-lockfile
-RUN pnpm --filter @journeybook/web build
+# Build apps/web AND its workspace dependencies (atlas-core, ui, …) first so
+# their dist/*.d.ts exist before web's `tsc -b` resolves `@journeybook/*`.
+RUN pnpm --filter @journeybook/web... build
 
 FROM nginx:alpine AS runtime
 COPY infra/docker/web-nginx.conf /etc/nginx/conf.d/default.conf

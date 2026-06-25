@@ -15,6 +15,12 @@ public class TileSource : EntityBase
     public required string Provider { get; set; }
     public required string SourceUrl { get; set; }
 
+    /// <summary>
+    /// Dispatch discriminator for the tile proxy: <c>usgs-raster</c> | <c>xyz-server</c> |
+    /// <c>pmtiles</c>. Defaults to <c>usgs-raster</c>; existing rows backfill to that value.
+    /// </summary>
+    public string Kind { get; set; } = "usgs-raster";
+
     public string? Version { get; set; }
     public DateOnly? SourceDate { get; set; }
 

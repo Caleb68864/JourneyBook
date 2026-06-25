@@ -12,7 +12,8 @@
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc --noEmit",
-    "start": "node ./dist/cli.js"
+    "start": "node ./dist/cli.js",
+    "test": "vitest run"
   },
   "dependencies": {
     "@journeybook/atlas-core": "workspace:*",
@@ -20,6 +21,7 @@
     "@journeybook/pdf-client": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^22.10.0"
+    "@types/node": "^22.10.0",
+    "vitest": "^3.0.0"
   }
 }

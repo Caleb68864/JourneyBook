@@ -129,4 +129,51 @@ public class TileSourcesApiTests(PostgisApiFactory factory) : IClassFixture<Post
         var get = await _client.GetAsync("/api/tile-sources/by-key/no-such-key");
         Assert.Equal(HttpStatusCode.NotFound, get.StatusCode);
     }
+
+    [Fact]
+    public async Task Create_with_kind_round_trips_kind()
+    {
+        var request = new CreateTileSourceRequest(
+            Key: "kind-pmtiles",
+            Provider: "Protomaps",
+            SourceUrl: "data/map-packages/world.pmtiles",
+            Attribution: "© OpenStreetMap contributors",
+            MaxZoom: 14,
+            Cache: new TileCachePolicyDto(86400, true),
+            Kind: "pmtiles");
+
+        var post = await _client.PostAsJsonAsync("/api/tile-sources", request);
+        Assert.Equal(HttpStatusCode.Created, post.StatusCode);
+
+        var fetched = await _client.GetFromJsonAsync<TileSourceResponse>("/api/tile-sources/by-key/kind-pmtiles");
+        Assert.NotNull(fetched);
+        Assert.Equal("pmtiles", fetched!.Kind);
+    }
+
+    [Fact]
+    public async Task Create_without_kind_defaults_to_usgs_raster()
+    {
+        var request = new CreateTileSourceRequest(
+            Key: "kind-default",
+            Provider: "P",
+            SourceUrl: "https://example.com/{z}/{x}/{y}",
+            Attribution: "A",
+            MaxZoom: 10,
+            Cache: new TileCachePolicyDto(0, false));
+
+        var post = await _client.PostAsJsonAsync("/api/tile-sources", request);
+        Assert.Equal(HttpStatusCode.Created, post.StatusCode);
+
+        var fetched = await _client.GetFromJsonAsync<TileSourceResponse>("/api/tile-sources/by-key/kind-default");
+        Assert.NotNull(fetched);
+        Assert.Equal("usgs-raster", fetched!.Kind);
+    }
+
+    [Fact]
+    public async Task Seeded_usgs_topo_has_usgs_raster_kind()
+    {
+        var result = await _client.GetFromJsonAsync<TileSourceResponse>("/api/tile-sources/by-key/usgs-topo");
+        Assert.NotNull(result);
+        Assert.Equal("usgs-raster", result!.Kind);
+    }
 }

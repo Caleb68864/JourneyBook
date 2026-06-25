@@ -303,6 +303,13 @@ namespace JourneyBook.Infrastructure.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("usgs-raster");
+
                     b.Property<int>("MaxZoom")
                         .HasColumnType("integer");
 
@@ -336,6 +343,7 @@ namespace JourneyBook.Infrastructure.Migrations
                             Id = new Guid("11111111-1111-1111-1111-111111111111"),
                             Attribution = "USGS The National Map",
                             Key = "usgs-topo",
+                            Kind = "usgs-raster",
                             MaxZoom = 16,
                             Provider = "USGS",
                             SourceUrl = "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}"

@@ -19,12 +19,13 @@ import {
   type PageMargins,
   type ScalePreset,
 } from "@journeybook/atlas-core";
+import { brand } from "@journeybook/ui";
 
-// Brand-ish neutral palette (full brand system is Stage 4).
-const INK = "#23211c";
-const FOREST = "#1f3d2b";
-const BARK = "#6b4f36";
-const PARCHMENT = "#ede4cf";
+// Brand token aliases for furniture styling — values come from @journeybook/ui/tokens.
+const INK = brand.ink;
+const FOREST = brand.forest;
+const BARK = brand.bark;
+const PARCHMENT = brand.parchment;
 
 const styles = StyleSheet.create({
   page: { fontFamily: "Helvetica", fontSize: 9, color: INK },

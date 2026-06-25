@@ -7,4 +7,5 @@
  */
 
 export { runCli } from "./cli.js";
+export { renderAtlas, type RenderAtlasInput, type RenderAtlasResult } from "./render.js";
 export const RENDER_CLI_VERSION = "0.0.0";

@@ -18,5 +18,8 @@
     "dev:web": "pnpm --filter @journeybook/web dev",
     "build:web": "pnpm --filter @journeybook/web build",
     "clean": "pnpm -r exec rimraf dist"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
   }
 }

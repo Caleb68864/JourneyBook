@@ -11,5 +11,6 @@
     { "path": "../map-sources" },
     { "path": "../pdf-client" }
   ],
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts"]
 }

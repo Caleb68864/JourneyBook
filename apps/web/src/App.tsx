@@ -1,10 +1,24 @@
-import { Hero } from "./components/Hero";
+import { useState } from "react";
+import { ProjectListPage } from "./routes/ProjectListPage";
+import { ProjectEditorPage } from "./routes/ProjectEditorPage";
 
-/**
- * App shell. Renders the branded landing hero (Stage 4). The original Stage 0
- * health probe (GET /health + /health/db) is preserved inside the hero footer
- * as the "Field link" status chip — see components/HealthChip.tsx.
- */
+type Route =
+  | { page: "list" }
+  | { page: "editor"; projectId: string };
+
 export default function App() {
-  return <Hero />;
+  const [route, setRoute] = useState<Route>({ page: "list" });
+
+  if (route.page === "editor") {
+    return (
+      <ProjectEditorPage
+        projectId={route.projectId}
+        onBack={() => setRoute({ page: "list" })}
+      />
+    );
+  }
+
+  return (
+    <ProjectListPage onOpen={(id) => setRoute({ page: "editor", projectId: id })} />
+  );
 }

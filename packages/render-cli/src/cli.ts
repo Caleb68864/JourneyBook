@@ -27,8 +27,7 @@ import {
   type MapTier,
   type ScalePreset,
 } from "@journeybook/atlas-core";
-import { renderAtlasPdfToFile } from "@journeybook/pdf-client";
-import { renderMapPanel } from "@journeybook/map-sources";
+import { renderAtlas } from "./render.js";
 
 const HELP = `journeybook — headless atlas renderer
 
@@ -41,6 +40,10 @@ Usage:
   journeybook validate --location LNG,LAT --scale <preset>
 
 --basemap fetches a USGS (public-domain) topo panel per page over the network.
+--tile-base-url <url> routes basemap tiles through the C# proxy (e.g. http://localhost:5180/api/tiles),
+  reusing its cache and enabling PMTiles sources; --tile-source <id> overrides the proxy source key.
+  Omit --tile-base-url to fetch tiles directly (zero infrastructure).
+--tile-cache-dir <dir> reads/writes a shared local tile cache (default: no Node-side cache).
 validate runs the print-validation harness (true scale, neighbour integrity).
 
 Scale presets:
@@ -141,20 +144,46 @@ export async function runCli(args: readonly string[]): Promise<number> {
       const flags = parseFlags(rest);
       const out = flags.get("out");
       if (!out || out === "true") throw new Error("render needs --out <file.pdf>");
-      const contract = contractFromFlags(flags);
 
-      let panels: Record<string, string> | undefined;
-      if (flags.has("basemap")) {
-        panels = {};
-        for (const page of contract.pages) {
-          const panel = await renderMapPanel(page.bbox, 1000);
-          panels[page.id] = `data:image/png;base64,${panel.png.toString("base64")}`;
-          stderr.write(`  panel ${page.id} (z${panel.zoom})\n`);
-        }
+      const scaleId = flags.get("scale");
+      if (!scaleId) throw new Error("render needs --scale <preset>");
+      const tier = resolveTier(flags);
+
+      const mode = flags.has("location") ? "location" : "bbox";
+      const tileBaseUrl = flags.has("tile-base-url") ? flags.get("tile-base-url") : undefined;
+      const tileSourceId = flags.has("tile-source") ? flags.get("tile-source") : undefined;
+      const cacheDir = flags.has("tile-cache-dir") ? flags.get("tile-cache-dir") : undefined;
+
+      let center: { lng: number; lat: number } | undefined;
+      let bbox: [number, number, number, number] | undefined;
+      if (mode === "location") {
+        const [lng, lat] = flags
+          .get("location")!
+          .split(",")
+          .map(Number) as [number, number];
+        center = { lng, lat };
+      } else {
+        bbox = flags
+          .get("bbox")!
+          .split(",")
+          .map(Number) as [number, number, number, number];
       }
 
-      await renderAtlasPdfToFile({ contract, outputPath: out, panels });
-      stdout.write(`Wrote ${contract.pages.length} page(s) to ${out}\n`);
+      const result = await renderAtlas({
+        mode,
+        bbox,
+        center,
+        scalePresetId: scaleId,
+        tier,
+        overlap: flags.has("overlap") ? Number(flags.get("overlap")) : undefined,
+        basemap: flags.has("basemap"),
+        tileBaseUrl: tileBaseUrl && tileBaseUrl !== "true" ? tileBaseUrl : undefined,
+        tileSourceId: tileSourceId && tileSourceId !== "true" ? tileSourceId : undefined,
+        cacheDir: cacheDir && cacheDir !== "true" ? cacheDir : undefined,
+        outputPath: out,
+      });
+
+      stdout.write(`Wrote ${result.pageCount} page(s) to ${result.outputPath}\n`);
       return 0;
     } catch (err) {
       stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
