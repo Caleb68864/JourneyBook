@@ -5,6 +5,10 @@
 **/obj
 **/.vite
 **/.turbo
+# Stale tsc -b incremental state would make `tsc -b` skip emitting dist on a
+# fresh build context — exclude it so Docker always does a clean compile.
+**/*.tsbuildinfo
+**/.tmp
 data/generated/*
 data/cache/*
 data/map-packages/*

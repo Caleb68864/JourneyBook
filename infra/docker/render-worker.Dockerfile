@@ -5,14 +5,17 @@ FROM node:22-alpine AS build
 WORKDIR /repo
 RUN corepack enable
 
-# Workspace manifests first for cached installs.
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
-COPY packages/ packages/
-COPY services/render-worker/ services/render-worker/
+# Copy the whole monorepo source. Heavy/irrelevant dirs are excluded by
+# .dockerignore (node_modules, dist, bin, obj, .git, docs, vault, *.md). The
+# FULL workspace must be present on disk so `pnpm install --frozen-lockfile` can
+# resolve every member declared in pnpm-workspace.yaml (apps/web, packages/*,
+# services/*) — typescript is a hoisted devDependency, so a partial copy left
+# `tsc` unavailable when building packages/ui.
+COPY . .
 
 RUN pnpm install --frozen-lockfile
-# Build the worker and its workspace dependencies (render-cli -> atlas-core,
-# map-sources, pdf-client) via pnpm's "...dependencies" selector.
+# Build the worker and its workspace deps (render-cli -> atlas-core, map-sources,
+# pdf-client, ui) via pnpm's "...dependencies" selector.
 RUN pnpm --filter @journeybook/render-worker... build
 
 FROM node:22-alpine AS runtime
