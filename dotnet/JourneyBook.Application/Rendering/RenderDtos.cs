@@ -35,7 +35,14 @@ public record RenderWorkerRequest(
     // hitting USGS directly. Null → worker fetches USGS directly.
     string? TileBaseUrl = null,
     string? TileSourceId = null,
-    bool Route = false);
+    bool Route = false,
+    // Persisted landmarks forwarded as additive vector furniture (camelCase
+    // `landmarks` on the wire), gated by the include flag like Route.
+    IReadOnlyList<RenderLandmarkDto>? Landmarks = null,
+    bool IncludeLandmarks = false);
+
+/// <summary>A single landmark forwarded to the render worker.</summary>
+public record RenderLandmarkDto(double Longitude, double Latitude, string Name, string Category, double Score);
 
 /// <summary>Safe margins (inches) forwarded to the render worker.</summary>
 public record RenderMarginsDto(double Top, double Right, double Bottom, double Left, double Gutter = 0);
