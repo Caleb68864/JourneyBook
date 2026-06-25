@@ -40,9 +40,9 @@ This roadmap turns Journey Book into a buildable sequence. The MVP target is a D
 
 The build order is deliberately **risk-first and headless-first**: the riskiest unknowns (true print scale, projection, PDF fidelity, attribution survival) are proven by a no-UI engine before any visual theming exists. This lets an autonomous builder (Dark Factory) produce and validate the core engine before the brand/hero work begins.
 
-## Current Status (2026-06-24)
+## Current Status (2026-06-25)
 
-**Phase A (headless engine) and Phase B (persistence) are both complete.** Built and verified:
+**Phase A (headless engine), Phase B (persistence), Stage 3 (tile proxy), and Phase C (first usable web UI) are all complete.** The product now runs end-to-end in a browser. Built and verified:
 
 - ✅ **Stage 0** — monorepo skeleton, layered .NET 10 backend, Docker Compose, branded web shell.
 - ✅ **Stage 1B** — scale + per-page true-scale projection + page-grid/location engine (`atlas-core`, TDD).
@@ -54,15 +54,26 @@ The build order is deliberately **risk-first and headless-first**: the riskiest 
 - ✅ **Stage 2C** — important-locations API + stable L-series labels (Point 4326).
 - ✅ **Stage 2D** — tile-source registry (unique key → 409, by-key lookup, seeded `usgs-topo`).
 - ✅ **Stage 2E** — generated-PDF records + retention + path-confined prune.
+- ✅ **Stage 3** — tile proxy + per-device cache + **PMTiles reader** (`/api/tiles/{source}/{z}/{x}/{y}`, raster/PMTiles dispatch on the Stage 2D `Kind`, ETag/Cache-Control/attribution, `--tile-base-url` CLI). Hand-built after a factory `partial_success` (see `docs/decisions.md`).
+- ✅ **Stage 4** — brand/visual system hardened: shadcn/ui primitives, shared `@journeybook/ui` tokens (forest/parchment/campfire + Saira Stencil / Source Sans 3 / Spline Mono), `pdf-client` furniture aligned to the same tokens.
+- ✅ **Stage 5** — React web app: project list, MapLibre preview (wired to the tile proxy), scale + tier pickers (bound to `SCALE_PRESETS`/`MapTier`), bbox draw/enter, important-location drop/edit, **Generate + download**. Rendering goes through a dedicated **Node `render-worker`** (Fastify wrapping `renderAtlas`) that the C# API proxies to — geometry/render stays in TS (ADR 0004/0005).
 
-Stage 2C-2E were built end-to-end via the **dark factory** (4 sub-specs from a forged/prepped/red-teamed spec), then driven to **CONVERGED** by `/forge-converge` (the adversarial pass caught + closed an untested path-traversal guard). See `docs/decisions.md` (ADR 0004 seam) and the spec bundle.
+**Phase C** was built by the **dark factory** (SS-01–06), then driven to **CONVERGED** by `/forge-converge` (3 passes — caught missing tests, a C#→worker wire-contract mismatch, and web↔API contract drift), **hardened** (10 adversarial passes — input validation, error mapping, cancellation safety, SSRF/page-count caps, map-crash guards, observability), had its **Docker images repaired** (all three were broken — the factory only ran `compose config`, never `docker build`), and was **verified end-to-end**: full `create → extent → render → download` round-trip under `docker compose up` (4 healthy containers) + a passing Playwright UI smoke test. See `docs/decisions.md` (Phase C entries + ADR 0004/0005).
 
-The whole headless pipeline runs with **zero UI**:
-`journeybook render --location LNG,LAT --scale <preset> --tier N --basemap --out atlas.pdf` (also `grid`, `validate`).
+The headless pipeline still runs with **zero UI** (`journeybook render … --out atlas.pdf`); the same `renderAtlas` now also backs the web app via the render-worker.
 
-**Test tally:** atlas-core 26 · map-sources 6 · backend **37** — all green. All on `origin/master` (default branch).
+**Test tally:** atlas-core 26 · map-sources 12 · render-cli 7 · render-worker 6 · backend **71** — all green. Merged to `master` (commit `7b8737e`; local, ahead of `origin/master`).
 
-**Next:** Stage 3 (tile proxy + cache — where the [[PMTiles]] / self-hosting support lands on the Stage 2D registry seam) → Phase C (Stage 4 brand, Stage 5 web UI on the proven engine + API).
+**Next:** Stage 6 (landmarks + simple routes) and **Stage 6B** (the Level 3–4 land-nav tier templates — self-generated USNG/MGRS grid, the headline navigation-credibility feature) → Stage 7 (PMTiles offline packages + optional self-hosted tile server) → Stage 9 (MVP polish: geocode search, project rename/duplicate, error UX). Stage 8 (QuestPDF) stays conditional; Stages 10–11 are post-MVP.
+
+## Planned Enhancements — Locations, Extent & Route Atlases (user-requested, post-Phase-C)
+
+Concrete features requested after the first usable UI shipped. They build on the existing seams (Stage 2C locations API, the extent-driven page grid, the location-page render mode) and mostly slot into Stages 5/6/9 — captured here so they aren't lost.
+
+- **Box → location.** When the user draws/previews a box on the map, offer an option to save that box **as an important location** instead of as the project extent (e.g. its centre, or a named area). Builds on the draw-box + preview/confirm flow and the Stage 2C locations API. *(Small; Stage 5/9 web feature.)*
+- **Locations → bounding box (trip-covering atlas).** A one-click **"Use locations as the bounding box"**: compute the bbox enclosing *all* saved locations and set it as the project extent, so adding every stop on a trip yields one large atlas that covers all destinations. The client already computes this bound to auto-frame the map; wire it to `PUT /extent`. *(Small; extent-driven grid already supports it.)*
+- **Locations → route atlas (page per stop along the route).** With locations entered **in order**, generate an atlas that includes (1) a fixed-scale **location page per stop** (already supported per-location) and (2) a **map page for each place along the route** from start to each destination, **removing duplicate/overlapping pages**. This is the "route-shaped atlas" (cf. Stage 10) — needs ordered locations, a route path (straight-line first, real routing later), pages tiled along the corridor, and page de-duplication. *(Larger; a new render mode — pairs with Stage 6 routes. Likely its own forge spec.)*
+- **CSV import for locations (+ a sample CSV).** Import locations from a CSV (`name,lng,lat[,notes]`) into a project — a web upload (or a `render-cli` command) that bulk-creates via the Stage 2C API — and commit a **small sample CSV under `data/fixtures/`** so we can quickly populate a project and *see what a real multi-page atlas looks like*. *(Small–medium; good near-term testing aid for the route/extent features above.)*
 
 ## Locked Decisions
 
@@ -386,7 +397,7 @@ Done when:
 - A saved location persists and generates a fixed-scale location page + reference label.
 - The server derives and persists a page grid; all metadata round-trips through integration tests.
 
-## Stage 3: Tile Proxy and Per-Device Cache (headless)
+## Stage 3: Tile Proxy and Per-Device Cache (headless) — ✅ built (2026-06-25)
 
 Goal: serve map tiles without permanently storing large archives, and let the headless renderer and (future) browser share one endpoint.
 
@@ -411,7 +422,7 @@ Done when:
 
 # Phase C — UI, Brand, and Product
 
-## Stage 4: Brand and Visual System (hero/theming page)
+## Stage 4: Brand and Visual System (hero/theming page) — ✅ built (2026-06-25)
 
 Goal: define the visual language now that the engine is proven. This is the first UI work and the natural home for a themeable hero page.
 
@@ -433,7 +444,7 @@ Done when:
 - The printed page stays legible in grayscale and color.
 - Brand direction documented in [[Branding Theme]].
 
-## Stage 5: Web App — Preview, Projects, and Generate
+## Stage 5: Web App — Preview, Projects, and Generate — ✅ built (2026-06-25)
 
 Goal: wire the proven headless engine to an interactive UI.
 
