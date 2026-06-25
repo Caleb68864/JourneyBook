@@ -1,0 +1,21 @@
+{
+  "name": "@journeybook/render-worker",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Fastify service wrapping renderAtlas for server-side PDF generation.",
+  "type": "module",
+  "main": "./dist/server.js",
+  "scripts": {
+    "build": "tsc -b",
+    "start": "node ./dist/server.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@journeybook/render-cli": "workspace:*",
+    "fastify": "^4.28.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2"
+  }
+}
