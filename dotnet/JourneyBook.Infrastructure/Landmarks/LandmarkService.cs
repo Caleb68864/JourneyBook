@@ -119,9 +119,14 @@ public class LandmarkService(JourneyBookDbContext db, IOverpassClient overpass) 
         LandmarkCategory.Peak => 10,
         LandmarkCategory.Tower => 8,
         LandmarkCategory.Viewpoint => 7,
+        // Road-trip services rank highly — fuel and rest areas are trip-critical.
+        LandmarkCategory.Fuel => 7,
+        LandmarkCategory.RestArea => 6,
         LandmarkCategory.Water => 6,
         LandmarkCategory.Worship => 5,
         LandmarkCategory.Civic => 5,
+        LandmarkCategory.Food => 5,
+        LandmarkCategory.Lodging => 5,
         LandmarkCategory.School => 4,
         LandmarkCategory.Station => 4,
         LandmarkCategory.Trailhead => 4,
@@ -163,6 +168,17 @@ public class LandmarkService(JourneyBookDbContext db, IOverpassClient overpass) 
         [("information", "trailhead")] = LandmarkCategory.Trailhead,
         [("railway", "station")] = LandmarkCategory.Station,
         [("public_transport", "station")] = LandmarkCategory.Station,
+        // Road-trip services.
+        [("amenity", "fuel")] = LandmarkCategory.Fuel,
+        [("amenity", "charging_station")] = LandmarkCategory.Fuel,
+        [("amenity", "restaurant")] = LandmarkCategory.Food,
+        [("amenity", "fast_food")] = LandmarkCategory.Food,
+        [("amenity", "cafe")] = LandmarkCategory.Food,
+        [("tourism", "hotel")] = LandmarkCategory.Lodging,
+        [("tourism", "motel")] = LandmarkCategory.Lodging,
+        [("tourism", "camp_site")] = LandmarkCategory.Lodging,
+        [("highway", "rest_area")] = LandmarkCategory.RestArea,
+        [("highway", "services")] = LandmarkCategory.RestArea,
     };
 
     // --- helpers ----------------------------------------------------------

@@ -46,5 +46,6 @@ export * from "./tilemath.js";
 export * from "./panel.js";
 export * from "./tilecache.js";
 export * from "./usng-grid.js";
+export * from "./overview.js";
 
 export const MAP_SOURCES_VERSION = "0.0.0";

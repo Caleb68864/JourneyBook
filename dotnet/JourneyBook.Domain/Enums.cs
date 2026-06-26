@@ -42,6 +42,11 @@ public enum LandmarkCategory
     Viewpoint,
     Trailhead,
     Station,
+    // Road-trip services (useful POIs along a route).
+    Fuel,
+    Food,
+    Lodging,
+    RestArea,
     Other,
 }
 

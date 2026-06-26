@@ -14,10 +14,11 @@ import {
   type LngLat,
   type MapTier,
   type PlacedLandmark,
+  type AtlasOverview,
   type UsngGridOverlay,
 } from "@journeybook/atlas-core";
 import { renderAtlasPdfToFile, type RouteOverlay } from "@journeybook/pdf-client";
-import { renderMapPanel, buildUsngGrid } from "@journeybook/map-sources";
+import { renderMapPanel, buildUsngGrid, buildAtlasOverview } from "@journeybook/map-sources";
 
 /** A saved location to render as its own fixed-scale page (L1, L2, …). */
 export interface RenderLocation {
@@ -68,6 +69,11 @@ export interface RenderAtlasInput {
    * Default true; set false to suppress the TOC.
    */
   tableOfContents?: boolean;
+  /**
+   * Prepend a whole-atlas index/overview page (page footprints + route + stops over
+   * a small-scale basemap) for multi-page atlases. Default true.
+   */
+  overview?: boolean;
 }
 
 export interface RenderAtlasResult {
@@ -260,17 +266,18 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
     );
   }
 
+  const panelOptions =
+    input.tileBaseUrl || input.tileSourceId || input.cacheDir
+      ? {
+          ...(input.tileBaseUrl ? { tileBaseUrl: input.tileBaseUrl } : {}),
+          ...(input.tileSourceId ? { sourceId: input.tileSourceId } : {}),
+          ...(input.cacheDir ? { cacheDir: input.cacheDir } : {}),
+        }
+      : undefined;
+
   let panels: Record<string, string> | undefined;
   if (input.basemap) {
     panels = {};
-    const panelOptions =
-      input.tileBaseUrl || input.tileSourceId || input.cacheDir
-        ? {
-            ...(input.tileBaseUrl ? { tileBaseUrl: input.tileBaseUrl } : {}),
-            ...(input.tileSourceId ? { sourceId: input.tileSourceId } : {}),
-            ...(input.cacheDir ? { cacheDir: input.cacheDir } : {}),
-          }
-        : undefined;
     for (const page of contract.pages) {
       try {
         const panel = await renderMapPanel(page.bbox, 1000, undefined, panelOptions);
@@ -353,6 +360,29 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
     }
   }
 
+  // Whole-atlas index/overview front-matter page (default on for multi-page atlases):
+  // every page's footprint, the route, and the stops over a small-scale basemap of
+  // the whole trip. Built from the same Web-Mercator mapping as the panels.
+  let overview: AtlasOverview | undefined;
+  let overviewPanel: string | undefined;
+  const wantOverview = (input.overview ?? true) && contract.pages.length >= 2;
+  if (wantOverview) {
+    overview = buildAtlasOverview(contract.pages, {
+      route: routePolyline,
+      stops: locationList.map((loc, i) => ({ center: loc.center, label: loc.label ?? `L${i + 1}` })),
+    });
+    if (input.basemap) {
+      try {
+        const panel = await renderMapPanel(overview.bbox, 1000, undefined, panelOptions);
+        overviewPanel = `data:image/png;base64,${panel.png.toString("base64")}`;
+        stderr.write(`  overview panel (z${panel.zoom})\n`);
+      } catch (err) {
+        // Non-fatal: the overview still renders with page rectangles over a blank panel.
+        stderr.write(`  overview panel skipped: ${err instanceof Error ? err.message : String(err)}\n`);
+      }
+    }
+  }
+
   await renderAtlasPdfToFile({
     contract,
     outputPath: input.outputPath,
@@ -361,6 +391,8 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
     routes,
     landmarks,
     tableOfContents: input.tableOfContents ?? true,
+    overview,
+    overviewPanel,
   });
 
   return {

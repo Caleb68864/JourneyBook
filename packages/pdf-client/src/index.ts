@@ -10,7 +10,7 @@
 
 import { renderToBuffer, renderToFile } from "@react-pdf/renderer";
 import { createElement } from "react";
-import type { AtlasContract, PlacedLandmark, UsngGridOverlay } from "@journeybook/atlas-core";
+import type { AtlasContract, AtlasOverview, PlacedLandmark, UsngGridOverlay } from "@journeybook/atlas-core";
 import { AtlasDocument, type RouteOverlay } from "./AtlasDocument.js";
 
 export interface RenderPdfOptions {
@@ -27,6 +27,10 @@ export interface RenderPdfOptions {
   landmarks?: Record<string, PlacedLandmark[]>;
   /** Prepend a locations table-of-contents page (when location pages exist). Default true. */
   tableOfContents?: boolean;
+  /** Whole-atlas index/overview (page footprints + route + stops). Prepended when present. */
+  overview?: AtlasOverview;
+  /** Basemap panel image (data URI) for the overview's bbox; drawn under the rectangles. */
+  overviewPanel?: string;
 }
 
 function documentElement(options: RenderPdfOptions) {
@@ -38,6 +42,8 @@ function documentElement(options: RenderPdfOptions) {
     routes: options.routes,
     landmarks: options.landmarks,
     toc: options.tableOfContents ?? true,
+    overview: options.overview,
+    overviewPanel: options.overviewPanel,
   });
 }
 

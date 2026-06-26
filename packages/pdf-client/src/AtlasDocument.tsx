@@ -15,6 +15,7 @@ import {
   niceScaleBar,
   POINTS_PER_INCH as PT,
   type AtlasContract,
+  type AtlasOverview,
   type AtlasPage,
   type PageMargins,
   type PlacedLandmark,
@@ -70,6 +71,8 @@ const styles = StyleSheet.create({
     borderBottomColor: BARK,
     borderStyle: "dotted",
   },
+  pageNumber: { fontSize: 11, fontFamily: "Helvetica-Bold", color: FOREST, marginLeft: 8 },
+  overviewPageLabel: { fontSize: 9, fontFamily: "Helvetica-Bold", color: INK, textAlign: "center", width: 24 },
   tocLabel: { fontSize: 9, fontFamily: "Helvetica-Bold", color: FOREST, width: 30 },
   tocName: { fontSize: 10, color: INK, flexGrow: 1, flexShrink: 1 },
   tocPage: { fontSize: 10, fontFamily: "Helvetica-Bold", color: INK, marginLeft: 8 },
@@ -342,6 +345,7 @@ function AtlasPageView({
   grid,
   route,
   landmarks,
+  pageNumber,
 }: {
   page: AtlasPage;
   contract: AtlasContract;
@@ -350,6 +354,8 @@ function AtlasPageView({
   grid?: UsngGridOverlay;
   route?: RouteOverlay;
   landmarks?: PlacedLandmark[];
+  /** Physical PDF page number (front matter included), printed in the footer. */
+  pageNumber?: number;
 }) {
   const showTier2 = page.tier >= 2;
   const showTier3 = page.tier >= 3;
@@ -416,7 +422,101 @@ function AtlasPageView({
           <CalibrationTick />
           {showTier2 ? <CompassRose /> : null}
           {showTier3 && grid ? <UsngCollar collar={grid.collar} /> : null}
+          {pageNumber !== undefined ? (
+            <Text style={styles.pageNumber}>{pageNumber}</Text>
+          ) : null}
         </View>
+      </View>
+    </Page>
+  );
+}
+
+/**
+ * Whole-atlas index/overview front-matter page: each content page's footprint
+ * (with its id + PDF page number), the route, and the stops drawn over a
+ * small-scale basemap of the whole trip. `pageNumbers` maps page id → physical
+ * PDF page so a reader can jump straight from the overview to a page.
+ */
+function OverviewPage({
+  title,
+  overview,
+  panel,
+  pageNumbers,
+}: {
+  title: string;
+  overview: AtlasOverview;
+  panel?: string;
+  pageNumbers: Record<string, number>;
+}) {
+  const SIZE = 1000;
+  const routePts = overview.route ?? [];
+  return (
+    <Page size="LETTER" orientation="portrait" style={[styles.page, { padding: 0.75 * PT }]}>
+      <View style={styles.neatline}>
+        <View style={styles.header}>
+          <Text style={styles.title}>{title}</Text>
+          <Text style={styles.pageId}>OVERVIEW</Text>
+        </View>
+        <View style={[styles.panel, { position: "relative" }]}>
+          {panel ? (
+            <Image src={panel} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", objectFit: "cover" }} />
+          ) : (
+            <Text style={styles.panelNote}>Trip overview</Text>
+          )}
+          <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}>
+            <Svg width="100%" height="100%" viewBox={`0 0 ${SIZE} ${SIZE}`}>
+              {/* Route line (casing + ink) across the whole trip. */}
+              {routePts.slice(1).map((p, i) => {
+                const a = routePts[i]!;
+                return (
+                  <Line key={`oc-${i}`} x1={a.x * SIZE} y1={a.y * SIZE} x2={p.x * SIZE} y2={p.y * SIZE} stroke={PARCHMENT} strokeOpacity={0.9} strokeWidth={6} />
+                );
+              })}
+              {routePts.slice(1).map((p, i) => {
+                const a = routePts[i]!;
+                return (
+                  <Line key={`or-${i}`} x1={a.x * SIZE} y1={a.y * SIZE} x2={p.x * SIZE} y2={p.y * SIZE} stroke={INK} strokeWidth={2.5} />
+                );
+              })}
+              {/* Page footprints. */}
+              {overview.pages.map((r) => (
+                <Rect
+                  key={`pr-${r.id}`}
+                  x={r.x * SIZE}
+                  y={r.y * SIZE}
+                  width={r.w * SIZE}
+                  height={r.h * SIZE}
+                  stroke={FOREST}
+                  strokeWidth={1.5}
+                  fill={FOREST}
+                  fillOpacity={0.06}
+                />
+              ))}
+              {/* Stop markers. */}
+              {(overview.stops ?? []).map((s, i) => (
+                <Circle key={`os-${i}`} cx={s.x * SIZE} cy={s.y * SIZE} r={7} fill={FOREST} stroke={PARCHMENT} strokeWidth={2} />
+              ))}
+            </Svg>
+            {/* Page-number labels, positioned at each rectangle's centre (HTML layer for crisp text). */}
+            {overview.pages.map((r) => (
+              <View
+                key={`pl-${r.id}`}
+                style={{
+                  position: "absolute",
+                  left: `${(r.x + r.w / 2) * 100}%`,
+                  top: `${(r.y + r.h / 2) * 100}%`,
+                  marginLeft: -12,
+                  marginTop: -6,
+                }}
+              >
+                <Text style={styles.overviewPageLabel}>{pageNumbers[r.id] ?? ""}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+        <Text style={[styles.small, { color: BARK, marginTop: 4 }]}>
+          {overview.pages.length} pages · numbers are PDF page numbers
+        </Text>
       </View>
     </Page>
   );
@@ -473,6 +573,8 @@ export function AtlasDocument({
   routes,
   landmarks,
   toc = true,
+  overview,
+  overviewPanel,
 }: {
   contract: AtlasContract;
   title: string;
@@ -486,19 +588,36 @@ export function AtlasDocument({
   landmarks?: Record<string, PlacedLandmark[]>;
   /** Prepend a locations table-of-contents page when titled location pages exist. Default true. */
   toc?: boolean;
+  /** Whole-atlas index/overview, prepended as front matter when present. */
+  overview?: AtlasOverview;
+  /** Basemap panel (data URI) for the overview, drawn under the page rectangles. */
+  overviewPanel?: string;
 }) {
+  // Front matter (overview, then TOC) precedes the content pages and shifts their
+  // physical page numbers. Both are computed from the same offset so the TOC, the
+  // per-page footer numbers, and the overview's page labels all agree.
+  const hasTitledPages = contract.pages.some((p) => typeof p.title === "string" && p.title.length > 0);
+  const showToc = toc && hasTitledPages;
+  const showOverview = !!overview && overview.pages.length > 0;
+  const frontMatter = (showOverview ? 1 : 0) + (showToc ? 1 : 0);
+  // Physical PDF page number for the content page at contract index i.
+  const physicalPage = (i: number) => frontMatter + i + 1;
+
   // Locations TOC: every titled (location) page, with its physical PDF page number.
-  // The TOC itself is page 1, so a page at contract index i lands at PDF page i + 2.
   const tocEntries: TocEntry[] = contract.pages
     .map((page, i) => ({ page, i }))
     .filter(({ page }) => typeof page.title === "string" && page.title.length > 0)
-    .map(({ page, i }) => ({ id: page.id, name: page.title!, page: i + 2 }));
-  const showToc = toc && tocEntries.length > 0;
+    .map(({ page, i }) => ({ id: page.id, name: page.title!, page: physicalPage(i) }));
+
+  // page id -> physical page number, for the overview's rectangle labels.
+  const pageNumbers: Record<string, number> = {};
+  contract.pages.forEach((page, i) => { pageNumbers[page.id] = physicalPage(i); });
 
   return (
     <Document title={title}>
+      {showOverview && <OverviewPage title={title} overview={overview!} panel={overviewPanel} pageNumbers={pageNumbers} />}
       {showToc && <TableOfContents title={title} entries={tocEntries} />}
-      {contract.pages.map((page) => (
+      {contract.pages.map((page, i) => (
         <AtlasPageView
           key={page.id}
           page={page}
@@ -508,6 +627,7 @@ export function AtlasDocument({
           grid={grids?.[page.id]}
           route={routes?.[page.id]}
           landmarks={landmarks?.[page.id]}
+          pageNumber={physicalPage(i)}
         />
       ))}
     </Document>

@@ -149,6 +149,7 @@ describe("renderAtlas", () => {
         ],
         scalePresetId: "usgs-7-5-min",
         tier: 1,
+        overview: false,
         outputPath: locOut,
       });
       expect(loc.pageCount).toBe(2); // contract page count (location pages only)
@@ -165,6 +166,7 @@ describe("renderAtlas", () => {
         scalePresetId: "usgs-7-5-min",
         tier: 1,
         tableOfContents: false,
+        overview: false,
         outputPath: noTocOut,
       });
       expect(pdfPageCount(noTocOut)).toBe(noToc.pageCount); // no front-matter page
@@ -175,10 +177,46 @@ describe("renderAtlas", () => {
         bbox: [-96.73, 40.79, -96.67, 40.83],
         scalePresetId: "usgs-7-5-min",
         tier: 1,
+        overview: false,
         outputPath: gridOut,
       });
-      // A bbox-only atlas has no titled location pages → no TOC page added.
+      // A bbox-only atlas (overview off) has no titled pages → no front matter.
       expect(pdfPageCount(gridOut)).toBe(grid.pageCount);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("prepends an overview page for a multi-page atlas, not for a single page", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jb-render-ov-"));
+    const pdfPageCount = (file: string): number =>
+      Math.max(...[...readFileSync(file).toString("latin1").matchAll(/\/Count (\d+)/g)].map((m) => Number(m[1])));
+    try {
+      // 2 location pages → overview (≥2 pages) + TOC = 2 front-matter pages.
+      const multiOut = join(dir, "multi.pdf");
+      const multi = await renderAtlas({
+        mode: "location",
+        locations: [
+          { center: { lng: -96.7, lat: 40.81 }, label: "Capitol" },
+          { center: { lng: -95.9, lat: 41.25 }, label: "Grandma" },
+        ],
+        scalePresetId: "usgs-7-5-min",
+        tier: 1,
+        outputPath: multiOut,
+      });
+      expect(pdfPageCount(multiOut)).toBe(multi.pageCount + 2);
+
+      // 1 location page → TOC (1 entry) but no overview (needs ≥2 pages).
+      const oneOut = join(dir, "one.pdf");
+      const one = await renderAtlas({
+        mode: "location",
+        center: { lng: -96.7, lat: 40.81 },
+        locations: [{ center: { lng: -96.7, lat: 40.81 }, label: "Capitol" }],
+        scalePresetId: "usgs-7-5-min",
+        tier: 1,
+        outputPath: oneOut,
+      });
+      expect(pdfPageCount(oneOut)).toBe(one.pageCount + 1);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

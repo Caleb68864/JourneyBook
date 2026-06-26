@@ -36,11 +36,13 @@ public class OverpassClient(HttpClient http) : IOverpassClient
         ("amenity", "school|university|college|place_of_worship|townhall|courthouse|library|hospital|fire_station|police"),
         ("leisure", "park|nature_reserve"),
         ("boundary", "national_park"),
-        ("tourism", "viewpoint"),
-        ("highway", "trailhead"),
+        ("tourism", "viewpoint|hotel|motel|camp_site"),
+        ("highway", "trailhead|rest_area|services"),
         ("information", "trailhead"),
         ("railway", "station"),
         ("public_transport", "station"),
+        // Road-trip services.
+        ("amenity", "fuel|charging_station|restaurant|fast_food|cafe"),
     ];
 
     public async Task<IReadOnlyList<OverpassPoi>> QueryLandmarksAsync(RenderBBoxDto bbox, CancellationToken ct = default)
