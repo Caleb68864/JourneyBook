@@ -547,9 +547,11 @@ Build only if needed:
 Done when:
 - The team keeps client/headless React PDF, or QuestPDF is justified by visibly better fidelity/reliability, with license eligibility documented before any production/commercial use.
 
-## Stage 9: MVP Polish
+## Stage 9: MVP Polish — ✅ core built (2026-06-26)
 
 Goal: make the app pleasant enough for real family use.
+
+**Status: the "Done when" is met.** Built: project **rename / delete / duplicate** (deep-copy of grid+extent+locations with pins), **render history** (per-project generated-PDF list with Open links), project **JSON export/import** (backup that round-trips locations + pins), **address/geocode search** (earlier), and understandable render errors (surfaced from the 400/502 mapping). Remaining nice-to-haves (not blocking MVP): richer per-page style settings (explorer name/date/margins beyond create-time) and optional lightweight profiles.
 
 Folders touched: `apps/web/`, `apps/api/`, `packages/ui/`, `packages/pdf-client/`, `docs/specs/`.
 
