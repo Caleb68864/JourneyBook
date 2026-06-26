@@ -78,6 +78,53 @@ public class ProjectService(JourneyBookDbContext db) : IProjectService
         return true;
     }
 
+    public async Task<ProjectResponse?> DuplicateAsync(Guid id, CancellationToken ct = default)
+    {
+        var source = await db.Projects
+            .Include(p => p.PageGrid)
+            .Include(p => p.Extent)
+            .Include(p => p.Locations)
+            .FirstOrDefaultAsync(p => p.Id == id, ct);
+        if (source is null) return null;
+
+        var now = DateTimeOffset.UtcNow;
+        var copy = new Project
+        {
+            Name = $"{source.Name} (copy)",
+            CreatedAt = now,
+            UpdatedAt = now,
+            PageGrid = source.PageGrid is null ? null : new AtlasPageGrid
+            {
+                ScalePresetId = source.PageGrid.ScalePresetId,
+                Orientation = source.PageGrid.Orientation,
+                Overlap = source.PageGrid.Overlap,
+                Margins = CopyMargins(source.PageGrid.Margins),
+            },
+            Extent = source.Extent is null ? null : new AtlasExtent { Bounds = (Polygon)source.Extent.Bounds.Copy() },
+            Locations = source.Locations
+                .OrderBy(l => l.LocationNumber)
+                .Select(l => new ImportantLocation
+                {
+                    Name = l.Name,
+                    Location = (Point)l.Location.Copy(),
+                    Category = l.Category,
+                    Notes = l.Notes,
+                    SourceConfidence = l.SourceConfidence,
+                    ScalePresetId = l.ScalePresetId,
+                    PinShape = l.PinShape,
+                    PinColor = l.PinColor,
+                    GeocodedFrom = l.GeocodedFrom,
+                    GeocodeProvider = l.GeocodeProvider,
+                    LocationNumber = l.LocationNumber,
+                })
+                .ToList(),
+        };
+
+        db.Projects.Add(copy);
+        await db.SaveChangesAsync(ct);
+        return ToResponse(copy);
+    }
+
     public async Task<ProjectResponse?> SetExtentAsync(Guid id, BBoxDto bbox, CancellationToken ct = default)
     {
         var project = await LoadAsync(id, ct);
@@ -118,6 +165,9 @@ public class ProjectService(JourneyBookDbContext db) : IProjectService
         Enum.TryParse<PageOrientation>(value, ignoreCase: true, out var o)
             ? o
             : throw new ProjectValidationException($"Invalid orientation '{value}'.");
+
+    private static PageMargins CopyMargins(PageMargins m) =>
+        new() { Top = m.Top, Right = m.Right, Bottom = m.Bottom, Left = m.Left, Gutter = m.Gutter };
 
     private static PageMargins ToMargins(MarginsDto? dto) =>
         dto is null

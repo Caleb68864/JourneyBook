@@ -16,6 +16,13 @@ public interface IProjectService
     Task<ProjectResponse?> UpdateAsync(Guid id, UpdateProjectRequest request, CancellationToken ct = default);
     Task<bool> DeleteAsync(Guid id, CancellationToken ct = default);
 
+    /// <summary>
+    /// Deep-copy a project (grid config, extent, and all locations with their pins/
+    /// scale/notes) into a new "{Name} (copy)" project. Returns <c>null</c> if the
+    /// source project does not exist.
+    /// </summary>
+    Task<ProjectResponse?> DuplicateAsync(Guid id, CancellationToken ct = default);
+
     /// <summary>Set (or replace) the project's atlas extent from a WGS84 bbox.</summary>
     Task<ProjectResponse?> SetExtentAsync(Guid id, BBoxDto bbox, CancellationToken ct = default);
 }

@@ -8,7 +8,7 @@ import {
   buildPageGrid,
 } from "@journeybook/atlas-core";
 import type { BBox, LngLat, MapTier } from "@journeybook/atlas-core";
-import { api, type Location, type Project } from "../api/client";
+import { api, type Location, type Project, type GeneratedPdf } from "../api/client";
 import { MapPreview } from "../components/MapPreview";
 import { ScalePicker } from "../components/ScalePicker";
 import { TierPicker } from "../components/TierPicker";
@@ -51,6 +51,27 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
   const [overview, setOverview] = useState(true);
   const [referenceGrid, setReferenceGrid] = useState(true);
   const [notes, setNotes] = useState(true);
+  // Render history (past generated PDFs).
+  const [pdfHistory, setPdfHistory] = useState<GeneratedPdf[]>([]);
+
+  async function refreshPdfHistory() {
+    try {
+      setPdfHistory(await api.generatedPdfs.list(projectId));
+    } catch {
+      // history is non-critical; ignore load failures
+    }
+  }
+
+  async function handleRename() {
+    const name = window.prompt("Rename atlas", project?.name ?? "");
+    if (!name || !name.trim() || !project) return;
+    try {
+      const updated = await api.projects.rename(project, name.trim());
+      setProject((p) => (p ? { ...p, name: updated.name } : p));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to rename.");
+    }
+  }
 
   // Manual bbox entry
   const [bboxInputs, setBboxInputs] = useState({ west: "", south: "", east: "", north: "" });
@@ -65,6 +86,7 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
         if (cancelled) return;
         setProject(proj);
         setLocations(locs);
+        void refreshPdfHistory();
         if (proj.extent) {
           const [w, s, e, n] = proj.extent;
           setBboxInputs({
@@ -349,6 +371,13 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
           ← Projects
         </button>
         <span className="font-display text-lg text-forest-700">{project.name}</span>
+        <button
+          type="button"
+          onClick={() => void handleRename()}
+          className="font-mono text-[11px] uppercase tracking-widest text-bark-500 underline hover:text-forest-700"
+        >
+          Rename
+        </button>
         {saving && <span className="font-mono text-[11px] text-bark-500">Saving…</span>}
         {error && <span className="font-mono text-[11px] text-campfire-600">{error}</span>}
       </header>
@@ -606,6 +635,30 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
                 <p className="mt-1 font-mono text-[10px] font-bold text-campfire-700">
                   ⚠ The current bounding box ≈ {savedPageCount} pages, over the {MAX_ATLAS_PAGES}-page limit. Shrink the box before generating.
                 </p>
+              )}
+            </section>
+
+            {/* Render history */}
+            <section className="flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-[11px] uppercase tracking-widest text-bark-600">Render History</span>
+                <button type="button" onClick={() => void refreshPdfHistory()} className="font-mono text-[10px] uppercase tracking-widest text-forest-700 underline hover:text-forest-600">Refresh</button>
+              </div>
+              {pdfHistory.length === 0 ? (
+                <p className="font-mono text-[10px] text-bark-500">No PDFs generated yet.</p>
+              ) : (
+                <ul className="divide-y divide-bark-200 border border-bark-300">
+                  {pdfHistory.slice(0, 8).map((pdf) => (
+                    <li key={pdf.id} className="flex items-center justify-between gap-2 px-3 py-1.5">
+                      <span className="min-w-0 font-mono text-[10px] text-bark-600">
+                        {new Date(pdf.createdAt).toLocaleString()} · {pdf.status}
+                      </span>
+                      {pdf.status === "Completed" ? (
+                        <a href={api.generatedPdfs.contentUrl(pdf.id)} target="_blank" rel="noopener noreferrer" className="shrink-0 font-mono text-[10px] uppercase tracking-widest text-forest-700 hover:text-forest-600">Open</a>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
               )}
             </section>
           </div>

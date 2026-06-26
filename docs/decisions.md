@@ -228,3 +228,12 @@ Each entry follows this shape:
 - Plumbed `overview` / `referenceGrid` / `notes` flags (default true) through the render chain like the TOC toggle: `RenderProjectRequest` → `RenderService` → `RenderWorkerRequest` → `ToWirePayload` (camelCase) → worker `RenderAtlasInput` → `renderAtlasPdfToFile`. Web Generate section gained three checkboxes (default on). Also refactored `api.render.start` to take an options object (was 5 positional params and growing).
 - Surfaces: packages/render-cli/src/render.ts, dotnet/.../Rendering/{RenderDtos.cs,RenderService.cs,HttpRenderWorkerClient.cs}, apps/web/src/{api/client.ts,components/GenerateButton.tsx,routes/ProjectEditorPage.tsx}
 - Commit: (populated at commit time)
+
+## 2026-06-26 — Stage 9 MVP polish: project duplicate/rename/delete, JSON backup, render history
+- Completes the remaining MVP-relevant roadmap work (Stage 7 PMTiles deferred — open basemap-source decision; Stage 8 QuestPDF conditional/not needed; 6B-L4 deferred; 10–11 post-MVP).
+- **Duplicate**: `IProjectService.DuplicateAsync` deep-copies grid config + extent + all locations (with pins/scale/notes, NTS geometry `.Copy()`) into "{Name} (copy)"; `POST /api/projects/{id}/duplicate` (404 unknown). **Rename/Delete**: web uses the existing PUT/DELETE. **Render history**: the existing per-project generated-PDFs list, surfaced as a panel with Open links + Refresh. **Backup**: client-side **Export** (download `{project, locations}` JSON) + header **Import** (recreate project + locations, pins restored via create-then-update) — round-trips a project as a file.
+- Web: project list rows gained Duplicate/Export/Delete actions + an Import button; the editor header gained Rename + a Render-History panel.
+- Verified: .NET projects 6 (duplicate deep-copy + 404), full web/.NET build.
+- Surfaces: dotnet/.../Projects/{IProjectService.cs,ProjectService.cs}, apps/api/Endpoints/ProjectEndpoints.cs, dotnet/JourneyBook.Tests/Api/ProjectsApiTests.cs, apps/web/src/{api/client.ts,routes/{ProjectListPage,ProjectEditorPage}.tsx}
+- Remaining roadmap after this: Stage 7 (PMTiles offline / self-hosted tiles — needs the Protomaps-vs-Planetiler decision), Stage 8 (conditional, skip), 6B Level 4 (deferred), Stages 10–11 (post-MVP). Stage 9 nice-to-haves not built: per-page style settings (explorer name/date/margins beyond create), lightweight profiles.
+- Commit: (populated at commit time)

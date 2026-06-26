@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using JourneyBook.Application.Locations;
 using JourneyBook.Application.Projects;
 
 namespace JourneyBook.Tests.Api;
@@ -7,6 +8,39 @@ namespace JourneyBook.Tests.Api;
 public class ProjectsApiTests(PostgisApiFactory factory) : IClassFixture<PostgisApiFactory>
 {
     private readonly HttpClient _client = factory.CreateClient();
+
+    [Fact]
+    public async Task Duplicate_deep_copies_grid_extent_and_locations()
+    {
+        var post = await _client.PostAsJsonAsync("/api/projects",
+            new CreateProjectRequest("Original Trip", "usgs-7-5-min", "Portrait", 0.05));
+        var src = await post.Content.ReadFromJsonAsync<ProjectResponse>();
+
+        await _client.PutAsJsonAsync($"/api/projects/{src!.Id}/extent",
+            new BBoxDto(-96.8, 40.7, -96.6, 40.9));
+        await _client.PostAsJsonAsync($"/api/projects/{src.Id}/locations",
+            new CreateLocationRequest("Home", -96.7, 40.8, PinShape: "teardrop", PinColor: "#c25e1d"));
+
+        var dup = await _client.PostAsync($"/api/projects/{src.Id}/duplicate", null);
+        Assert.Equal(HttpStatusCode.Created, dup.StatusCode);
+        var copy = await dup.Content.ReadFromJsonAsync<ProjectResponse>();
+        Assert.NotEqual(src.Id, copy!.Id);
+        Assert.Equal("Original Trip (copy)", copy.Name);
+        Assert.Equal("usgs-7-5-min", copy.ScalePresetId);
+        Assert.NotNull(copy.Extent); // extent copied
+
+        var locs = await _client.GetFromJsonAsync<List<LocationResponse>>($"/api/projects/{copy.Id}/locations");
+        Assert.Single(locs!);
+        Assert.Equal("Home", locs![0].Name);
+        Assert.Equal("teardrop", locs[0].PinShape); // pin copied
+    }
+
+    [Fact]
+    public async Task Duplicate_unknown_project_returns_404()
+    {
+        var dup = await _client.PostAsync($"/api/projects/{System.Guid.NewGuid()}/duplicate", null);
+        Assert.Equal(HttpStatusCode.NotFound, dup.StatusCode);
+    }
 
     [Fact]
     public async Task Create_then_get_round_trips()

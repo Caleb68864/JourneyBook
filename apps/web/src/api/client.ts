@@ -82,6 +82,15 @@ export interface RenderResult {
   downloadUrl: string;
 }
 
+export interface GeneratedPdf {
+  id: string;
+  projectId: string;
+  status: string;
+  filePath: string | null;
+  createdAt: string;
+  expiresAt: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // Raw API shapes (server serializes PascalCase records as camelCase)
 // ---------------------------------------------------------------------------
@@ -166,6 +175,23 @@ export const api = {
       normalizeProject(await request<ApiProject>("GET", `/projects/${id}`)),
     create: async (name: string, scalePresetId: string): Promise<Project> =>
       normalizeProject(await request<ApiProject>("POST", "/projects", { name, scalePresetId })),
+    // Full update (the API's PUT replaces all grid fields); used for rename.
+    update: async (
+      id: string,
+      body: { name: string; scalePresetId: string; orientation: string; overlap: number; margins: { top: number; right: number; bottom: number; left: number; gutter: number } },
+    ): Promise<Project> => normalizeProject(await request<ApiProject>("PUT", `/projects/${id}`, body)),
+    rename: async (p: Project, name: string): Promise<Project> =>
+      normalizeProject(
+        await request<ApiProject>("PUT", `/projects/${p.id}`, {
+          name,
+          scalePresetId: p.scalePresetId,
+          orientation: p.orientation,
+          overlap: p.overlap,
+          margins: { top: 0.5, right: 0.5, bottom: 0.5, left: 0.5, gutter: 0 },
+        }),
+      ),
+    duplicate: async (id: string): Promise<Project> =>
+      normalizeProject(await request<ApiProject>("POST", `/projects/${id}/duplicate`)),
     // PUT /extent binds a BBoxDto {west,south,east,north} directly (not wrapped).
     setExtent: async (id: string, extent: BBox): Promise<Project> =>
       normalizeProject(
@@ -246,6 +272,13 @@ export const api = {
     // them, and returns the imported count (0 on Overpass failure/timeout).
     import: (projectId: string) =>
       request<ImportLandmarksResult>("POST", `/projects/${projectId}/landmarks/import`),
+  },
+
+  generatedPdfs: {
+    /** PDF render history for a project, newest first. */
+    list: (projectId: string) =>
+      request<GeneratedPdf[]>("GET", `/projects/${projectId}/generated-pdfs`),
+    contentUrl: (pdfId: string) => `${BASE}/generated-pdfs/${pdfId}/content`,
   },
 
   render: {

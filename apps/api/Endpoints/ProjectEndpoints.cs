@@ -43,6 +43,11 @@ public static class ProjectEndpoints
         group.MapDelete("/{id:guid}", async (Guid id, IProjectService service) =>
             await service.DeleteAsync(id) ? Results.NoContent() : Results.NotFound());
 
+        group.MapPost("/{id:guid}/duplicate", async (Guid id, IProjectService service) =>
+            await service.DuplicateAsync(id) is { } copy
+                ? Results.Created($"/api/projects/{copy.Id}", copy)
+                : Results.NotFound());
+
         group.MapPut("/{id:guid}/extent", async (Guid id, BBoxDto bbox, IProjectService service) =>
             await service.SetExtentAsync(id, bbox) is { } project ? Results.Ok(project) : Results.NotFound());
 
