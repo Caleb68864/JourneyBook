@@ -75,11 +75,15 @@ public static class DependencyInjection
 
         var overpassBaseUrl = configuration["Overpass:BaseUrl"] is { Length: > 0 } ou ? ou : "https://overpass-api.de";
         var overpassTimeout = int.TryParse(configuration["Overpass:TimeoutSeconds"], out var ot) ? ot : 30;
+        var overpassUserAgent = configuration["Overpass:UserAgent"] is { Length: > 0 } oua ? oua : "JourneyBook/1.0 (atlas landmark import)";
 
         services.AddHttpClient<IOverpassClient, OverpassClient>(http =>
         {
             http.BaseAddress = new Uri(overpassBaseUrl);
             http.Timeout = TimeSpan.FromSeconds(overpassTimeout);
+            // Overpass returns 406 Not Acceptable without a descriptive User-Agent
+            // (same policy as Nominatim) — every import silently returned [] without it.
+            http.DefaultRequestHeaders.UserAgent.ParseAdd(overpassUserAgent);
         });
 
         // --- Geocoding / Nominatim (address search) -------------------------
