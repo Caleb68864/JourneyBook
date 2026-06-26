@@ -5,6 +5,7 @@ import {
   type BBox,
   type LngLat,
   type MapTier,
+  type PinStyle,
   type ScalePreset,
 } from "./model.js";
 import { groundFootprintMeters, type PageSpec } from "./page.js";
@@ -54,6 +55,7 @@ export function buildLocationPage(
   id = "L1",
   tier: MapTier = DEFAULT_MAP_TIER,
   title?: string,
+  pin?: PinStyle,
 ): AtlasPage {
   const projector = createProjector(center);
   const [cx, cy] = projector.forward(center);
@@ -63,6 +65,7 @@ export function buildLocationPage(
     bbox: planeRectToBBox(projector, cx, cy, fp.widthMeters / 2, fp.heightMeters / 2),
     orientation: page.orientation,
     ...(title ? { title } : {}),
+    ...(pin ? { pin } : {}),
     tier,
     // Self-describing scale so a location page rendered at its own zoom carries a
     // truthful scale bar even inside a mixed-scale atlas.

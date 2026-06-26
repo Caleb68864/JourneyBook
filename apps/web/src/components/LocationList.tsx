@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Location } from "../api/client";
+import { PinEditor } from "./PinEditor";
 
 interface ScalePresetOption {
   id: string;
@@ -16,6 +17,8 @@ interface LocationListProps {
   onDelete: (id: string) => Promise<void>;
   /** Override (or clear) a saved location's scale. null → inherit project scale. */
   onSetScale: (loc: Location, scalePresetId: string | null) => Promise<void>;
+  /** Set a saved location's custom pin (shape + hex color). */
+  onSetPin: (loc: Location, shape: string, color: string) => Promise<void>;
   /** Bulk-import from CSV text; resolves to the number imported. */
   onImport: (csv: string) => Promise<number>;
   /** If true, user can click map to drop pin — communicated to parent */
@@ -29,6 +32,7 @@ export function LocationList({
   onAdd,
   onDelete,
   onSetScale,
+  onSetPin,
   onImport,
   onStartDrop,
 }: LocationListProps) {
@@ -145,6 +149,11 @@ export function LocationList({
                     ))}
                   </select>
                 </label>
+                <PinEditor
+                  shape={loc.pinShape}
+                  color={loc.pinColor}
+                  onChange={(shape, color) => void onSetPin(loc, shape, color)}
+                />
               </div>
               <button
                 type="button"

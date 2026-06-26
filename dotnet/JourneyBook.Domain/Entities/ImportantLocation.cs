@@ -29,6 +29,12 @@ public class ImportantLocation : EntityBase
     /// </summary>
     public string? ScalePresetId { get; set; }
 
+    /// <summary>Custom map-pin shape id (e.g. "shield", "teardrop"). Null → default.</summary>
+    public string? PinShape { get; set; }
+
+    /// <summary>Custom map-pin color as a hex string (e.g. "#1f3d2b"). Null → default.</summary>
+    public string? PinColor { get; set; }
+
     // --- Geocode-search planning (UI deferred to Stage 9) -----------------
     /// <summary>Original query/text the position was geocoded from, if any.</summary>
     public string? GeocodedFrom { get; set; }

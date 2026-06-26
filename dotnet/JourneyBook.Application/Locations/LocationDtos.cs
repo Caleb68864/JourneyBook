@@ -14,7 +14,9 @@ public record CreateLocationRequest(
     string SourceConfidence = "Unknown",
     string? ScalePresetId = null,
     string? GeocodedFrom = null,
-    string? GeocodeProvider = null);
+    string? GeocodeProvider = null,
+    string? PinShape = null,
+    string? PinColor = null);
 
 /// <summary>
 /// Bulk-import locations from CSV text. Header row required; columns
@@ -35,7 +37,9 @@ public record UpdateLocationRequest(
     string Category,
     string? Notes,
     string SourceConfidence,
-    string? ScalePresetId = null);
+    string? ScalePresetId = null,
+    string? PinShape = null,
+    string? PinColor = null);
 
 /// <summary>
 /// An important location with its stable L-series label.
@@ -56,4 +60,6 @@ public record LocationResponse(
     string ReferenceLabel,
     string? GeocodedFrom,
     string? GeocodeProvider,
-    string? ScalePresetId);
+    string? ScalePresetId,
+    string? PinShape,
+    string? PinColor);

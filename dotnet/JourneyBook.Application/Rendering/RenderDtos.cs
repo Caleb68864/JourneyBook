@@ -54,7 +54,13 @@ public record RenderMarginsDto(double Top, double Right, double Bottom, double L
 public record RenderBBoxDto(double West, double South, double East, double North);
 
 /// <summary>A single WGS84 coordinate forwarded to the render worker.</summary>
-public record RenderLocationDto(double Longitude, double Latitude, string? Label = null, string? ScalePresetId = null);
+public record RenderLocationDto(
+    double Longitude,
+    double Latitude,
+    string? Label = null,
+    string? ScalePresetId = null,
+    string? PinShape = null,
+    string? PinColor = null);
 
 /// <summary>Response from the render worker: output path, page count, and optional attribution.</summary>
 public record RenderWorkerResult(string OutputPath, int PageCount, string? Attribution);

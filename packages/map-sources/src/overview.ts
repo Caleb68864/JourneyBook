@@ -1,4 +1,4 @@
-import type { AtlasOverview, AtlasPage, BBox, LngLat } from "@journeybook/atlas-core";
+import type { AtlasOverview, AtlasPage, BBox, LngLat, PinStyle } from "@journeybook/atlas-core";
 import { lngLatToPanelFraction } from "./tilemath.js";
 
 export interface BuildOverviewOptions {
@@ -6,8 +6,8 @@ export interface BuildOverviewOptions {
   pad?: number;
   /** Optional route polyline (LngLat) drawn across the overview. */
   route?: LngLat[];
-  /** Optional stop markers (saved locations) with labels. */
-  stops?: { center: LngLat; label: string }[];
+  /** Optional stop markers (saved locations) with labels and custom pins. */
+  stops?: { center: LngLat; label: string; pin?: PinStyle }[];
 }
 
 /**
@@ -46,7 +46,7 @@ export function buildAtlasOverview(pages: AtlasPage[], opts: BuildOverviewOption
   });
   const stops = opts.stops?.map((st) => {
     const [x, y] = frac(st.center);
-    return { x, y, label: st.label };
+    return { x, y, label: st.label, ...(st.pin ? { pin: st.pin } : {}) };
   });
 
   return {

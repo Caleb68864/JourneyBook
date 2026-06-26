@@ -9,6 +9,7 @@ import {
   Line,
   Polygon,
   Circle,
+  Path,
   StyleSheet,
 } from "@react-pdf/renderer";
 import {
@@ -22,7 +23,8 @@ import {
   type ScalePreset,
   type UsngGridOverlay,
 } from "@journeybook/atlas-core";
-import { brand } from "@journeybook/ui";
+import { brand, PIN_SHAPES, resolvePinShape, resolvePinColor } from "@journeybook/ui";
+import type { PinStyle } from "@journeybook/atlas-core";
 
 // Brand token aliases for furniture styling — values come from @journeybook/ui/tokens.
 const INK = brand.ink;
@@ -230,6 +232,62 @@ function RouteLayer({ overlay }: { overlay: RouteOverlay }) {
   );
 }
 
+/**
+ * A custom location pin (shared shape set + color) drawn over a panel, anchored so
+ * the shape's point sits on (leftPct, topPct). The L# label is centered on the
+ * shape. Used for the location-page centre pin and the overview's stop markers.
+ */
+function LocationPin({
+  pin,
+  label,
+  leftPct,
+  topPct,
+  size = 30,
+}: {
+  pin?: PinStyle;
+  label: string;
+  leftPct: number;
+  topPct: number;
+  size?: number;
+}) {
+  const def = PIN_SHAPES[resolvePinShape(pin?.shape)];
+  const fill = resolvePinColor(pin?.color);
+  const sc = size / 24;
+  const [ax, ay] = def.anchor;
+  const [lx, ly] = def.labelAt;
+  return (
+    <View
+      style={{
+        position: "absolute",
+        left: `${leftPct}%`,
+        top: `${topPct}%`,
+        marginLeft: -ax * sc,
+        marginTop: -ay * sc,
+        width: size,
+        height: size,
+      }}
+    >
+      <Svg width={size} height={size} viewBox="0 0 24 24">
+        <Path d={def.path} fill={fill} stroke={PARCHMENT} strokeWidth={1.2} />
+      </Svg>
+      <Text
+        style={{
+          position: "absolute",
+          left: lx * sc - 9,
+          top: ly * sc - 4.5,
+          width: 18,
+          textAlign: "center",
+          fontSize: size * 0.26,
+          fontFamily: "Helvetica-Bold",
+          color: "#ffffff",
+        }}
+      >
+        {label}
+      </Text>
+    </View>
+  );
+}
+
 /** SVG grid overlay for a USNG/tier-3 page, drawn over the map panel. */
 function UsngGridLayer({ overlay }: { overlay: UsngGridOverlay }) {
   const SIZE = 1000;
@@ -404,6 +462,10 @@ function AtlasPageView({
             {/* Landmark furniture is additive, keyed by page.id like routes/grids. */}
             {landmarks && landmarks.length > 0 ? <LandmarkLayer landmarks={landmarks} /> : null}
             {landmarks && landmarks.length > 0 ? <LandmarkLegend landmarks={landmarks} /> : null}
+            {/* A location (L#) page is centred on its location → mark it with the pin. */}
+            {page.id.startsWith("L") ? (
+              <LocationPin pin={page.pin} label={page.id} leftPct={50} topPct={50} size={34} />
+            ) : null}
           </View>
           <Text style={[styles.edgeLabel, { width: 54, alignSelf: "center" }]}>
             {continuation("EAST", page.neighbors.east)}
@@ -492,11 +554,11 @@ function OverviewPage({
                   fillOpacity={0.06}
                 />
               ))}
-              {/* Stop markers. */}
-              {(overview.stops ?? []).map((s, i) => (
-                <Circle key={`os-${i}`} cx={s.x * SIZE} cy={s.y * SIZE} r={7} fill={FOREST} stroke={PARCHMENT} strokeWidth={2} />
-              ))}
             </Svg>
+            {/* Stop markers: the locations' custom pins, in the HTML overlay layer. */}
+            {(overview.stops ?? []).map((s, i) => (
+              <LocationPin key={`os-${i}`} pin={s.pin} label={s.label} leftPct={s.x * 100} topPct={s.y * 100} size={22} />
+            ))}
             {/* Page-number labels, positioned at each rectangle's centre (HTML layer for crisp text). */}
             {overview.pages.map((r) => (
               <View

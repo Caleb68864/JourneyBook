@@ -91,6 +91,12 @@ export const DEFAULT_MAP_TIER: MapTier = 1;
  */
 export const MAX_ATLAS_PAGES = 200;
 
+/** A location's custom map-pin style (shape id + hex color); both optional → defaults. */
+export interface PinStyle {
+  shape?: string;
+  color?: string;
+}
+
 /** A single page in the atlas grid. */
 export interface AtlasPage {
   /** grid id such as "A1", "B2", or a location id such as "L1" */
@@ -106,6 +112,11 @@ export interface AtlasPage {
   title?: string;
   /** map tier (learning-curve level) driving page furniture */
   tier: MapTier;
+  /**
+   * Custom map pin for a location (`L#`) page — drawn at the page centre marking
+   * the exact spot. Undefined on grid/corridor pages.
+   */
+  pin?: PinStyle;
   /**
    * Optional per-page scale, overriding the contract scale for this page. Lets a
    * single atlas mix scales — e.g. a small-town/country-house location page zoomed
@@ -160,7 +171,7 @@ export interface AtlasOverview {
   /** Optional route polyline (corridor/route mode) in normalized coordinates. */
   route?: { x: number; y: number }[];
   /** Optional stop markers (saved locations) in normalized coordinates. */
-  stops?: { x: number; y: number; label: string }[];
+  stops?: { x: number; y: number; label: string; pin?: PinStyle }[];
 }
 
 /** Library version marker. */

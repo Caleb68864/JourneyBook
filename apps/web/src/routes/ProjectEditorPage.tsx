@@ -232,6 +232,23 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
     }
   }
 
+  async function handleSetLocationPin(loc: Location, pinShape: string, pinColor: string) {
+    try {
+      const updated = await api.locations.update(loc.id, {
+        name: loc.name,
+        lng: loc.lng,
+        lat: loc.lat,
+        notes: loc.notes,
+        scalePresetId: loc.scalePresetId,
+        pinShape,
+        pinColor,
+      });
+      setLocations((l) => l.map((x) => (x.id === loc.id ? updated : x)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update pin.");
+    }
+  }
+
   // Address search → location: create at the geocoded position, recording the
   // original query + provider as provenance.
   async function handleGeocodePick(result: GeocodeResult, query: string) {
@@ -484,6 +501,7 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
                 onAdd={handleAddLocation}
                 onDelete={handleDeleteLocation}
                 onSetScale={handleSetLocationScale}
+                onSetPin={handleSetLocationPin}
                 onImport={handleImportCsv}
                 onStartDrop={() => setDrawMode("location")}
               />

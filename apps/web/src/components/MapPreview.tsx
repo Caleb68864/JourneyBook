@@ -2,14 +2,15 @@ import { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { BBox, LngLat } from "@journeybook/atlas-core";
+import { pinSvgString, pinAnchor } from "./LocationPinSvg";
 
 interface MapPreviewProps {
   /** WGS84 extent to fit/show. */
   extent: BBox | null;
   /** A bbox awaiting confirmation — drawn as a highlighted box and framed. */
   pendingBbox?: BBox | null;
-  /** Important locations to show as markers. */
-  locations: Array<{ id: string; name: string; lng: number; lat: number }>;
+  /** Important locations to show as markers (with their custom pin). */
+  locations: Array<{ id: string; name: string; lng: number; lat: number; label?: string; pinShape?: string | null; pinColor?: string | null }>;
   /** Called when user clicks the map in draw mode. */
   onMapClick?: (lngLat: LngLat) => void;
   /** When true, the cursor shows crosshair and clicks emit onMapClick. */
@@ -160,10 +161,10 @@ export function MapPreview({ extent, pendingBbox, locations, onMapClick, drawMod
     markersRef.current.forEach((m) => m.remove());
     markersRef.current = locations.map((loc) => {
       const el = document.createElement("div");
-      el.className =
-        "w-3 h-3 rounded-full bg-campfire-600 border-2 border-cream-50 shadow cursor-default";
+      el.style.cursor = "default";
+      el.innerHTML = pinSvgString(loc.pinShape, loc.pinColor, loc.label ?? "", 32);
       el.title = loc.name;
-      return new maplibregl.Marker({ element: el })
+      return new maplibregl.Marker({ element: el, anchor: pinAnchor(loc.pinShape) })
         .setLngLat([loc.lng, loc.lat])
         .setPopup(new maplibregl.Popup({ offset: 12 }).setText(loc.name))
         .addTo(mapRef.current!);

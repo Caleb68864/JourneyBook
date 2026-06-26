@@ -37,6 +37,8 @@ public class LocationService(JourneyBookDbContext db) : ILocationService
             ScalePresetId = request.ScalePresetId,
             GeocodedFrom = request.GeocodedFrom,
             GeocodeProvider = request.GeocodeProvider,
+            PinShape = request.PinShape,
+            PinColor = request.PinColor,
             LocationNumber = maxNumber + 1,
         };
 
@@ -132,6 +134,8 @@ public class LocationService(JourneyBookDbContext db) : ILocationService
         location.Notes = request.Notes;
         location.SourceConfidence = sourceConfidence;
         location.ScalePresetId = request.ScalePresetId;
+        location.PinShape = request.PinShape;
+        location.PinColor = request.PinColor;
 
         await db.SaveChangesAsync(ct);
         return ToResponse(location);
@@ -188,5 +192,7 @@ public class LocationService(JourneyBookDbContext db) : ILocationService
             $"see page L{l.LocationNumber}",
             l.GeocodedFrom,
             l.GeocodeProvider,
-            l.ScalePresetId);
+            l.ScalePresetId,
+            l.PinShape,
+            l.PinColor);
 }

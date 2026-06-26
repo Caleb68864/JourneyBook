@@ -103,6 +103,27 @@ public class LocationsApiTests(PostgisApiFactory factory) : IClassFixture<Postgi
     }
 
     [Fact]
+    public async Task Update_sets_a_custom_pin_shape_and_color()
+    {
+        var projectId = await CreateProjectAsync();
+        var post = await _client.PostAsJsonAsync($"/api/projects/{projectId}/locations",
+            new CreateLocationRequest("Grandma", -96.7, 40.8));
+        var created = await post.Content.ReadFromJsonAsync<LocationResponse>();
+
+        var put = await _client.PutAsJsonAsync($"/api/locations/{created!.Id}",
+            new UpdateLocationRequest("Grandma", -96.7, 40.8, "Other", null, "Unknown",
+                PinShape: "teardrop", PinColor: "#c25e1d"));
+        Assert.Equal(HttpStatusCode.OK, put.StatusCode);
+        var updated = await put.Content.ReadFromJsonAsync<LocationResponse>();
+        Assert.Equal("teardrop", updated!.PinShape);
+        Assert.Equal("#c25e1d", updated.PinColor);
+
+        var fetched = await _client.GetFromJsonAsync<LocationResponse>($"/api/locations/{created.Id}");
+        Assert.Equal("teardrop", fetched!.PinShape);
+        Assert.Equal("#c25e1d", fetched.PinColor);
+    }
+
+    [Fact]
     public async Task Create_with_unknown_scale_preset_returns_400()
     {
         var projectId = await CreateProjectAsync();

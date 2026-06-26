@@ -51,8 +51,11 @@ public class HttpRenderWorkerClient(HttpClient http) : IRenderWorkerClient
 
     private sealed record WorkerCenter(double Lng, double Lat);
 
-    /// <summary>A saved location → the worker's <c>RenderLocation</c> ({ center, label, scalePresetId }).</summary>
-    private sealed record WorkerLocation(WorkerCenter Center, string? Label, string? ScalePresetId);
+    /// <summary>A saved location → the worker's <c>RenderLocation</c> ({ center, label, scalePresetId, pin }).</summary>
+    private sealed record WorkerLocation(WorkerCenter Center, string? Label, string? ScalePresetId, WorkerPin? Pin);
+
+    /// <summary>A location's custom pin → the worker's <c>{ shape, color }</c>.</summary>
+    private sealed record WorkerPin(string? Shape, string? Color);
 
     /// <summary>A persisted landmark → the worker's landmark furniture ({ lng, lat, name, category, score }).</summary>
     private sealed record WorkerLandmark(double Lng, double Lat, string Name, string Category, double Score);
@@ -69,7 +72,11 @@ public class HttpRenderWorkerClient(HttpClient http) : IRenderWorkerClient
         // bbox grid rendered and the locations were silently dropped).
         var locations = request.Locations.Count > 0
             ? request.Locations
-                .Select(l => new WorkerLocation(new WorkerCenter(l.Longitude, l.Latitude), l.Label, l.ScalePresetId))
+                .Select(l => new WorkerLocation(
+                    new WorkerCenter(l.Longitude, l.Latitude),
+                    l.Label,
+                    l.ScalePresetId,
+                    l.PinShape is not null || l.PinColor is not null ? new WorkerPin(l.PinShape, l.PinColor) : null))
                 .ToArray()
             : null;
 

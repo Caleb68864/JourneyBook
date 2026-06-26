@@ -15,6 +15,7 @@ import {
   type MapTier,
   type PlacedLandmark,
   type AtlasOverview,
+  type PinStyle,
   type UsngGridOverlay,
 } from "@journeybook/atlas-core";
 import { renderAtlasPdfToFile, type RouteOverlay } from "@journeybook/pdf-client";
@@ -31,6 +32,8 @@ export interface RenderLocation {
    * the project `scalePresetId` when omitted.
    */
   scalePresetId?: string;
+  /** Custom map pin (shape id + hex color) for this location. */
+  pin?: PinStyle;
 }
 
 export interface RenderAtlasInput {
@@ -231,7 +234,7 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
         `Unknown scalePresetId "${loc.scalePresetId}" for location ${loc.label ?? `L${i + 1}`}. Available: ${SCALE_PRESETS.map((p) => p.id).join(", ")}`,
       );
     }
-    pages.push(buildLocationPage(loc.center, locScale, LETTER_PORTRAIT, `L${i + 1}`, input.tier, loc.label));
+    pages.push(buildLocationPage(loc.center, locScale, LETTER_PORTRAIT, `L${i + 1}`, input.tier, loc.label, loc.pin));
   });
 
   if (pages.length === 0) {
@@ -369,7 +372,7 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
   if (wantOverview) {
     overview = buildAtlasOverview(contract.pages, {
       route: routePolyline,
-      stops: locationList.map((loc, i) => ({ center: loc.center, label: loc.label ?? `L${i + 1}` })),
+      stops: locationList.map((loc, i) => ({ center: loc.center, label: loc.label ?? `L${i + 1}`, pin: loc.pin })),
     });
     if (input.basemap) {
       try {

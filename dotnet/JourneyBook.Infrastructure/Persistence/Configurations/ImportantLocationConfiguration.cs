@@ -27,6 +27,9 @@ public class ImportantLocationConfiguration : IEntityTypeConfiguration<Important
         builder.Property(l => l.GeocodeProvider).HasMaxLength(50);
         // Optional per-location scale override; matches the ScalePresets PK width.
         builder.Property(l => l.ScalePresetId).HasMaxLength(32);
+        // Custom pin: shape id + hex color.
+        builder.Property(l => l.PinShape).HasMaxLength(20);
+        builder.Property(l => l.PinColor).HasMaxLength(9);
 
         builder.HasIndex(l => l.ProjectId);
         builder.HasIndex(l => new { l.ProjectId, l.LocationNumber }).IsUnique();

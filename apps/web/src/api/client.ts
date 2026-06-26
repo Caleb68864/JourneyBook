@@ -39,6 +39,10 @@ export interface Location {
   referenceLabel: string;
   /** Optional per-location scale override; null → inherit the project scale. */
   scalePresetId: string | null;
+  /** Custom pin shape id (e.g. "shield"); null → default. */
+  pinShape: string | null;
+  /** Custom pin hex color (e.g. "#1f3d2b"); null → default. */
+  pinColor: string | null;
 }
 
 export interface ImportLocationsResult {
@@ -200,7 +204,7 @@ export const api = {
     // Update/delete are on the flat /api/locations/{id} group (not project-scoped).
     update: (
       locationId: string,
-      body: { name: string; lng: number; lat: number; notes?: string | null; category?: string; sourceConfidence?: string; scalePresetId?: string | null },
+      body: { name: string; lng: number; lat: number; notes?: string | null; category?: string; sourceConfidence?: string; scalePresetId?: string | null; pinShape?: string | null; pinColor?: string | null },
     ) =>
       request<Location>("PUT", `/locations/${locationId}`, {
         name: body.name,
@@ -210,6 +214,8 @@ export const api = {
         notes: body.notes ?? null,
         sourceConfidence: body.sourceConfidence ?? "Unknown",
         scalePresetId: body.scalePresetId ?? null,
+        pinShape: body.pinShape ?? null,
+        pinColor: body.pinColor ?? null,
       }),
     delete: (locationId: string) =>
       request<void>("DELETE", `/locations/${locationId}`),
