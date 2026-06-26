@@ -1,7 +1,14 @@
 namespace JourneyBook.Application.Rendering;
 
 /// <summary>Request body for POST /api/projects/{id}/render.</summary>
-public record RenderProjectRequest(int Tier = 1, bool Route = false, bool IncludeLandmarks = true, bool TableOfContents = true);
+public record RenderProjectRequest(
+    int Tier = 1,
+    bool Route = false,
+    bool IncludeLandmarks = true,
+    bool TableOfContents = true,
+    bool Overview = true,
+    bool ReferenceGrid = true,
+    bool Notes = true);
 
 /// <summary>Successful render response (200): generated PDF id, status, and download URL.</summary>
 public record RenderProjectResponse(Guid GeneratedPdfId, string Status, string DownloadUrl);
@@ -42,7 +49,12 @@ public record RenderWorkerRequest(
     bool IncludeLandmarks = false,
     // Prepend a locations table-of-contents page (camelCase `tableOfContents` on
     // the wire). Default true; false suppresses it.
-    bool TableOfContents = true);
+    bool TableOfContents = true,
+    // Front-matter overview page, reference-grid border, and notes area toggles
+    // (camelCase `overview`/`referenceGrid`/`notes` on the wire). Default true.
+    bool Overview = true,
+    bool ReferenceGrid = true,
+    bool Notes = true);
 
 /// <summary>A single landmark forwarded to the render worker.</summary>
 public record RenderLandmarkDto(double Longitude, double Latitude, string Name, string Category, double Score);

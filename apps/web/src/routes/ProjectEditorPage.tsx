@@ -47,6 +47,10 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
   // Table-of-contents toggle (default on). Generate sends tableOfContents; when
   // off, the PDF skips the front-matter locations contents page.
   const [tableOfContents, setTableOfContents] = useState(true);
+  // Front-matter overview page, reference-grid border, and notes area toggles.
+  const [overview, setOverview] = useState(true);
+  const [referenceGrid, setReferenceGrid] = useState(true);
+  const [notes, setNotes] = useState(true);
 
   // Manual bbox entry
   const [bboxInputs, setBboxInputs] = useState({ west: "", south: "", east: "", north: "" });
@@ -565,7 +569,34 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
                   </span>
                 </span>
               </label>
-              <GenerateButton projectId={projectId} tier={tier} route={route} includeLandmarks={includeLandmarks} tableOfContents={tableOfContents} disabled={!hasGeometry || savedOverLimit} />
+              <label className="mb-3 flex items-start gap-2">
+                <input type="checkbox" checked={overview} onChange={(e) => setOverview(e.target.checked)} className="mt-0.5 accent-forest-700" />
+                <span className="flex flex-col gap-0.5">
+                  <span className="font-mono text-[11px] uppercase tracking-widest text-bark-600">Overview Map</span>
+                  <span className="font-mono text-[10px] text-bark-500">
+                    A whole-trip index page showing every page's area, the route, and your stops.
+                  </span>
+                </span>
+              </label>
+              <label className="mb-3 flex items-start gap-2">
+                <input type="checkbox" checked={referenceGrid} onChange={(e) => setReferenceGrid(e.target.checked)} className="mt-0.5 accent-forest-700" />
+                <span className="flex flex-col gap-0.5">
+                  <span className="font-mono text-[11px] uppercase tracking-widest text-bark-600">Reference Grid</span>
+                  <span className="font-mono text-[10px] text-bark-500">
+                    Draws an A–F / 1–8 locator grid on each page so you can write down grid coordinates.
+                  </span>
+                </span>
+              </label>
+              <label className="mb-3 flex items-start gap-2">
+                <input type="checkbox" checked={notes} onChange={(e) => setNotes(e.target.checked)} className="mt-0.5 accent-forest-700" />
+                <span className="flex flex-col gap-0.5">
+                  <span className="font-mono text-[11px] uppercase tracking-widest text-bark-600">Notes Area</span>
+                  <span className="font-mono text-[10px] text-bark-500">
+                    Adds a foot-of-page notes strip (your saved notes + blank lines to write on).
+                  </span>
+                </span>
+              </label>
+              <GenerateButton projectId={projectId} tier={tier} route={route} includeLandmarks={includeLandmarks} tableOfContents={tableOfContents} overview={overview} referenceGrid={referenceGrid} notes={notes} disabled={!hasGeometry || savedOverLimit} />
               {!hasGeometry && (
                 <p className="mt-1 font-mono text-[10px] text-bark-500">
                   Set a bounding box or add a location to generate an atlas.

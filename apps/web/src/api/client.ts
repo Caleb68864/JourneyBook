@@ -257,16 +257,16 @@ export const api = {
     start: (
       projectId: string,
       tier: MapTier,
-      route?: boolean,
-      includeLandmarks?: boolean,
-      tableOfContents?: boolean,
+      opts?: {
+        route?: boolean;
+        includeLandmarks?: boolean;
+        tableOfContents?: boolean;
+        overview?: boolean;
+        referenceGrid?: boolean;
+        notes?: boolean;
+      },
     ) =>
-      request<RenderResult>("POST", `/projects/${projectId}/render`, {
-        tier,
-        route,
-        includeLandmarks,
-        tableOfContents,
-      }),
+      request<RenderResult>("POST", `/projects/${projectId}/render`, { tier, ...opts }),
     getContent: (pdfId: string) => `${BASE}/generated-pdfs/${pdfId}/content`,
   },
 };

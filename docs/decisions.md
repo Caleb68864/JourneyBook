@@ -223,3 +223,8 @@ Each entry follows this shape:
 - Verified: atlas-core 50, map-sources 29, render-cli 21, .NET render/location 26; headless render carries the saved note onto the location page and emits a valid %PDF.
 - Surfaces: packages/atlas-core/src/{model.ts,grid.ts}, packages/render-cli/src/render.ts, packages/pdf-client/src/{AtlasDocument.tsx,index.ts}, dotnet/.../Rendering/{RenderDtos.cs,RenderService.cs,HttpRenderWorkerClient.cs}
 - Commit: (populated at commit time)
+
+## 2026-06-26 — Web toggles for overview, reference grid, and notes
+- Plumbed `overview` / `referenceGrid` / `notes` flags (default true) through the render chain like the TOC toggle: `RenderProjectRequest` → `RenderService` → `RenderWorkerRequest` → `ToWirePayload` (camelCase) → worker `RenderAtlasInput` → `renderAtlasPdfToFile`. Web Generate section gained three checkboxes (default on). Also refactored `api.render.start` to take an options object (was 5 positional params and growing).
+- Surfaces: packages/render-cli/src/render.ts, dotnet/.../Rendering/{RenderDtos.cs,RenderService.cs,HttpRenderWorkerClient.cs}, apps/web/src/{api/client.ts,components/GenerateButton.tsx,routes/ProjectEditorPage.tsx}
+- Commit: (populated at commit time)

@@ -79,6 +79,10 @@ export interface RenderAtlasInput {
    * a small-scale basemap) for multi-page atlases. Default true.
    */
   overview?: boolean;
+  /** Draw the alphanumeric reference-grid border on each map page. Default true. */
+  referenceGrid?: boolean;
+  /** Show the foot-of-page notes area on each map page. Default true. */
+  notes?: boolean;
 }
 
 export interface RenderAtlasResult {
@@ -398,6 +402,8 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
     tableOfContents: input.tableOfContents ?? true,
     overview,
     overviewPanel,
+    referenceGrid: input.referenceGrid ?? true,
+    notes: input.notes ?? true,
   });
 
   return {

@@ -106,7 +106,10 @@ public class RenderService(
             Route: request.Route,
             Landmarks: landmarks,
             IncludeLandmarks: landmarks.Count > 0,
-            TableOfContents: request.TableOfContents);
+            TableOfContents: request.TableOfContents,
+            Overview: request.Overview,
+            ReferenceGrid: request.ReferenceGrid,
+            Notes: request.Notes);
 
         // 5. Invoke the worker; mark Completed or Failed.
         try
