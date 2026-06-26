@@ -75,6 +75,19 @@ const styles = StyleSheet.create({
   },
   pageNumber: { fontSize: 11, fontFamily: "Helvetica-Bold", color: FOREST, marginLeft: 8 },
   overviewPageLabel: { fontSize: 9, fontFamily: "Helvetica-Bold", color: INK, textAlign: "center", width: 24 },
+  // Alphanumeric reference-grid border labels (write the cell coordinate for notes).
+  gridLabel: {
+    fontSize: 7,
+    fontFamily: "Helvetica-Bold",
+    color: INK,
+    textAlign: "center",
+    backgroundColor: "rgba(237,228,207,0.82)",
+  },
+  // Notes area at the foot of a page: saved notes + ruled blank lines for writing.
+  notesArea: { marginTop: 5, borderTopWidth: 0.75, borderTopColor: BARK, paddingTop: 3 },
+  notesHeader: { fontSize: 7, fontFamily: "Helvetica-Bold", color: BARK, letterSpacing: 1, marginBottom: 2 },
+  notesText: { fontSize: 8, color: INK, marginBottom: 3 },
+  notesLine: { borderBottomWidth: 0.5, borderBottomColor: BARK, height: 13 },
   tocLabel: { fontSize: 9, fontFamily: "Helvetica-Bold", color: FOREST, width: 30 },
   tocName: { fontSize: 10, color: INK, flexGrow: 1, flexShrink: 1 },
   tocPage: { fontSize: 10, fontFamily: "Helvetica-Bold", color: INK, marginLeft: 8 },
@@ -228,6 +241,54 @@ function RouteLayer({ overlay }: { overlay: RouteOverlay }) {
           />
         ))}
       </Svg>
+    </View>
+  );
+}
+
+const GRID_COLS = 6;
+const GRID_ROWS = 8;
+const GRID_LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"];
+
+/**
+ * Alphanumeric reference-grid border over the map panel: faint cell lines plus
+ * column letters (A…) along the top and row numbers (1…) down the left, so a
+ * reader can note a feature's grid cell (e.g. "C4") when writing on the page.
+ */
+function ReferenceGrid() {
+  const SIZE = 1000;
+  return (
+    <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}>
+      <Svg width="100%" height="100%" viewBox={`0 0 ${SIZE} ${SIZE}`}>
+        {Array.from({ length: GRID_COLS - 1 }, (_, i) => (
+          <Line key={`gv${i}`} x1={((i + 1) * SIZE) / GRID_COLS} y1={0} x2={((i + 1) * SIZE) / GRID_COLS} y2={SIZE} stroke={BARK} strokeOpacity={0.28} strokeWidth={1} />
+        ))}
+        {Array.from({ length: GRID_ROWS - 1 }, (_, j) => (
+          <Line key={`gh${j}`} x1={0} y1={((j + 1) * SIZE) / GRID_ROWS} x2={SIZE} y2={((j + 1) * SIZE) / GRID_ROWS} stroke={BARK} strokeOpacity={0.28} strokeWidth={1} />
+        ))}
+      </Svg>
+      {Array.from({ length: GRID_COLS }, (_, i) => (
+        <View key={`gl${i}`} style={{ position: "absolute", top: 1, left: `${((i + 0.5) * 100) / GRID_COLS}%`, marginLeft: -7, width: 14 }}>
+          <Text style={styles.gridLabel}>{GRID_LETTERS[i]}</Text>
+        </View>
+      ))}
+      {Array.from({ length: GRID_ROWS }, (_, j) => (
+        <View key={`gn${j}`} style={{ position: "absolute", left: 1, top: `${((j + 0.5) * 100) / GRID_ROWS}%`, marginTop: -5, width: 12 }}>
+          <Text style={styles.gridLabel}>{j + 1}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+/** Foot-of-page notes: any saved location note, then ruled blank lines for writing. */
+function NotesArea({ notes }: { notes?: string }) {
+  return (
+    <View style={styles.notesArea}>
+      <Text style={styles.notesHeader}>NOTES</Text>
+      {notes ? <Text style={styles.notesText}>{notes}</Text> : null}
+      {[0, 1, 2].map((i) => (
+        <View key={i} style={styles.notesLine} />
+      ))}
     </View>
   );
 }
@@ -404,6 +465,8 @@ function AtlasPageView({
   route,
   landmarks,
   pageNumber,
+  referenceGrid,
+  notes,
 }: {
   page: AtlasPage;
   contract: AtlasContract;
@@ -414,6 +477,10 @@ function AtlasPageView({
   landmarks?: PlacedLandmark[];
   /** Physical PDF page number (front matter included), printed in the footer. */
   pageNumber?: number;
+  /** Draw the alphanumeric reference-grid border over the panel. */
+  referenceGrid?: boolean;
+  /** Show the foot-of-page notes area (saved notes + ruled lines). */
+  notes?: boolean;
 }) {
   const showTier2 = page.tier >= 2;
   const showTier3 = page.tier >= 3;
@@ -462,6 +529,8 @@ function AtlasPageView({
             {/* Landmark furniture is additive, keyed by page.id like routes/grids. */}
             {landmarks && landmarks.length > 0 ? <LandmarkLayer landmarks={landmarks} /> : null}
             {landmarks && landmarks.length > 0 ? <LandmarkLegend landmarks={landmarks} /> : null}
+            {/* Alphanumeric reference grid for writing cell coordinates. */}
+            {referenceGrid ? <ReferenceGrid /> : null}
             {/* A location (L#) page is centred on its location → mark it with the pin. */}
             {page.id.startsWith("L") ? (
               <LocationPin pin={page.pin} label={page.id} leftPct={50} topPct={50} size={34} />
@@ -473,6 +542,8 @@ function AtlasPageView({
         </View>
 
         <Text style={styles.edgeLabel}>{continuation("SOUTH", page.neighbors.south)}</Text>
+
+        {notes ? <NotesArea notes={page.notes} /> : null}
 
         <View style={styles.footer}>
           <View>
@@ -637,6 +708,8 @@ export function AtlasDocument({
   toc = true,
   overview,
   overviewPanel,
+  referenceGrid = true,
+  notes = true,
 }: {
   contract: AtlasContract;
   title: string;
@@ -654,6 +727,10 @@ export function AtlasDocument({
   overview?: AtlasOverview;
   /** Basemap panel (data URI) for the overview, drawn under the page rectangles. */
   overviewPanel?: string;
+  /** Draw the alphanumeric reference-grid border on each map page. Default true. */
+  referenceGrid?: boolean;
+  /** Show the foot-of-page notes area on each map page. Default true. */
+  notes?: boolean;
 }) {
   // Front matter (overview, then TOC) precedes the content pages and shifts their
   // physical page numbers. Both are computed from the same offset so the TOC, the
@@ -690,6 +767,8 @@ export function AtlasDocument({
           route={routes?.[page.id]}
           landmarks={landmarks?.[page.id]}
           pageNumber={physicalPage(i)}
+          referenceGrid={referenceGrid}
+          notes={notes}
         />
       ))}
     </Document>

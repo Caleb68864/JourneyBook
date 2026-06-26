@@ -60,7 +60,8 @@ public record RenderLocationDto(
     string? Label = null,
     string? ScalePresetId = null,
     string? PinShape = null,
-    string? PinColor = null);
+    string? PinColor = null,
+    string? Notes = null);
 
 /// <summary>Response from the render worker: output path, page count, and optional attribution.</summary>
 public record RenderWorkerResult(string OutputPath, int PageCount, string? Attribution);

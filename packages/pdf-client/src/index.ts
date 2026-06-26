@@ -31,6 +31,10 @@ export interface RenderPdfOptions {
   overview?: AtlasOverview;
   /** Basemap panel image (data URI) for the overview's bbox; drawn under the rectangles. */
   overviewPanel?: string;
+  /** Alphanumeric reference-grid border on each map page (write cell coordinates). Default true. */
+  referenceGrid?: boolean;
+  /** Foot-of-page notes area (saved notes + ruled lines) on each map page. Default true. */
+  notes?: boolean;
 }
 
 function documentElement(options: RenderPdfOptions) {
@@ -44,6 +48,8 @@ function documentElement(options: RenderPdfOptions) {
     toc: options.tableOfContents ?? true,
     overview: options.overview,
     overviewPanel: options.overviewPanel,
+    referenceGrid: options.referenceGrid ?? true,
+    notes: options.notes ?? true,
   });
 }
 

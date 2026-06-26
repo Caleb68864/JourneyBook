@@ -56,6 +56,7 @@ export function buildLocationPage(
   tier: MapTier = DEFAULT_MAP_TIER,
   title?: string,
   pin?: PinStyle,
+  notes?: string,
 ): AtlasPage {
   const projector = createProjector(center);
   const [cx, cy] = projector.forward(center);
@@ -66,6 +67,7 @@ export function buildLocationPage(
     orientation: page.orientation,
     ...(title ? { title } : {}),
     ...(pin ? { pin } : {}),
+    ...(notes ? { notes } : {}),
     tier,
     // Self-describing scale so a location page rendered at its own zoom carries a
     // truthful scale bar even inside a mixed-scale atlas.

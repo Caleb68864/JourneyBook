@@ -71,7 +71,7 @@ public class RenderService(
         }
 
         var locations = project.Locations
-            .Select(l => new RenderLocationDto(l.Location.X, l.Location.Y, l.Name, l.ScalePresetId, l.PinShape, l.PinColor))
+            .Select(l => new RenderLocationDto(l.Location.X, l.Location.Y, l.Name, l.ScalePresetId, l.PinShape, l.PinColor, l.Notes))
             .ToList();
 
         // Persisted landmarks forwarded as additive vector furniture, carried like

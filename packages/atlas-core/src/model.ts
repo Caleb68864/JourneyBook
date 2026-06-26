@@ -117,6 +117,8 @@ export interface AtlasPage {
    * the exact spot. Undefined on grid/corridor pages.
    */
   pin?: PinStyle;
+  /** Optional saved notes for a location page, printed in the page's notes area. */
+  notes?: string;
   /**
    * Optional per-page scale, overriding the contract scale for this page. Lets a
    * single atlas mix scales — e.g. a small-town/country-house location page zoomed

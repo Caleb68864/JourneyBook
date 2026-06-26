@@ -34,6 +34,8 @@ export interface RenderLocation {
   scalePresetId?: string;
   /** Custom map pin (shape id + hex color) for this location. */
   pin?: PinStyle;
+  /** Saved notes, printed in the location page's notes area. */
+  notes?: string;
 }
 
 export interface RenderAtlasInput {
@@ -234,7 +236,7 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
         `Unknown scalePresetId "${loc.scalePresetId}" for location ${loc.label ?? `L${i + 1}`}. Available: ${SCALE_PRESETS.map((p) => p.id).join(", ")}`,
       );
     }
-    pages.push(buildLocationPage(loc.center, locScale, LETTER_PORTRAIT, `L${i + 1}`, input.tier, loc.label, loc.pin));
+    pages.push(buildLocationPage(loc.center, locScale, LETTER_PORTRAIT, `L${i + 1}`, input.tier, loc.label, loc.pin, loc.notes));
   });
 
   if (pages.length === 0) {

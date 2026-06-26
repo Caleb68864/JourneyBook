@@ -51,8 +51,8 @@ public class HttpRenderWorkerClient(HttpClient http) : IRenderWorkerClient
 
     private sealed record WorkerCenter(double Lng, double Lat);
 
-    /// <summary>A saved location → the worker's <c>RenderLocation</c> ({ center, label, scalePresetId, pin }).</summary>
-    private sealed record WorkerLocation(WorkerCenter Center, string? Label, string? ScalePresetId, WorkerPin? Pin);
+    /// <summary>A saved location → the worker's <c>RenderLocation</c> ({ center, label, scalePresetId, pin, notes }).</summary>
+    private sealed record WorkerLocation(WorkerCenter Center, string? Label, string? ScalePresetId, WorkerPin? Pin, string? Notes);
 
     /// <summary>A location's custom pin → the worker's <c>{ shape, color }</c>.</summary>
     private sealed record WorkerPin(string? Shape, string? Color);
@@ -76,7 +76,8 @@ public class HttpRenderWorkerClient(HttpClient http) : IRenderWorkerClient
                     new WorkerCenter(l.Longitude, l.Latitude),
                     l.Label,
                     l.ScalePresetId,
-                    l.PinShape is not null || l.PinColor is not null ? new WorkerPin(l.PinShape, l.PinColor) : null))
+                    l.PinShape is not null || l.PinColor is not null ? new WorkerPin(l.PinShape, l.PinColor) : null,
+                    l.Notes))
                 .ToArray()
             : null;
 
