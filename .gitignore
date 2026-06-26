@@ -169,3 +169,4 @@ graphify-out/
 .claude/
 docs/*
 !docs/decisions.md
+pins-check.png
