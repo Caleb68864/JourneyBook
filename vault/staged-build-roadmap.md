@@ -63,6 +63,7 @@ The build order is deliberately **risk-first and headless-first**: the riskiest 
 - ✅ **Stage 6C — Route Atlas** — a `route` render mode: ordered stops → `L#` location pages + `R#` corridor pages tiled along the straight-line polyline, de-duplicated, route polyline + stop markers drawn, under the page cap. Built via the full forge chain; reachable via `render-cli --route` and a web **Generate Route Atlas** toggle.
 - ✅ **Stage 6 — Landmarks** — OSM Overpass import → PostGIS `Landmark` table → per-page distributed selection + greedy label collision avoidance (atlas-core) → markers + legend distinct from L# locations, with an **Include Landmarks** toggle. Built via the full forge chain. (The "simple routes" half of Stage 6 is Stage 6C.)
 - ✅ **Road-trip atlas polish (2026-06-25/26)** — address/geocode search (Nominatim → drop a location); a locations **table of contents** + a web toggle; **page numbers** on every page; **road-trip services** as landmarks (fuel/food/lodging/rest areas) + an Overpass `User-Agent` fix (live import was silently 406→0); a whole-atlas **overview/index** front-matter page (page footprints + route + stops over a small-scale basemap); **custom per-location map pins** (shape + color editor, shared web-map ↔ PDF shape set); and an **alphanumeric reference-grid border** + foot-of-page **notes area** (saved notes + ruled lines) on each map page. See `docs/decisions.md`.
+- ✅ **Headless "many special locations" workflow (2026-09-04)** — `render-cli` gained `--locations <file.csv|json>` (the web importer's CSV + `pin`/`color`/`zoom` columns, or a web project-backup JSON), `--cover [pad]` (grid over the box enclosing every stop via the shared `enclosingBBox`, also used by the web "Enclose N Locations"), `--zoom-levels a,b,c` (per-location zoom ladder → `L1a`/`L1b`/…), a shared `assembleContract` so `grid`/`validate`/`render` agree, plus `--title`/`--no-*` toggles; location pages print their name + scale and the TOC shows ladder scales. Follow-ups are tracked in [Stage 9B](#stage-9b-improvements-backlog--as-time-allows).
 
 **Phase C** was built by the **dark factory** (SS-01–06), then driven to **CONVERGED** by `/forge-converge` (3 passes — caught missing tests, a C#→worker wire-contract mismatch, and web↔API contract drift), **hardened** (10 adversarial passes — input validation, error mapping, cancellation safety, SSRF/page-count caps, map-crash guards, observability), had its **Docker images repaired** (all three were broken — the factory only ran `compose config`, never `docker build`), and was **verified end-to-end**: full `create → extent → render → download` round-trip under `docker compose up` (4 healthy containers) + a passing Playwright UI smoke test. See `docs/decisions.md` (Phase C entries + ADR 0004/0005).
 
@@ -565,6 +566,23 @@ Build:
 
 Done when:
 - A non-developer can create, preview, generate, and reprint an atlas; failed renders are understandable; project data can be backed up.
+
+---
+
+## Stage 9B: Improvements Backlog — as time allows
+
+Follow-ups surfaced by the 2026-09-04 "many special locations" workflow pass (see `docs/decisions.md`, same date). None block the MVP; pick them up when convenient, roughly in this order.
+
+- [ ] **Zoom ladders + pins in the backend and web app.** `--zoom-levels` (one page per scale per location, ids `L1a`/`L1b`/…) and the CSV `pin`/`color`/`zoom` columns are CLI-only. To reach the web: add `ZoomLevels` (and pin columns) to `LocationCsv`/`LocationCsvRow`, `ImportantLocation` (+ migration), the location DTOs/service, `RenderLocationDto` → `ToWirePayload` (camelCase `zoomLevels`), then a per-location ladder picker in `LocationList` and a "Cover all locations" toggle on Generate (call the worker with `cover: true`, reusing `enclosingBBox`). Follow the Stage 2B feature pattern; add `RenderApiTests`/`HttpRenderWorkerClientTests` cases asserting the wire fields.
+- [ ] **Wide-extent scale accuracy in `buildPageGrid`.** `validate` fails scale-consistency (worst 0.695% vs 0.5% tolerance) on a ~100 km cover grid at 1:100,000 because the grid uses one page-centred projection for the whole extent, so outer pages drift. Options: re-project each page about its own centre (keeps `groundFootprintMeters` exact per page; neighbours then overlap/gap by the drift), or a per-column/row projection, or widen the tolerance for grids above a span threshold with an explicit "regional grid" note on the page. Pre-existing behaviour, not a regression; decide before wide road trips are common.
+- [ ] **Basemap PDF size.** A 32-page tier-2 atlas with 1000 px panels is ~110 MB (base64 PNG per page). Consider JPEG panels for tier 1–2, a `--panel-px` flag, or downsampling to the printable DPI, so a full trip atlas emails/uploads easily.
+- [ ] **Dev environment bootstrap.** `harness/init.sh` assumes `pnpm` is on PATH; on a fresh machine `npm install -g` may be denied. Have `init.sh` fall back to `corepack enable` or a user-local install (`npm install --prefix ~/.npm-global pnpm@10`) and print the PATH line, so the harness is idempotent from zero.
+- [ ] **Commit the workflow pass.** The 2026-09-04 changes (atlas-core `extent.ts`, render-cli `locations.ts`/`assembleContract`/new flags, pdf-client page titles + TOC scale column, web `encloseLocations` → shared helper, `data/fixtures/road-trip-locations.csv`, tests, decisions entry) are uncommitted on `master` at the time of writing.
+
+Nice-to-haves from the same pass:
+- Overview page: label ladder footprints once per location (nested rectangles currently each carry a page number, which crowds small stops).
+- `journeybook grid … | jq` is the current "how many pages will this be?" preview; a `--dry-run` on `render` that prints the page plan and estimated tile count would be friendlier.
+- Web "Import CSV" could accept the JSON backup shape too, mirroring the CLI loader.
 
 ---
 

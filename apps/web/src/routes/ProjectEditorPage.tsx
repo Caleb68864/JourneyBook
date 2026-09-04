@@ -6,6 +6,7 @@ import {
   MAX_ATLAS_PAGES,
   SCALE_PRESETS,
   buildPageGrid,
+  enclosingBBox,
 } from "@journeybook/atlas-core";
 import type { BBox, LngLat, MapTier } from "@journeybook/atlas-core";
 import { api, type Location, type Project, type GeneratedPdf } from "../api/client";
@@ -174,16 +175,8 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
   // pending box for review before it becomes the project extent.
   function encloseLocations() {
     if (locations.length === 0) return;
-    let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
-    for (const loc of locations) {
-      w = Math.min(w, loc.lng);
-      e = Math.max(e, loc.lng);
-      s = Math.min(s, loc.lat);
-      n = Math.max(n, loc.lat);
-    }
-    const padX = Math.max((e - w) * 0.05, 0.02);
-    const padY = Math.max((n - s) * 0.05, 0.02);
-    const bbox: BBox = [w - padX, s - padY, e + padX, n + padY];
+    // Same helper the CLI's --cover uses, so both produce the same grid for the same stops.
+    const bbox: BBox = enclosingBBox(locations.map((loc) => ({ lng: loc.lng, lat: loc.lat })));
     setError(null);
     setBboxInputs({ west: String(bbox[0]), south: String(bbox[1]), east: String(bbox[2]), north: String(bbox[3]) });
     setPendingBbox(bbox);

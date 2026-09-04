@@ -1,0 +1,7 @@
+name,lng,lat,notes,scale,pin,color,zoom
+Home Base,-96.7026,40.8136,Starting point in Lincoln — check tire pressure before leaving,,shield,#1f3d2b,
+Pioneers Park,-96.7783,40.7794,Trailhead and nature center; bison herd by the north loop,,circle,#2b6cb0,
+Branched Oak Lake,-96.8542,40.9706,"Boat ramp, swimming beach, campsites on the east shore",,teardrop,#0f766e,
+Mahoney State Park,-96.3447,41.0144,"Camping, trails, lookout tower — climb it for the whole valley",,star,#b7791f,
+Platte River Crossing,-96.1500,41.0700,Regional waypoint — river bridge on the highway,1-100000,diamond,#6b7280,1-100000|1-50000
+Grandma's House,-95.9345,41.2565,"Omaha — zoom all the way in, find the back gate",usgs-7-5-min,star,#b03a2e,1-100000|1-50000|usgs-7-5-min

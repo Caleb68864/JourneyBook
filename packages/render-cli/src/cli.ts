@@ -2,13 +2,14 @@
 /**
  * journeybook — headless atlas render CLI.
  *
- *   journeybook grid --bbox W,S,E,N --scale usgs-7-5-min [--overlap 0.05]
- *   journeybook grid --location LNG,LAT --scale usgs-7-5-min
- *   journeybook render --bbox ... --out atlas.pdf      (Stages 1D–1E)
- *   journeybook validate <atlas.pdf>                    (Stage 1E)
+ *   journeybook grid     [geometry flags] --scale usgs-7-5-min      → AtlasContract JSON
+ *   journeybook validate [geometry flags] --scale usgs-7-5-min      → print-validation report
+ *   journeybook render   [geometry flags] --scale ... --out atlas.pdf
  *
- * `grid` runs the Stage 1B engine (scale + projection + page grid) entirely
- * headless, emitting the AtlasContract JSON — no UI, no PDF yet.
+ * Geometry flags compose: a `--bbox` grid and/or any number of locations (from
+ * `--locations <file>` and/or repeated `--location LNG,LAT`), `--cover` to tile a
+ * grid over every location, `--zoom-levels` for a per-location zoom ladder, and
+ * `--route` for corridor pages. All three commands assemble the same contract.
  */
 
 import { readFileSync } from "node:fs";
@@ -17,46 +18,63 @@ import { fileURLToPath } from "node:url";
 import {
   SCALE_PRESETS,
   ATLAS_CORE_VERSION,
-  LETTER_PORTRAIT,
   DEFAULT_MAP_TIER,
-  buildPageGrid,
-  buildLocationPage,
   validateAtlas,
   type AtlasContract,
   type BBox,
   type LandmarkMarker,
-  type LngLat,
   type MapTier,
-  type ScalePreset,
 } from "@journeybook/atlas-core";
-import { renderAtlas } from "./render.js";
+import { assembleContract, renderAtlas, type RenderAtlasInput, type RenderLocation } from "./render.js";
+import { loadLocationsFile } from "./locations.js";
 
 const HELP = `journeybook — headless atlas renderer
 
 Usage:
-  journeybook grid   --bbox W,S,E,N --scale <preset> [--overlap 0..1] [--tier 1..4]
-  journeybook grid   --location LNG,LAT --scale <preset> [--tier 1..4]
-  journeybook render --bbox W,S,E,N --scale <preset> --out <file.pdf> [--tier 1..4] [--basemap]
-  journeybook render --location LNG,LAT --scale <preset> --out <file.pdf> [--tier 1..4] [--basemap]
-  journeybook render --location LNG,LAT --location LNG,LAT [...] --scale <preset> --out <file.pdf> [--route] [--tier 1..4] [--basemap]
-  journeybook validate --bbox W,S,E,N --scale <preset> [--overlap 0..1]
-  journeybook validate --location LNG,LAT --scale <preset>
+  journeybook grid     <geometry> --scale <preset> [options]
+  journeybook validate <geometry> --scale <preset> [options]
+  journeybook render   <geometry> --scale <preset> --out <file.pdf> [options] [--basemap]
 
---basemap fetches a USGS (public-domain) topo panel per page over the network.
---route tiles corridor pages (R1…Rn) along the polyline connecting ≥2 --location stops,
-  appended after the per-location (L#) pages in the same atlas.
---tile-base-url <url> routes basemap tiles through the C# proxy (e.g. http://localhost:5180/api/tiles),
-  reusing its cache and enabling PMTiles sources; --tile-source <id> overrides the proxy source key.
-  Omit --tile-base-url to fetch tiles directly (zero infrastructure).
---tile-cache-dir <dir> reads/writes a shared local tile cache (default: no Node-side cache).
---landmarks <file.json> reads a JSON array of LandmarkMarker objects and places them as
-  per-page furniture (each page picks/declutters the markers inside its bbox).
-validate runs the print-validation harness (true scale, neighbour integrity).
+Geometry (combine freely; at least one of --bbox / --locations / --location):
+  --bbox W,S,E,N              tile a page grid over this extent at --scale
+  --locations <file.csv|json> special locations, one L# page each (see below)
+  --location LNG,LAT          one location (repeatable); appended after --locations
+  --cover [pad]               tile a grid at --scale over the padded box enclosing every
+                              location (pad = fraction of span, default 0.05); no --bbox needed
+  --zoom-levels a,b,c         zoom ladder: one page per scale preset for every location
+                              (ids L1a, L1b, …); a location's own "zoom" column wins
+  --route                     corridor pages (R1…Rn) along the polyline between ≥2 locations
+
+Options:
+  --tier 1..4                 map furniture level (default ${DEFAULT_MAP_TIER})
+  --overlap 0..1              fractional page overlap for grids (default 0)
+  --title <text>              book title printed in every page header
+  --no-toc / --no-overview    suppress the locations contents page / the overview page
+  --no-notes / --no-reference-grid
+                              suppress the foot-of-page notes area / the A–F×1–8 grid
+  --basemap                   fetch a USGS (public-domain) topo panel per page (network)
+  --tile-base-url <url>       route basemap tiles through the C# proxy (e.g. http://localhost:5180/api/tiles)
+  --tile-source <id>          proxy source key (with --tile-base-url)
+  --tile-cache-dir <dir>      shared local tile cache (default: none)
+  --landmarks <file.json>     JSON array of LandmarkMarker objects placed as per-page furniture
+
+Locations file:
+  CSV with a header row — the same file the web importer takes. Columns (case-insensitive):
+    name, lng, lat            required
+    notes                     printed in the page's notes area
+    scale                     per-location scale preset id (zoom this page in/out)
+    pin, color                map-pin shape id (shield/teardrop/circle/diamond/star/flag) + hex
+    zoom                      "|"-separated ladder of scale ids, e.g. 1-100000|1-50000|usgs-7-5-min
+  JSON: an array of { name|label, lng, lat | center:{lng,lat}, scalePresetId, pin, notes, zoomLevels }
+  or a web project backup ({ project, locations: [...] }) — render a backup directly.
 
 Scale presets:
 ${SCALE_PRESETS.map((p) => `  ${p.id.padEnd(16)} ${p.label}`).join("\n")}
 
-validate is not implemented yet (Stage 1E).
+Examples:
+  journeybook render --locations stops.csv --cover --scale 1-100000 \\
+    --zoom-levels 1-100000,1-50000,usgs-7-5-min --tier 2 --basemap --out trip.pdf
+  journeybook grid --locations stops.csv --cover --scale 1-50000 | jq '.pages[].id'
 `;
 
 /** Parse "--flag value" pairs into a map (no value -> "true"). */
@@ -92,16 +110,6 @@ export function collectMultiFlag(args: readonly string[], name: string): string[
   return values;
 }
 
-function resolveScale(id: string | undefined): ScalePreset {
-  const preset = SCALE_PRESETS.find((p) => p.id === id);
-  if (!preset) {
-    throw new Error(
-      `Unknown --scale "${id ?? ""}". Try one of: ${SCALE_PRESETS.map((p) => p.id).join(", ")}`,
-    );
-  }
-  return preset;
-}
-
 function parseNumbers(value: string, count: number, label: string): number[] {
   const parts = value.split(",").map((s) => Number(s.trim()));
   if (parts.length !== count || parts.some((n) => Number.isNaN(n))) {
@@ -119,25 +127,105 @@ function resolveTier(flags: Map<string, string>): MapTier {
   return tier as MapTier;
 }
 
-/** Build an AtlasContract from grid/render flags (bbox grid or single location). */
-export function contractFromFlags(flags: Map<string, string>): AtlasContract {
-  const scale = resolveScale(flags.get("scale"));
+/** A flag's value, or undefined when absent or given bare (value "true"). */
+function valueOf(flags: Map<string, string>, key: string): string | undefined {
+  const v = flags.get(key);
+  return v === undefined || v === "true" ? undefined : v;
+}
+
+/**
+ * Build the shared render input (minus `outputPath`) from CLI args. Used by
+ * `grid`, `validate` and `render`, so every command assembles the same atlas.
+ */
+export function inputFromArgs(args: readonly string[]): Omit<RenderAtlasInput, "outputPath"> {
+  const flags = parseFlags(args);
+  const scaleId = flags.get("scale");
+  if (!scaleId || scaleId === "true") {
+    throw new Error(`need --scale <preset>. Try one of: ${SCALE_PRESETS.map((p) => p.id).join(", ")}`);
+  }
+  if (!SCALE_PRESETS.some((p) => p.id === scaleId)) {
+    throw new Error(`Unknown --scale "${scaleId}". Try one of: ${SCALE_PRESETS.map((p) => p.id).join(", ")}`);
+  }
   const tier = resolveTier(flags);
 
-  if (flags.has("location")) {
-    const [lng, lat] = parseNumbers(flags.get("location")!, 2, "location") as [number, number];
-    const center: LngLat = { lng, lat };
-    const page = buildLocationPage(center, scale, LETTER_PORTRAIT, "L1", tier);
-    return { version: 1, scale, margins: LETTER_PORTRAIT.margins, pages: [page] };
+  // Locations: every --locations file (in order) then every --location LNG,LAT.
+  const locations: RenderLocation[] = [];
+  for (const file of collectMultiFlag(args, "locations")) {
+    locations.push(...loadLocationsFile(file));
+  }
+  for (const value of collectMultiFlag(args, "location")) {
+    const [lng, lat] = parseNumbers(value, 2, "location") as [number, number];
+    locations.push({ center: { lng, lat } });
   }
 
+  let bbox: BBox | undefined;
   if (flags.has("bbox")) {
-    const bbox = parseNumbers(flags.get("bbox")!, 4, "bbox") as BBox;
-    const overlap = flags.has("overlap") ? Number(flags.get("overlap")) : 0;
-    return buildPageGrid({ bbox, scale, page: LETTER_PORTRAIT, overlap, tier });
+    bbox = parseNumbers(flags.get("bbox")!, 4, "bbox") as BBox;
+  }
+  if (!bbox && locations.length === 0) {
+    throw new Error("need geometry: --bbox W,S,E,N, --locations <file>, and/or --location LNG,LAT");
   }
 
-  throw new Error("need either --bbox W,S,E,N or --location LNG,LAT");
+  const zoomRaw = valueOf(flags, "zoom-levels");
+  const zoomLevels = zoomRaw ? zoomRaw.split(/[,|;]/).map((s) => s.trim()).filter(Boolean) : undefined;
+
+  let cover = false;
+  let coverPadFraction: number | undefined;
+  if (flags.has("cover")) {
+    cover = true;
+    const pad = valueOf(flags, "cover");
+    if (pad !== undefined) {
+      coverPadFraction = Number(pad);
+      if (!Number.isFinite(coverPadFraction) || coverPadFraction < 0) {
+        throw new Error(`--cover expects an optional pad fraction ≥ 0 (got "${pad}")`);
+      }
+    }
+  }
+
+  // --landmarks <file.json>: read the JSON array of LandmarkMarker so the engine
+  // is testable without an Overpass round-trip; threaded into renderAtlas below.
+  let landmarks: LandmarkMarker[] | undefined;
+  const landmarksPath = valueOf(flags, "landmarks");
+  if (landmarksPath) {
+    const parsed = JSON.parse(readFileSync(landmarksPath, "utf8")) as unknown;
+    if (!Array.isArray(parsed)) {
+      throw new Error(`--landmarks "${landmarksPath}" must contain a JSON array of LandmarkMarker objects.`);
+    }
+    landmarks = parsed as LandmarkMarker[];
+  }
+
+  const overlap = flags.has("overlap") ? Number(flags.get("overlap")) : undefined;
+  const title = valueOf(flags, "title");
+
+  return {
+    mode: bbox ? "bbox" : "location",
+    ...(bbox ? { bbox } : {}),
+    // In location mode the first location doubles as the legacy `center`.
+    ...(!bbox && locations.length > 0 ? { center: locations[0]!.center } : {}),
+    ...(locations.length > 0 ? { locations } : {}),
+    scalePresetId: scaleId,
+    tier,
+    ...(overlap !== undefined ? { overlap } : {}),
+    ...(title ? { title } : {}),
+    basemap: flags.has("basemap"),
+    route: flags.has("route"),
+    ...(cover ? { cover } : {}),
+    ...(coverPadFraction !== undefined ? { coverPadFraction } : {}),
+    ...(zoomLevels && zoomLevels.length > 0 ? { zoomLevels } : {}),
+    ...(valueOf(flags, "tile-base-url") ? { tileBaseUrl: valueOf(flags, "tile-base-url") } : {}),
+    ...(valueOf(flags, "tile-source") ? { tileSourceId: valueOf(flags, "tile-source") } : {}),
+    ...(valueOf(flags, "tile-cache-dir") ? { cacheDir: valueOf(flags, "tile-cache-dir") } : {}),
+    ...(landmarks ? { landmarks } : {}),
+    tableOfContents: !flags.has("no-toc"),
+    overview: !flags.has("no-overview"),
+    referenceGrid: !flags.has("no-reference-grid"),
+    notes: !flags.has("no-notes"),
+  };
+}
+
+/** Build an AtlasContract from CLI args (grid/validate) — same assembly as render. */
+export function contractFromArgs(args: readonly string[]): AtlasContract {
+  return assembleContract({ ...inputFromArgs(args), outputPath: "" }).contract;
 }
 
 export async function runCli(args: readonly string[]): Promise<number> {
@@ -153,7 +241,7 @@ export async function runCli(args: readonly string[]): Promise<number> {
   }
   if (cmd === "grid") {
     try {
-      stdout.write(`${JSON.stringify(contractFromFlags(parseFlags(rest)), null, 2)}\n`);
+      stdout.write(`${JSON.stringify(contractFromArgs(rest), null, 2)}\n`);
       return 0;
     } catch (err) {
       stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
@@ -162,75 +250,10 @@ export async function runCli(args: readonly string[]): Promise<number> {
   }
   if (cmd === "render") {
     try {
-      const flags = parseFlags(rest);
-      const out = flags.get("out");
-      if (!out || out === "true") throw new Error("render needs --out <file.pdf>");
+      const out = valueOf(parseFlags(rest), "out");
+      if (!out) throw new Error("render needs --out <file.pdf>");
 
-      const scaleId = flags.get("scale");
-      if (!scaleId) throw new Error("render needs --scale <preset>");
-      const tier = resolveTier(flags);
-
-      const mode = flags.has("location") ? "location" : "bbox";
-      const tileBaseUrl = flags.has("tile-base-url") ? flags.get("tile-base-url") : undefined;
-      const tileSourceId = flags.has("tile-source") ? flags.get("tile-source") : undefined;
-      const cacheDir = flags.has("tile-cache-dir") ? flags.get("tile-cache-dir") : undefined;
-
-      // --landmarks <file.json>: read the JSON array of LandmarkMarker so the engine
-      // is testable without an Overpass round-trip; threaded into renderAtlas below.
-      let landmarks: LandmarkMarker[] | undefined;
-      const landmarksPath = flags.has("landmarks") ? flags.get("landmarks") : undefined;
-      if (landmarksPath && landmarksPath !== "true") {
-        const parsed = JSON.parse(readFileSync(landmarksPath, "utf8")) as unknown;
-        if (!Array.isArray(parsed)) {
-          throw new Error(`--landmarks "${landmarksPath}" must contain a JSON array of LandmarkMarker objects.`);
-        }
-        landmarks = parsed as LandmarkMarker[];
-      }
-
-      let center: { lng: number; lat: number } | undefined;
-      let bbox: [number, number, number, number] | undefined;
-      let locations: { center: { lng: number; lat: number } }[] | undefined;
-
-      if (mode === "location") {
-        // Collect all --location values (may appear multiple times for route mode).
-        const locationArgs = collectMultiFlag(rest, "location");
-        if (locationArgs.length >= 2) {
-          locations = locationArgs.map((v) => {
-            const [lng, lat] = v.split(",").map(Number) as [number, number];
-            return { center: { lng, lat } };
-          });
-          // center = first location (required by location-mode validation when locations array given).
-          center = locations[0]!.center;
-        } else {
-          const [lng, lat] = flags
-            .get("location")!
-            .split(",")
-            .map(Number) as [number, number];
-          center = { lng, lat };
-        }
-      } else {
-        bbox = flags
-          .get("bbox")!
-          .split(",")
-          .map(Number) as [number, number, number, number];
-      }
-
-      const result = await renderAtlas({
-        mode,
-        bbox,
-        center,
-        locations,
-        scalePresetId: scaleId,
-        tier,
-        overlap: flags.has("overlap") ? Number(flags.get("overlap")) : undefined,
-        basemap: flags.has("basemap"),
-        route: flags.has("route"),
-        tileBaseUrl: tileBaseUrl && tileBaseUrl !== "true" ? tileBaseUrl : undefined,
-        tileSourceId: tileSourceId && tileSourceId !== "true" ? tileSourceId : undefined,
-        cacheDir: cacheDir && cacheDir !== "true" ? cacheDir : undefined,
-        landmarks,
-        outputPath: out,
-      });
+      const result = await renderAtlas({ ...inputFromArgs(rest), outputPath: out });
 
       const pageIds = result.contract.pages.map((p) => p.id).join(", ");
       stdout.write(`Wrote ${result.pageCount} page(s) to ${result.outputPath} [${pageIds}]\n`);
@@ -242,7 +265,7 @@ export async function runCli(args: readonly string[]): Promise<number> {
   }
   if (cmd === "validate") {
     try {
-      const contract = contractFromFlags(parseFlags(rest));
+      const contract = contractFromArgs(rest);
       const report = validateAtlas(contract);
       for (const check of report.checks) {
         stdout.write(`  [${check.pass ? "PASS" : "FAIL"}] ${check.name} — ${check.detail}\n`);

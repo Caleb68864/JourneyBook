@@ -17,3 +17,4 @@ export * from "./grid.js";
 export * from "./validation.js";
 export * from "./route.js";
 export * from "./landmarks.js";
+export * from "./extent.js";

@@ -6,6 +6,7 @@ import {
   buildPageGrid,
   buildLocationPage,
   buildRouteAtlas,
+  enclosingBBox,
   selectPageLandmarks,
   type AtlasContract,
   type AtlasPage,
@@ -16,6 +17,7 @@ import {
   type PlacedLandmark,
   type AtlasOverview,
   type PinStyle,
+  type ScalePreset,
   type UsngGridOverlay,
 } from "@journeybook/atlas-core";
 import { renderAtlasPdfToFile, type RouteOverlay } from "@journeybook/pdf-client";
@@ -36,6 +38,13 @@ export interface RenderLocation {
   pin?: PinStyle;
   /** Saved notes, printed in the location page's notes area. */
   notes?: string;
+  /**
+   * Zoom ladder: scale preset ids rendered as one page each for this location
+   * (e.g. `["1-100000", "1-50000", "usgs-7-5-min"]` → regional → local → detail),
+   * in the order given. Pages are ids `L#a`, `L#b`, … Overrides `scalePresetId`
+   * and the atlas-level `zoomLevels` when set.
+   */
+  zoomLevels?: string[];
 }
 
 export interface RenderAtlasInput {
@@ -83,6 +92,21 @@ export interface RenderAtlasInput {
   referenceGrid?: boolean;
   /** Show the foot-of-page notes area on each map page. Default true. */
   notes?: boolean;
+  /**
+   * Default zoom ladder applied to every location that has no `zoomLevels` of
+   * its own: one page per scale preset id, ids `L#a`, `L#b`, …. A location's own
+   * `scalePresetId` is ignored when a ladder applies (the ladder is explicit).
+   */
+  zoomLevels?: string[];
+  /**
+   * Cover all locations: tile a grid at the project scale over the padded box
+   * enclosing every location (see `enclosingBBox`), prepended before the L#
+   * pages — "an atlas that covers all my stops". Ignored when an explicit `bbox`
+   * is given (mode "bbox"), which already defines the grid.
+   */
+  cover?: boolean;
+  /** Padding around the cover extent as a fraction of the span. Default 0.05. */
+  coverPadFraction?: number;
 }
 
 export interface RenderAtlasResult {
@@ -193,7 +217,46 @@ function clipSegmentToBbox(
   ];
 }
 
-export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasResult> {
+/** Ladder suffix for the n-th zoom level of a location: 0→"a", 1→"b", … 26→"aa". */
+function ladderSuffix(index: number): string {
+  let n = index + 1;
+  let out = "";
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    out = String.fromCharCode(97 + rem) + out;
+    n = Math.floor((n - 1) / 26);
+  }
+  return out;
+}
+
+function resolveScaleOrThrow(id: string, where: string): ScalePreset {
+  const preset = SCALE_PRESETS.find((p) => p.id === id);
+  if (!preset) {
+    throw new Error(
+      `Unknown scalePresetId "${id}" for ${where}. Available: ${SCALE_PRESETS.map((p) => p.id).join(", ")}`,
+    );
+  }
+  return preset;
+}
+
+/** The assembled page contract plus the inputs the renderer needs to draw furniture. */
+export interface AssembledAtlas {
+  contract: AtlasContract;
+  /** Locations rendered as L# pages (also the overview stops and route stops). */
+  locationList: RenderLocation[];
+  /** Route polyline (global LngLat) when route mode was used. */
+  routePolyline?: LngLat[];
+  /** The cover extent that was tiled, when `cover` produced a grid. */
+  coverBBox?: BBox;
+}
+
+/**
+ * Build the page contract (cover/bbox grid → L# location pages, each possibly a
+ * zoom ladder → R# corridor pages) without rendering anything. Shared by
+ * `renderAtlas` and the CLI's `grid`/`validate` commands so every command sees
+ * the same atlas for the same input.
+ */
+export function assembleContract(input: RenderAtlasInput): AssembledAtlas {
   validateInput(input);
 
   const scale = SCALE_PRESETS.find((p) => p.id === input.scalePresetId);
@@ -216,6 +279,7 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
   // (scale-driven). A project with both an extent AND locations renders the
   // grid pages followed by L1…Ln — the locations are no longer dropped.
   const pages: AtlasPage[] = [];
+  let coverBBox: BBox | undefined;
   if (input.mode === "bbox") {
     if (!input.bbox) throw new Error('mode "bbox" requires bbox');
     const grid = buildPageGrid({
@@ -226,21 +290,68 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
       tier: input.tier,
     });
     pages.push(...grid.pages);
+  } else if (input.cover && locationList.length > 0) {
+    // Cover every location: a grid at the project scale over the padded box
+    // enclosing all stops (same helper the web's "Enclose N Locations" uses).
+    coverBBox = enclosingBBox(
+      locationList.map((loc) => loc.center),
+      input.coverPadFraction !== undefined ? { padFraction: input.coverPadFraction } : {},
+    );
+    const grid = buildPageGrid({
+      bbox: coverBBox,
+      scale,
+      page: LETTER_PORTRAIT,
+      overlap: input.overlap ?? 0,
+      tier: input.tier,
+    });
+    pages.push(...grid.pages);
   }
+
+  // Default zoom ladder (validated once; a per-location ladder wins).
+  const defaultLadder =
+    input.zoomLevels && input.zoomLevels.length > 0
+      ? input.zoomLevels.map((id) => resolveScaleOrThrow(id, "zoomLevels"))
+      : undefined;
+
   locationList.forEach((loc, i) => {
+    const baseId = `L${i + 1}`;
+    const where = loc.label ?? baseId;
+    const ladder =
+      loc.zoomLevels && loc.zoomLevels.length > 0
+        ? loc.zoomLevels.map((id) => resolveScaleOrThrow(id, `location ${where}`))
+        : defaultLadder;
+
+    if (ladder && ladder.length > 1) {
+      // One page per zoom level, ids L#a, L#b, … in the order given. Each page is
+      // self-describing (buildLocationPage stamps page.scale) and titled with its
+      // scale so the TOC distinguishes the levels.
+      ladder.forEach((levelScale, k) => {
+        pages.push(
+          buildLocationPage(
+            loc.center,
+            levelScale,
+            LETTER_PORTRAIT,
+            `${baseId}${ladderSuffix(k)}`,
+            input.tier,
+            loc.label ?? baseId,
+            loc.pin,
+            loc.notes,
+          ),
+        );
+      });
+      return;
+    }
+
     // Each location may carry its own scale (zoom in for a small town/house);
     // fall back to the project scale. buildLocationPage stamps page.scale, so the
     // page renders a truthful scale bar even in a mixed-scale atlas.
     const locScale =
-      loc.scalePresetId !== undefined
-        ? SCALE_PRESETS.find((p) => p.id === loc.scalePresetId)
-        : scale;
-    if (!locScale) {
-      throw new Error(
-        `Unknown scalePresetId "${loc.scalePresetId}" for location ${loc.label ?? `L${i + 1}`}. Available: ${SCALE_PRESETS.map((p) => p.id).join(", ")}`,
-      );
-    }
-    pages.push(buildLocationPage(loc.center, locScale, LETTER_PORTRAIT, `L${i + 1}`, input.tier, loc.label, loc.pin, loc.notes));
+      ladder && ladder.length === 1
+        ? ladder[0]!
+        : loc.scalePresetId !== undefined
+          ? resolveScaleOrThrow(loc.scalePresetId, `location ${where}`)
+          : scale;
+    pages.push(buildLocationPage(loc.center, locScale, LETTER_PORTRAIT, baseId, input.tier, loc.label, loc.pin, loc.notes));
   });
 
   if (pages.length === 0) {
@@ -274,6 +385,17 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
       `Invalid request: this atlas at ${scale.id} produces ${contract.pages.length} pages, exceeding the ${MAX_ATLAS_PAGES}-page limit. Use a smaller area, a coarser scale, or fewer locations.`,
     );
   }
+
+  return {
+    contract,
+    locationList,
+    ...(routePolyline ? { routePolyline } : {}),
+    ...(coverBBox ? { coverBBox } : {}),
+  };
+}
+
+export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasResult> {
+  const { contract, locationList, routePolyline } = assembleContract(input);
 
   const panelOptions =
     input.tileBaseUrl || input.tileSourceId || input.cacheDir
@@ -395,6 +517,7 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
   await renderAtlasPdfToFile({
     contract,
     outputPath: input.outputPath,
+    ...(input.title ? { title: input.title } : {}),
     panels,
     grids,
     routes,

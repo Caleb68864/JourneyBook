@@ -42,6 +42,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   title: { fontSize: 11, fontFamily: "Helvetica-Bold", color: FOREST },
+  pageTitle: { fontSize: 9, color: INK, marginTop: 1 },
   pageId: { fontSize: 16, fontFamily: "Helvetica-Bold", color: FOREST },
   edgeLabel: { fontSize: 7, color: BARK, textAlign: "center" },
   panelRow: { flexDirection: "row", flexGrow: 1, alignItems: "stretch" },
@@ -88,8 +89,9 @@ const styles = StyleSheet.create({
   notesHeader: { fontSize: 7, fontFamily: "Helvetica-Bold", color: BARK, letterSpacing: 1, marginBottom: 2 },
   notesText: { fontSize: 8, color: INK, marginBottom: 3 },
   notesLine: { borderBottomWidth: 0.5, borderBottomColor: BARK, height: 13 },
-  tocLabel: { fontSize: 9, fontFamily: "Helvetica-Bold", color: FOREST, width: 30 },
+  tocLabel: { fontSize: 9, fontFamily: "Helvetica-Bold", color: FOREST, width: 34 },
   tocName: { fontSize: 10, color: INK, flexGrow: 1, flexShrink: 1 },
+  tocScale: { fontSize: 8, color: BARK, marginLeft: 8 },
   tocPage: { fontSize: 10, fontFamily: "Helvetica-Bold", color: INK, marginLeft: 8 },
   // Per-page landmark legend, pinned in the panel corner; distinct from the
   // route/L# furniture (BARK diamond glyph, not a FOREST circle).
@@ -503,7 +505,16 @@ function AtlasPageView({
     >
       <View style={styles.neatline}>
         <View style={styles.header}>
-          <Text style={styles.title}>{title}</Text>
+          <View style={{ flexShrink: 1 }}>
+            <Text style={styles.title}>{title}</Text>
+            {/* A location page names its place and, when zoomed, its own scale. */}
+            {page.title ? (
+              <Text style={styles.pageTitle}>
+                {page.title}
+                {page.scale && page.scale.id !== contract.scale.id ? `  ·  ${page.scale.label}` : ""}
+              </Text>
+            ) : null}
+          </View>
           <Text style={styles.pageId}>{page.id}</Text>
         </View>
 
@@ -660,6 +671,8 @@ interface TocEntry {
   id: string;
   name: string;
   page: number;
+  /** Scale label, present when the page zooms away from the atlas scale. */
+  scale?: string;
 }
 
 /**
@@ -685,6 +698,7 @@ function TableOfContents({ title, entries }: { title: string; entries: TocEntry[
             <View key={e.id} style={styles.tocRow} wrap={false}>
               <Text style={styles.tocLabel}>{e.id}</Text>
               <Text style={styles.tocName}>{e.name}</Text>
+              {e.scale ? <Text style={styles.tocScale}>{e.scale}</Text> : null}
               <Text style={styles.tocPage}>{e.page}</Text>
             </View>
           ))}
@@ -746,7 +760,14 @@ export function AtlasDocument({
   const tocEntries: TocEntry[] = contract.pages
     .map((page, i) => ({ page, i }))
     .filter(({ page }) => typeof page.title === "string" && page.title.length > 0)
-    .map(({ page, i }) => ({ id: page.id, name: page.title!, page: physicalPage(i) }));
+    .map(({ page, i }) => ({
+      id: page.id,
+      name: page.title!,
+      page: physicalPage(i),
+      // Show the level's scale when the page zooms away from the atlas scale, so a
+      // zoom ladder (L1a/L1b/L1c) reads as regional → local → detail in the contents.
+      ...(page.scale && page.scale.id !== contract.scale.id ? { scale: page.scale.label } : {}),
+    }));
 
   // page id -> physical page number, for the overview's rectangle labels.
   const pageNumbers: Record<string, number> = {};

@@ -7,5 +7,13 @@
  */
 
 export { runCli } from "./cli.js";
-export { renderAtlas, type RenderAtlasInput, type RenderAtlasResult } from "./render.js";
+export {
+  renderAtlas,
+  assembleContract,
+  type RenderAtlasInput,
+  type RenderAtlasResult,
+  type RenderLocation,
+  type AssembledAtlas,
+} from "./render.js";
+export { loadLocationsFile, parseLocationsCsv, parseLocationsJson } from "./locations.js";
 export const RENDER_CLI_VERSION = "0.0.0";
