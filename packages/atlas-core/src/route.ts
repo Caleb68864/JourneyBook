@@ -8,25 +8,13 @@ import {
   type ScalePreset,
 } from "./model.js";
 import { groundFootprintMeters, type PageSpec } from "./page.js";
-import { createProjector, geodesicDistanceMeters, type Projector } from "./projection.js";
+import {
+  createProjector,
+  geodesicDistanceMeters,
+  pageBBoxAround,
+  type Projector,
+} from "./projection.js";
 
-function planeRectToBBox(
-  projector: Projector,
-  cx: number,
-  cy: number,
-  halfW: number,
-  halfH: number,
-): BBox {
-  const corners: LngLat[] = [
-    projector.inverse([cx - halfW, cy - halfH]),
-    projector.inverse([cx - halfW, cy + halfH]),
-    projector.inverse([cx + halfW, cy - halfH]),
-    projector.inverse([cx + halfW, cy + halfH]),
-  ];
-  const lngs = corners.map((c) => c.lng);
-  const lats = corners.map((c) => c.lat);
-  return [Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)];
-}
 
 interface CorridorCandidate {
   center: LngLat;
@@ -158,9 +146,12 @@ export function buildRouteAtlas(options: BuildRouteAtlasOptions): RouteAtlasResu
     kept.push(candidate);
   }
 
-  const pages: AtlasPage[] = kept.map(({ px, py }, i) => ({
+  // Each corridor page's bbox is built about its own centre, not the shared
+  // route projector: a long route runs far from that projector's central
+  // meridian, where a shared frame inflates the box (see pageBBoxAround).
+  const pages: AtlasPage[] = kept.map(({ center }, i) => ({
     id: `R${i + 1}`,
-    bbox: planeRectToBBox(projector, px, py, halfW, halfH),
+    bbox: pageBBoxAround(center, halfW, halfH),
     orientation: page.orientation,
     tier,
     scale,

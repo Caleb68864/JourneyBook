@@ -1,5 +1,5 @@
 import proj4 from "proj4";
-import type { LngLat } from "./model.js";
+import type { BBox, LngLat } from "./model.js";
 
 const WGS84 = "EPSG:4326";
 
@@ -68,6 +68,44 @@ export function createUtmProjector(zone: number): Projector {
       return { lng, lat };
     },
   };
+}
+
+/**
+ * The WGS84 axis-aligned bounding box of one page's printable area, centred on
+ * `center` and covering `2 * halfWidthMeters` by `2 * halfHeightMeters` of ground.
+ *
+ * The projector is built **about this page's own centre**, which is what keeps a
+ * page true to its scale. Projecting a whole multi-page extent through one shared
+ * projector looks equivalent but is not: away from that projector's central
+ * meridian, meridian convergence rotates the page rectangle relative to the
+ * lat/lng axes (by roughly `Δλ · sin φ`), so the axis-aligned box that contains it
+ * inflates. The error grows with distance from the central meridian — at 1:100,000
+ * on Letter it reaches ~0.7% at 40 km and ~1.1% at 60 km, enough to fail the
+ * {@link validateAtlas} footprint check and to print a scale bar that lies.
+ * Re-centring per page holds the error flat at ~0.17% (the residual is the
+ * unavoidable box-around-a-curved-quad term) wherever the page sits.
+ *
+ * Adjacent pages therefore no longer share exactly coincident bbox edges; they
+ * overlap or gap by that same fraction of a page. That is the better trade: page
+ * ids carry neighbour continuity, while the scale bar is a promise about ground
+ * truth on the sheet in your hand.
+ */
+export function pageBBoxAround(
+  center: LngLat,
+  halfWidthMeters: number,
+  halfHeightMeters: number,
+): BBox {
+  const projector = createProjector(center);
+  const [cx, cy] = projector.forward(center);
+  const corners: LngLat[] = [
+    projector.inverse([cx - halfWidthMeters, cy - halfHeightMeters]),
+    projector.inverse([cx - halfWidthMeters, cy + halfHeightMeters]),
+    projector.inverse([cx + halfWidthMeters, cy - halfHeightMeters]),
+    projector.inverse([cx + halfWidthMeters, cy + halfHeightMeters]),
+  ];
+  const lngs = corners.map((c) => c.lng);
+  const lats = corners.map((c) => c.lat);
+  return [Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)];
 }
 
 /**

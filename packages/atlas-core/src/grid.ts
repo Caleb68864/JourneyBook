@@ -9,7 +9,7 @@ import {
   type ScalePreset,
 } from "./model.js";
 import { groundFootprintMeters, type PageSpec } from "./page.js";
-import { createProjector, type Projector } from "./projection.js";
+import { createProjector, pageBBoxAround } from "./projection.js";
 
 /** Bijective base-26 column letters: 0->A, 25->Z, 26->AA. */
 function columnLetters(index: number): string {
@@ -28,25 +28,6 @@ export function pageLabel(row: number, column: number): string {
   return `${columnLetters(row)}${column + 1}`;
 }
 
-/** Unproject a planar rectangle (metres) into a WGS84 BBox via its corners. */
-function planeRectToBBox(
-  projector: Projector,
-  cx: number,
-  cy: number,
-  halfW: number,
-  halfH: number,
-): BBox {
-  const corners: LngLat[] = [
-    projector.inverse([cx - halfW, cy - halfH]),
-    projector.inverse([cx - halfW, cy + halfH]),
-    projector.inverse([cx + halfW, cy - halfH]),
-    projector.inverse([cx + halfW, cy + halfH]),
-  ];
-  const lngs = corners.map((c) => c.lng);
-  const lats = corners.map((c) => c.lat);
-  return [Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)];
-}
-
 /** A single fixed-scale page centred on a location (scale-driven mode). */
 export function buildLocationPage(
   center: LngLat,
@@ -58,12 +39,10 @@ export function buildLocationPage(
   pin?: PinStyle,
   notes?: string,
 ): AtlasPage {
-  const projector = createProjector(center);
-  const [cx, cy] = projector.forward(center);
   const fp = groundFootprintMeters(scale, page);
   return {
     id,
-    bbox: planeRectToBBox(projector, cx, cy, fp.widthMeters / 2, fp.heightMeters / 2),
+    bbox: pageBBoxAround(center, fp.widthMeters / 2, fp.heightMeters / 2),
     orientation: page.orientation,
     ...(title ? { title } : {}),
     ...(pin ? { pin } : {}),
@@ -134,9 +113,14 @@ export function buildPageGrid(options: PageGridOptions): AtlasContract {
     for (let col = 0; col < columns; col++) {
       const cx = firstColX + col * stepX;
       const cy = firstRowY - row * stepY; // rows run north -> south
+      // The shared projector lays the page centres out on one uniform lattice, so
+      // spacing and overlap stay exact; each page's own bbox is then built about
+      // that centre (see pageBBoxAround) so a page far from the extent's central
+      // meridian still covers exactly the ground its scale bar claims.
+      const pageCenter = projector.inverse([cx, cy]);
       pages.push({
         id: pageLabel(row, col),
-        bbox: planeRectToBBox(projector, cx, cy, fp.widthMeters / 2, fp.heightMeters / 2),
+        bbox: pageBBoxAround(pageCenter, fp.widthMeters / 2, fp.heightMeters / 2),
         orientation: page.orientation,
         tier,
         neighbors: {
