@@ -60,6 +60,27 @@ describe("cli inputFromArgs", () => {
     expect(() => inputFromArgs(["--location", "-96.7,40.8", "--scale", "usgs-7-5-min", "--cover", "-1"])).toThrow(/--cover expects/);
   });
 
+  it("carries panel encoding flags through and validates them", () => {
+    const input = inputFromArgs([
+      "--location", "-96.7,40.8", "--scale", "usgs-7-5-min",
+      "--panel-px", "1600", "--panel-format", "png", "--panel-quality", "80",
+    ]);
+    expect(input.panelWidthPx).toBe(1600);
+    expect(input.panelFormat).toBe("png");
+    expect(input.panelQuality).toBe(80);
+
+    // Omitted entirely when not asked for, so the engine defaults apply.
+    const bare = inputFromArgs(["--location", "-96.7,40.8", "--scale", "usgs-7-5-min"]);
+    expect(bare.panelWidthPx).toBeUndefined();
+    expect(bare.panelFormat).toBeUndefined();
+    expect(bare.panelQuality).toBeUndefined();
+
+    const base = ["--location", "-96.7,40.8", "--scale", "usgs-7-5-min"];
+    expect(() => inputFromArgs([...base, "--panel-px", "12"])).toThrow(/--panel-px expects/);
+    expect(() => inputFromArgs([...base, "--panel-format", "webp"])).toThrow(/--panel-format must be/);
+    expect(() => inputFromArgs([...base, "--panel-quality", "0"])).toThrow(/--panel-quality expects/);
+  });
+
   it("parseFlags treats a bare flag as true and takes the following token as a value", () => {
     const flags = parseFlags(["--basemap", "--tier", "3", "--route"]);
     expect(flags.get("basemap")).toBe("true");

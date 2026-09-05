@@ -25,6 +25,7 @@ import {
   type LandmarkMarker,
   type MapTier,
 } from "@journeybook/atlas-core";
+import type { PanelFormat } from "@journeybook/map-sources";
 import { assembleContract, renderAtlas, type RenderAtlasInput, type RenderLocation } from "./render.js";
 import { loadLocationsFile } from "./locations.js";
 
@@ -53,6 +54,9 @@ Options:
   --no-notes / --no-reference-grid
                               suppress the foot-of-page notes area / the A–F×1–8 grid
   --basemap                   fetch a USGS (public-domain) topo panel per page (network)
+  --panel-px <n>              target panel width in pixels (default 1000, ~176 DPI on Letter)
+  --panel-format png|jpeg     panel encoding (default jpeg; png is lossless and ~6x larger)
+  --panel-quality 1..100      JPEG quality (default 90; ignored for png)
   --tile-base-url <url>       route basemap tiles through the C# proxy (e.g. http://localhost:5180/api/tiles)
   --tile-source <id>          proxy source key (with --tile-base-url)
   --tile-cache-dir <dir>      shared local tile cache (default: none)
@@ -197,6 +201,30 @@ export function inputFromArgs(args: readonly string[]): Omit<RenderAtlasInput, "
   const overlap = flags.has("overlap") ? Number(flags.get("overlap")) : undefined;
   const title = valueOf(flags, "title");
 
+  let panelWidthPx: number | undefined;
+  const panelPxRaw = valueOf(flags, "panel-px");
+  if (panelPxRaw !== undefined) {
+    panelWidthPx = Number(panelPxRaw);
+    if (!Number.isInteger(panelWidthPx) || panelWidthPx < 256 || panelWidthPx > 8000) {
+      throw new Error(`--panel-px expects an integer 256–8000 (got "${panelPxRaw}")`);
+    }
+  }
+
+  const panelFormatRaw = valueOf(flags, "panel-format");
+  if (panelFormatRaw !== undefined && panelFormatRaw !== "png" && panelFormatRaw !== "jpeg") {
+    throw new Error(`--panel-format must be "png" or "jpeg" (got "${panelFormatRaw}")`);
+  }
+  const panelFormat = panelFormatRaw as PanelFormat | undefined;
+
+  let panelQuality: number | undefined;
+  const panelQualityRaw = valueOf(flags, "panel-quality");
+  if (panelQualityRaw !== undefined) {
+    panelQuality = Number(panelQualityRaw);
+    if (!Number.isInteger(panelQuality) || panelQuality < 1 || panelQuality > 100) {
+      throw new Error(`--panel-quality expects an integer 1–100 (got "${panelQualityRaw}")`);
+    }
+  }
+
   return {
     mode: bbox ? "bbox" : "location",
     ...(bbox ? { bbox } : {}),
@@ -209,6 +237,9 @@ export function inputFromArgs(args: readonly string[]): Omit<RenderAtlasInput, "
     ...(title ? { title } : {}),
     basemap: flags.has("basemap"),
     route: flags.has("route"),
+    ...(panelWidthPx !== undefined ? { panelWidthPx } : {}),
+    ...(panelFormat ? { panelFormat } : {}),
+    ...(panelQuality !== undefined ? { panelQuality } : {}),
     ...(cover ? { cover } : {}),
     ...(coverPadFraction !== undefined ? { coverPadFraction } : {}),
     ...(zoomLevels && zoomLevels.length > 0 ? { zoomLevels } : {}),

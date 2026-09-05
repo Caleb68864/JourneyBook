@@ -21,7 +21,12 @@ import {
   type UsngGridOverlay,
 } from "@journeybook/atlas-core";
 import { renderAtlasPdfToFile, type RouteOverlay } from "@journeybook/pdf-client";
-import { renderMapPanel, buildUsngGrid, buildAtlasOverview } from "@journeybook/map-sources";
+import {
+  renderMapPanel,
+  buildUsngGrid,
+  buildAtlasOverview,
+  type PanelFormat,
+} from "@journeybook/map-sources";
 
 /** A saved location to render as its own fixed-scale page (L1, L2, …). */
 export interface RenderLocation {
@@ -107,6 +112,17 @@ export interface RenderAtlasInput {
   cover?: boolean;
   /** Padding around the cover extent as a fraction of the span. Default 0.05. */
   coverPadFraction?: number;
+  /**
+   * Target width in pixels for each basemap panel; the tile zoom is chosen to
+   * meet it, so this sets the print resolution. Default 1000 (~176 DPI across a
+   * 7.5in printable width, since the panel is cropped at the tiles' native
+   * resolution rather than resampled down).
+   */
+  panelWidthPx?: number;
+  /** Panel encoding: "jpeg" (default, ~6x smaller) or "png" (lossless). */
+  panelFormat?: PanelFormat;
+  /** JPEG quality 1–100 (ignored for PNG). Default 90. */
+  panelQuality?: number;
 }
 
 export interface RenderAtlasResult {
@@ -180,6 +196,19 @@ function validateInput(input: RenderAtlasInput): void {
     }
   } else {
     throw new Error(`Invalid mode "${String((input as RenderAtlasInput).mode)}": must be "bbox" or "location".`);
+  }
+  if (input.panelWidthPx !== undefined) {
+    if (!Number.isInteger(input.panelWidthPx) || input.panelWidthPx < 256 || input.panelWidthPx > 8000) {
+      throw new Error(`Invalid panelWidthPx ${String(input.panelWidthPx)}: must be an integer 256–8000.`);
+    }
+  }
+  if (input.panelFormat !== undefined && input.panelFormat !== "png" && input.panelFormat !== "jpeg") {
+    throw new Error(`Invalid panelFormat "${String(input.panelFormat)}": must be "png" or "jpeg".`);
+  }
+  if (input.panelQuality !== undefined) {
+    if (!Number.isInteger(input.panelQuality) || input.panelQuality < 1 || input.panelQuality > 100) {
+      throw new Error(`Invalid panelQuality ${String(input.panelQuality)}: must be an integer 1–100.`);
+    }
   }
   if (input.tileBaseUrl !== undefined && !/^https?:\/\//i.test(input.tileBaseUrl)) {
     // Defense-in-depth against SSRF: only http(s) tile proxies, never file://,
@@ -397,22 +426,22 @@ export function assembleContract(input: RenderAtlasInput): AssembledAtlas {
 export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasResult> {
   const { contract, locationList, routePolyline } = assembleContract(input);
 
-  const panelOptions =
-    input.tileBaseUrl || input.tileSourceId || input.cacheDir
-      ? {
-          ...(input.tileBaseUrl ? { tileBaseUrl: input.tileBaseUrl } : {}),
-          ...(input.tileSourceId ? { sourceId: input.tileSourceId } : {}),
-          ...(input.cacheDir ? { cacheDir: input.cacheDir } : {}),
-        }
-      : undefined;
+  const panelOptions = {
+    ...(input.tileBaseUrl ? { tileBaseUrl: input.tileBaseUrl } : {}),
+    ...(input.tileSourceId ? { sourceId: input.tileSourceId } : {}),
+    ...(input.cacheDir ? { cacheDir: input.cacheDir } : {}),
+    ...(input.panelFormat ? { format: input.panelFormat } : {}),
+    ...(input.panelQuality !== undefined ? { quality: input.panelQuality } : {}),
+  };
+  const panelWidthPx = input.panelWidthPx ?? 1000;
 
   let panels: Record<string, string> | undefined;
   if (input.basemap) {
     panels = {};
     for (const page of contract.pages) {
       try {
-        const panel = await renderMapPanel(page.bbox, 1000, undefined, panelOptions);
-        panels[page.id] = `data:image/png;base64,${panel.png.toString("base64")}`;
+        const panel = await renderMapPanel(page.bbox, panelWidthPx, undefined, panelOptions);
+        panels[page.id] = `data:${panel.mimeType};base64,${panel.bytes.toString("base64")}`;
         stderr.write(`  panel ${page.id} (z${panel.zoom})\n`);
       } catch (err) {
         // Surface a clear, source-aware message so the worker can map a tile
@@ -504,8 +533,8 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
     });
     if (input.basemap) {
       try {
-        const panel = await renderMapPanel(overview.bbox, 1000, undefined, panelOptions);
-        overviewPanel = `data:image/png;base64,${panel.png.toString("base64")}`;
+        const panel = await renderMapPanel(overview.bbox, panelWidthPx, undefined, panelOptions);
+        overviewPanel = `data:${panel.mimeType};base64,${panel.bytes.toString("base64")}`;
         stderr.write(`  overview panel (z${panel.zoom})\n`);
       } catch (err) {
         // Non-fatal: the overview still renders with page rectangles over a blank panel.
