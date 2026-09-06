@@ -71,7 +71,8 @@ public class RenderService(
         }
 
         var locations = project.Locations
-            .Select(l => new RenderLocationDto(l.Location.X, l.Location.Y, l.Name, l.ScalePresetId, l.PinShape, l.PinColor, l.Notes))
+            .Select(l => new RenderLocationDto(
+                l.Location.X, l.Location.Y, l.Name, l.ScalePresetId, l.PinShape, l.PinColor, l.Notes, l.ZoomLevels))
             .ToList();
 
         // Persisted landmarks forwarded as additive vector furniture, carried like
@@ -109,7 +110,8 @@ public class RenderService(
             TableOfContents: request.TableOfContents,
             Overview: request.Overview,
             ReferenceGrid: request.ReferenceGrid,
-            Notes: request.Notes);
+            Notes: request.Notes,
+            Cover: request.Cover);
 
         // 5. Invoke the worker; mark Completed or Failed.
         try

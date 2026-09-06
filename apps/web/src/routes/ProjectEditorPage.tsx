@@ -41,6 +41,9 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
   // corridor (R#) pages alongside the location (L#) pages. Carried in the render
   // request body, like tier.
   const [route, setRoute] = useState(false);
+  // Cover extent: only meaningful with no saved extent, since an extent already
+  // defines the grid (the engine ignores cover in that case).
+  const [cover, setCover] = useState(false);
   // Include-landmarks toggle (default on). Generate sends includeLandmarks so the
   // worker draws landmark furniture from the project's imported landmarks; unchecking
   // it generates a clean map without them. Carried in the render body, like route.
@@ -236,22 +239,17 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
     setLocations((l) => [...l, loc]);
   }
 
-  async function handleSetLocationScale(loc: Location, scalePresetId: string | null) {
-    try {
-      const updated = await api.locations.update(loc.id, {
-        name: loc.name,
-        lng: loc.lng,
-        lat: loc.lat,
-        notes: loc.notes,
-        scalePresetId,
-      });
-      setLocations((l) => l.map((x) => (x.id === loc.id ? updated : x)));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update location scale.");
-    }
-  }
-
-  async function handleSetLocationPin(loc: Location, pinShape: string, pinColor: string) {
+  /**
+   * PUT /locations/{id} replaces the whole record, so every edit must send the
+   * fields it is not changing. Routing all of them through one helper keeps that
+   * true — omitting a field here silently clears it (which is how changing a
+   * location's scale used to wipe its custom pin).
+   */
+  async function updateLocation(
+    loc: Location,
+    changes: Partial<Pick<Location, "scalePresetId" | "pinShape" | "pinColor" | "zoomLevels">>,
+    failureMessage: string,
+  ) {
     try {
       const updated = await api.locations.update(loc.id, {
         name: loc.name,
@@ -259,14 +257,25 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
         lat: loc.lat,
         notes: loc.notes,
         scalePresetId: loc.scalePresetId,
-        pinShape,
-        pinColor,
+        pinShape: loc.pinShape,
+        pinColor: loc.pinColor,
+        zoomLevels: loc.zoomLevels,
+        ...changes,
       });
       setLocations((l) => l.map((x) => (x.id === loc.id ? updated : x)));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update pin.");
+      setError(err instanceof Error ? err.message : failureMessage);
     }
   }
+
+  const handleSetLocationScale = (loc: Location, scalePresetId: string | null) =>
+    updateLocation(loc, { scalePresetId }, "Failed to update location scale.");
+
+  const handleSetLocationPin = (loc: Location, pinShape: string, pinColor: string) =>
+    updateLocation(loc, { pinShape, pinColor }, "Failed to update pin.");
+
+  const handleSetLocationZoomLevels = (loc: Location, zoomLevels: string[] | null) =>
+    updateLocation(loc, { zoomLevels }, "Failed to update zoom ladder.");
 
   // Address search → location: create at the geocoded position, recording the
   // original query + provider as provenance.
@@ -528,6 +537,7 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
                 onDelete={handleDeleteLocation}
                 onSetScale={handleSetLocationScale}
                 onSetPin={handleSetLocationPin}
+                onSetZoomLevels={handleSetLocationZoomLevels}
                 onImport={handleImportCsv}
                 onStartDrop={() => setDrawMode("location")}
               />
@@ -543,6 +553,28 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
 
             {/* Generate */}
             <section>
+              {/* Cover extent — only offered when there is no saved bounding box,
+                  because an extent already tiles the grid. */}
+              {project.extent === null && locations.length > 0 && (
+                <label className="mb-3 flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    checked={cover}
+                    onChange={(e) => setCover(e.target.checked)}
+                    className="mt-0.5 accent-forest-700"
+                  />
+                  <span className="flex flex-col gap-0.5">
+                    <span className="font-mono text-[11px] uppercase tracking-widest text-bark-600">
+                      Cover All Locations
+                    </span>
+                    <span className="font-mono text-[10px] text-bark-500">
+                      Adds a page grid over the whole area containing your {locations.length} location
+                      {locations.length === 1 ? "" : "s"}, before the location (L#) pages.
+                    </span>
+                  </span>
+                </label>
+              )}
+
               <label className="mb-3 flex items-start gap-2">
                 <input
                   type="checkbox"
@@ -618,7 +650,7 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
                   </span>
                 </span>
               </label>
-              <GenerateButton projectId={projectId} tier={tier} route={route} includeLandmarks={includeLandmarks} tableOfContents={tableOfContents} overview={overview} referenceGrid={referenceGrid} notes={notes} disabled={!hasGeometry || savedOverLimit} />
+              <GenerateButton projectId={projectId} tier={tier} route={route} cover={cover} includeLandmarks={includeLandmarks} tableOfContents={tableOfContents} overview={overview} referenceGrid={referenceGrid} notes={notes} disabled={!hasGeometry || savedOverLimit} />
               {!hasGeometry && (
                 <p className="mt-1 font-mono text-[10px] text-bark-500">
                   Set a bounding box or add a location to generate an atlas.

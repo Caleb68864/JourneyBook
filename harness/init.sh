@@ -41,6 +41,9 @@ pnpm install --frozen-lockfile
 
 if [ "$dotnet_ok" -eq 1 ]; then
   dotnet restore JourneyBook.slnx
+  # Local tool manifest (.config/dotnet-tools.json) pins dotnet-ef, so the
+  # documented `dotnet ef migrations add ...` works on a fresh clone.
+  dotnet tool restore
 else
   echo "    Skipping 'dotnet restore' (see the .NET remediation above)."
 fi

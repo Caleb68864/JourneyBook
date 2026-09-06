@@ -111,6 +111,9 @@ public class ProjectService(JourneyBookDbContext db) : IProjectService
                     Notes = l.Notes,
                     SourceConfidence = l.SourceConfidence,
                     ScalePresetId = l.ScalePresetId,
+                    // Copy the array, don't share the reference: two projects must not
+                    // alias one ladder, or editing the copy would mutate the original.
+                    ZoomLevels = l.ZoomLevels?.ToArray(),
                     PinShape = l.PinShape,
                     PinColor = l.PinColor,
                     GeocodedFrom = l.GeocodedFrom,

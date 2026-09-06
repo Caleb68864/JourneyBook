@@ -20,6 +20,7 @@ public class LocationService(JourneyBookDbContext db) : ILocationService
         var category = ParseCategory(request.Category);
         var sourceConfidence = ParseSourceConfidence(request.SourceConfidence);
         await ValidateScalePresetAsync(request.ScalePresetId, ct);
+        var zoomLevels = await ValidateZoomLevelsAsync(request.ZoomLevels, ct);
 
         var maxNumber = await db.ImportantLocations
             .Where(l => l.ProjectId == projectId)
@@ -35,6 +36,7 @@ public class LocationService(JourneyBookDbContext db) : ILocationService
             Notes = request.Notes,
             SourceConfidence = sourceConfidence,
             ScalePresetId = request.ScalePresetId,
+            ZoomLevels = zoomLevels,
             GeocodedFrom = request.GeocodedFrom,
             GeocodeProvider = request.GeocodeProvider,
             PinShape = request.PinShape,
@@ -57,9 +59,12 @@ public class LocationService(JourneyBookDbContext db) : ILocationService
         // Parse + per-row validate (throws LocationValidationException → 400).
         var rows = LocationCsv.Parse(request.Csv);
 
-        // Validate every per-location scale override up front (all-or-nothing).
-        var scaleIds = rows.Where(r => r.ScalePresetId is not null)
-            .Select(r => r.ScalePresetId!)
+        // Validate every per-location scale override AND every zoom-ladder level
+        // up front (all-or-nothing) - one query covers both, since a ladder entry
+        // is the same kind of id as a scale override.
+        var scaleIds = rows.SelectMany(r => (r.ZoomLevels ?? []).Append(r.ScalePresetId))
+            .Where(id => id is not null)
+            .Select(id => id!)
             .Distinct()
             .ToList();
         if (scaleIds.Count > 0)
@@ -89,6 +94,9 @@ public class LocationService(JourneyBookDbContext db) : ILocationService
                 Location = ToPoint(row.Lng, row.Lat),
                 Notes = row.Notes,
                 ScalePresetId = row.ScalePresetId,
+                ZoomLevels = row.ZoomLevels,
+                PinShape = row.PinShape,
+                PinColor = row.PinColor,
                 LocationNumber = ++maxNumber,
             };
             db.ImportantLocations.Add(location);
@@ -127,6 +135,7 @@ public class LocationService(JourneyBookDbContext db) : ILocationService
         var category = ParseCategory(request.Category);
         var sourceConfidence = ParseSourceConfidence(request.SourceConfidence);
         await ValidateScalePresetAsync(request.ScalePresetId, ct);
+        var zoomLevels = await ValidateZoomLevelsAsync(request.ZoomLevels, ct);
 
         location.Name = request.Name;
         location.Location = ToPoint(request.Lng, request.Lat);
@@ -134,6 +143,7 @@ public class LocationService(JourneyBookDbContext db) : ILocationService
         location.Notes = request.Notes;
         location.SourceConfidence = sourceConfidence;
         location.ScalePresetId = request.ScalePresetId;
+        location.ZoomLevels = zoomLevels;
         location.PinShape = request.PinShape;
         location.PinColor = request.PinColor;
 
@@ -177,6 +187,32 @@ public class LocationService(JourneyBookDbContext db) : ILocationService
             throw new LocationValidationException($"Invalid scale preset '{scalePresetId}'.");
     }
 
+    /// <summary>
+    /// A zoom ladder must reference seeded scale presets, in the order given.
+    /// Returns the normalized array (empty → null, so "no ladder" has one
+    /// representation) or throws <see cref="LocationValidationException"/> → 400.
+    /// </summary>
+    private async Task<string[]?> ValidateZoomLevelsAsync(IReadOnlyList<string>? zoomLevels, CancellationToken ct)
+    {
+        if (zoomLevels is null || zoomLevels.Count == 0) return null;
+
+        var ids = zoomLevels
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id.Trim())
+            .ToArray();
+        if (ids.Length == 0) return null;
+
+        var known = await db.ScalePresets
+            .Where(s => ids.Contains(s.Id))
+            .Select(s => s.Id)
+            .ToListAsync(ct);
+        var unknown = ids.Distinct().Except(known).ToList();
+        if (unknown.Count > 0)
+            throw new LocationValidationException($"Invalid zoom level scale preset(s): {string.Join(", ", unknown)}.");
+
+        return ids;
+    }
+
     private static LocationResponse ToResponse(ImportantLocation l) =>
         new(
             l.Id,
@@ -194,5 +230,6 @@ public class LocationService(JourneyBookDbContext db) : ILocationService
             l.GeocodeProvider,
             l.ScalePresetId,
             l.PinShape,
-            l.PinColor);
+            l.PinColor,
+            l.ZoomLevels);
 }

@@ -155,6 +155,77 @@ public class HttpRenderWorkerClientTests
     }
 
     [Fact]
+    public async Task Location_zoom_ladder_serializes_as_camelCase_zoomLevels_in_order()
+    {
+        var (client, handler) = Build();
+        var req = new RenderWorkerRequest(
+            ScalePresetId: "1-100000",
+            Tier: 2,
+            Orientation: "Portrait",
+            Overlap: 0,
+            Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
+            Extent: null,
+            Locations:
+            [
+                new RenderLocationDto(-96.70, 40.81, "Home"),
+                new RenderLocationDto(-95.93, 41.26, "Grandma's", PinShape: "star", PinColor: "#b03a2e",
+                    ZoomLevels: ["1-100000", "1-50000", "usgs-7-5-min"]),
+            ],
+            OutputFileName: "atlas-ladder.pdf");
+
+        await client.RenderAsync(req);
+
+        using var doc = JsonDocument.Parse(handler.CapturedBody!);
+        var locations = doc.RootElement.GetProperty("locations").EnumerateArray().ToArray();
+        Assert.Equal(2, locations.Length);
+
+        // A location with no ladder omits the field entirely (WhenWritingNull), so
+        // it serializes exactly as it did before ladders existed.
+        Assert.False(locations[0].TryGetProperty("zoomLevels", out _));
+
+        // The ladder keeps its coarse -> fine order; the engine renders L2a/L2b/L2c from it.
+        var levels = locations[1].GetProperty("zoomLevels").EnumerateArray().Select(e => e.GetString()).ToArray();
+        Assert.Equal(new[] { "1-100000", "1-50000", "usgs-7-5-min" }, levels);
+        Assert.Equal("star", locations[1].GetProperty("pin").GetProperty("shape").GetString());
+    }
+
+    [Fact]
+    public async Task Cover_flag_is_sent_in_location_mode_and_forced_false_when_an_extent_defines_the_grid()
+    {
+        // No extent: cover is what produces the grid, so it must reach the worker.
+        var (locationClient, locationHandler) = Build();
+        await locationClient.RenderAsync(new RenderWorkerRequest(
+            ScalePresetId: "1-100000", Tier: 1, Orientation: "Portrait", Overlap: 0,
+            Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
+            Extent: null,
+            Locations: [new RenderLocationDto(-96.70, 40.81, "Home")],
+            OutputFileName: "atlas-cover.pdf",
+            Cover: true));
+
+        using (var doc = JsonDocument.Parse(locationHandler.CapturedBody!))
+        {
+            Assert.True(doc.RootElement.GetProperty("cover").GetBoolean());
+        }
+
+        // With an extent the bbox already IS the grid, so cover is sent false even
+        // when requested - the engine ignores it there, and a self-consistent
+        // payload keeps the wire honest about what will actually be rendered.
+        var (bboxClient, bboxHandler) = Build();
+        await bboxClient.RenderAsync(new RenderWorkerRequest(
+            ScalePresetId: "1-100000", Tier: 1, Orientation: "Portrait", Overlap: 0,
+            Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
+            Extent: new RenderBBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Locations: [new RenderLocationDto(-96.70, 40.81, "Home")],
+            OutputFileName: "atlas-cover-bbox.pdf",
+            Cover: true));
+
+        using (var doc = JsonDocument.Parse(bboxHandler.CapturedBody!))
+        {
+            Assert.False(doc.RootElement.GetProperty("cover").GetBoolean());
+        }
+    }
+
+    [Fact]
     public async Task No_geometry_throws_rather_than_sending_an_unrenderable_request()
     {
         var (client, _) = Build();

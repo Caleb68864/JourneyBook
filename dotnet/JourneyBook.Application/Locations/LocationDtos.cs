@@ -16,13 +16,17 @@ public record CreateLocationRequest(
     string? GeocodedFrom = null,
     string? GeocodeProvider = null,
     string? PinShape = null,
-    string? PinColor = null);
+    string? PinColor = null,
+    IReadOnlyList<string>? ZoomLevels = null);
 
 /// <summary>
 /// Bulk-import locations from CSV text. Header row required; columns
 /// (case-insensitive): <c>name</c>, <c>lng</c>|<c>longitude</c>, <c>lat</c>|
-/// <c>latitude</c> (required); <c>notes</c>, <c>scale</c>|<c>scalePresetId</c>
-/// (optional). All-or-nothing: any invalid row rejects the whole import (400).
+/// <c>latitude</c> (required); <c>notes</c>, <c>scale</c>|<c>scalePresetId</c>,
+/// <c>pin</c>|<c>pinShape</c>, <c>color</c>|<c>pinColor</c>, and <c>zoom</c>|
+/// <c>zoomLevels</c> (a <c>|</c>-separated zoom ladder) (optional). Matches the
+/// columns the headless render-cli reads, so one file works in both.
+/// All-or-nothing: any invalid row rejects the whole import (400).
 /// </summary>
 public record ImportLocationsRequest(string Csv);
 
@@ -39,7 +43,8 @@ public record UpdateLocationRequest(
     string SourceConfidence,
     string? ScalePresetId = null,
     string? PinShape = null,
-    string? PinColor = null);
+    string? PinColor = null,
+    IReadOnlyList<string>? ZoomLevels = null);
 
 /// <summary>
 /// An important location with its stable L-series label.
@@ -62,4 +67,5 @@ public record LocationResponse(
     string? GeocodeProvider,
     string? ScalePresetId,
     string? PinShape,
-    string? PinColor);
+    string? PinColor,
+    IReadOnlyList<string>? ZoomLevels);

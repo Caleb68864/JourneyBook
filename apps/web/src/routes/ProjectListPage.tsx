@@ -78,6 +78,7 @@ export function ProjectListPage({ onOpen }: ProjectListPageProps) {
         locations: locs.map((l) => ({
           name: l.name, lng: l.lng, lat: l.lat, notes: l.notes,
           scalePresetId: l.scalePresetId, pinShape: l.pinShape, pinColor: l.pinColor,
+          zoomLevels: l.zoomLevels,
         })),
       };
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
@@ -100,17 +101,21 @@ export function ProjectListPage({ onOpen }: ProjectListPageProps) {
     try {
       const data = JSON.parse(await file.text()) as {
         project?: { name?: string; scalePresetId?: string; extent?: [number, number, number, number] | null };
-        locations?: Array<{ name: string; lng: number; lat: number; notes?: string | null; scalePresetId?: string | null; pinShape?: string | null; pinColor?: string | null }>;
+        locations?: Array<{ name: string; lng: number; lat: number; notes?: string | null; scalePresetId?: string | null; pinShape?: string | null; pinColor?: string | null; zoomLevels?: string[] | null }>;
       };
       const p = data.project ?? {};
       const proj = await api.projects.create(p.name ?? "Imported Atlas", p.scalePresetId ?? DEFAULT_SCALE_PRESET_ID);
       if (p.extent) await api.projects.setExtent(proj.id, p.extent);
       for (const l of data.locations ?? []) {
         const created = await api.locations.create(proj.id, l.name, l.lng, l.lat, l.notes ?? undefined, l.scalePresetId ?? undefined);
-        if (l.pinShape || l.pinColor) {
+        // create() takes no pin or ladder, so restore those with a follow-up PUT.
+        // PUT replaces the whole record, so resend everything create() already set
+        // (notes especially) or it comes back null.
+        if (l.pinShape || l.pinColor || (l.zoomLevels?.length ?? 0) > 0) {
           await api.locations.update(created.id, {
             name: created.name, lng: created.lng, lat: created.lat, notes: created.notes,
             scalePresetId: created.scalePresetId, pinShape: l.pinShape, pinColor: l.pinColor,
+            zoomLevels: l.zoomLevels ?? null,
           });
         }
       }

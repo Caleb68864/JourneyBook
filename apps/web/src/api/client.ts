@@ -43,6 +43,12 @@ export interface Location {
   pinShape: string | null;
   /** Custom pin hex color (e.g. "#1f3d2b"); null → default. */
   pinColor: string | null;
+  /**
+   * Ordered zoom ladder (scale preset ids, coarse → fine). When set, this location
+   * renders one page per level (L1a, L1b, …) instead of a single page, and it
+   * overrides `scalePresetId`. Null/empty → one page.
+   */
+  zoomLevels: string[] | null;
 }
 
 export interface ImportLocationsResult {
@@ -230,7 +236,7 @@ export const api = {
     // Update/delete are on the flat /api/locations/{id} group (not project-scoped).
     update: (
       locationId: string,
-      body: { name: string; lng: number; lat: number; notes?: string | null; category?: string; sourceConfidence?: string; scalePresetId?: string | null; pinShape?: string | null; pinColor?: string | null },
+      body: { name: string; lng: number; lat: number; notes?: string | null; category?: string; sourceConfidence?: string; scalePresetId?: string | null; pinShape?: string | null; pinColor?: string | null; zoomLevels?: string[] | null },
     ) =>
       request<Location>("PUT", `/locations/${locationId}`, {
         name: body.name,
@@ -242,6 +248,7 @@ export const api = {
         scalePresetId: body.scalePresetId ?? null,
         pinShape: body.pinShape ?? null,
         pinColor: body.pinColor ?? null,
+        zoomLevels: body.zoomLevels ?? null,
       }),
     delete: (locationId: string) =>
       request<void>("DELETE", `/locations/${locationId}`),
@@ -297,6 +304,8 @@ export const api = {
         overview?: boolean;
         referenceGrid?: boolean;
         notes?: boolean;
+        /** Tile a grid over the box enclosing every location (projects with no extent). */
+        cover?: boolean;
       },
     ) =>
       request<RenderResult>("POST", `/projects/${projectId}/render`, { tier, ...opts }),

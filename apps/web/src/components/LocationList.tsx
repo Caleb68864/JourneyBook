@@ -5,6 +5,8 @@ import { PinEditor } from "./PinEditor";
 interface ScalePresetOption {
   id: string;
   label: string;
+  /** Scale denominator; used to order the zoom ladder coarse → fine. */
+  ratio: number;
 }
 
 interface LocationListProps {
@@ -19,6 +21,8 @@ interface LocationListProps {
   onSetScale: (loc: Location, scalePresetId: string | null) => Promise<void>;
   /** Set a saved location's custom pin (shape + hex color). */
   onSetPin: (loc: Location, shape: string, color: string) => Promise<void>;
+  /** Set (or clear) a location's zoom ladder. Empty selection → null. */
+  onSetZoomLevels: (loc: Location, zoomLevels: string[] | null) => Promise<void>;
   /** Bulk-import from CSV text; resolves to the number imported. */
   onImport: (csv: string) => Promise<number>;
   /** If true, user can click map to drop pin — communicated to parent */
@@ -33,6 +37,7 @@ export function LocationList({
   onDelete,
   onSetScale,
   onSetPin,
+  onSetZoomLevels,
   onImport,
   onStartDrop,
 }: LocationListProps) {
@@ -48,6 +53,20 @@ export function LocationList({
 
   const projectScaleLabel =
     scalePresets.find((s) => s.id === projectScaleId)?.label ?? projectScaleId;
+
+  // Ladder levels always read coarse → fine (regional → local → detail), so the
+  // printed pages step in. Presenting them in that fixed order means picking a
+  // ladder is a set of checkboxes rather than a drag-to-reorder list.
+  const ladderPresets = [...scalePresets].sort((a, b) => b.ratio - a.ratio);
+
+  /** Toggle one level in a location's ladder, keeping coarse → fine order. */
+  function toggleLadderLevel(loc: Location, id: string) {
+    const current = new Set(loc.zoomLevels ?? []);
+    if (current.has(id)) current.delete(id);
+    else current.add(id);
+    const next = ladderPresets.filter((s) => current.has(s.id)).map((s) => s.id);
+    void onSetZoomLevels(loc, next.length > 0 ? next : null);
+  }
 
   async function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -138,7 +157,8 @@ export function LocationList({
                   <select
                     value={loc.scalePresetId ?? ""}
                     onChange={(e) => void onSetScale(loc, e.target.value || null)}
-                    className="max-w-[10rem] truncate border border-bark-300 bg-cream-50 px-1 py-0.5 font-mono text-[10px] text-charcoal-900 focus:outline-none focus:ring-1 focus:ring-forest-700"
+                    disabled={(loc.zoomLevels?.length ?? 0) > 0}
+                    className="max-w-[10rem] truncate border border-bark-300 bg-cream-50 px-1 py-0.5 font-mono text-[10px] text-charcoal-900 focus:outline-none focus:ring-1 focus:ring-forest-700 disabled:opacity-40"
                     aria-label={`Scale for ${loc.name}`}
                   >
                     <option value="">Project default ({projectScaleLabel})</option>
@@ -149,6 +169,39 @@ export function LocationList({
                     ))}
                   </select>
                 </label>
+
+                {/* Zoom ladder: one page per checked level, coarse → fine. */}
+                <fieldset className="mt-1.5">
+                  <legend className="font-mono text-[10px] uppercase tracking-wide text-bark-600">
+                    Zoom ladder
+                  </legend>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {ladderPresets.map((s) => {
+                      const checked = (loc.zoomLevels ?? []).includes(s.id);
+                      return (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={() => toggleLadderLevel(loc, s.id)}
+                          aria-pressed={checked}
+                          title={`${checked ? "Remove" : "Add"} ${s.label} for ${loc.name}`}
+                          className={`border px-1.5 py-0.5 font-mono text-[10px] transition-colors ${
+                            checked
+                              ? "border-forest-700 bg-forest-700 text-cream-50"
+                              : "border-bark-300 bg-cream-50 text-bark-600 hover:border-forest-700 hover:text-forest-700"
+                          }`}
+                        >
+                          {s.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-1 font-mono text-[10px] text-bark-500">
+                    {(loc.zoomLevels?.length ?? 0) > 0
+                      ? `${loc.zoomLevels!.length} page${loc.zoomLevels!.length === 1 ? "" : "s"} — ${loc.label}a…, coarse to fine. Overrides Zoom above.`
+                      : "Pick two or more to print this place at several zoom levels."}
+                  </p>
+                </fieldset>
                 <PinEditor
                   shape={loc.pinShape}
                   color={loc.pinColor}

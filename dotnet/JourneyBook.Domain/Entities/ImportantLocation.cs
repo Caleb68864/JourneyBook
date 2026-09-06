@@ -29,6 +29,15 @@ public class ImportantLocation : EntityBase
     /// </summary>
     public string? ScalePresetId { get; set; }
 
+    /// <summary>
+    /// Optional zoom ladder: an ordered list of scale preset ids rendered as one
+    /// page each for this location (coarse → fine, e.g. regional, local, detail),
+    /// producing pages L#a, L#b, …. Null or empty → a single page at
+    /// <see cref="ScalePresetId"/> (or the project scale). Overrides
+    /// <see cref="ScalePresetId"/> when set, because the ladder is explicit.
+    /// </summary>
+    public string[]? ZoomLevels { get; set; }
+
     /// <summary>Custom map-pin shape id (e.g. "shield", "teardrop"). Null → default.</summary>
     public string? PinShape { get; set; }
 

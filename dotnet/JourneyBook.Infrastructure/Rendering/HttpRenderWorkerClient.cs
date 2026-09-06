@@ -50,12 +50,24 @@ public class HttpRenderWorkerClient(HttpClient http) : IRenderWorkerClient
         bool TableOfContents,
         bool Overview,
         bool ReferenceGrid,
-        bool Notes);
+        bool Notes,
+        // Tile a grid over the box enclosing every location. Only sent in "location"
+        // mode - with a bbox the extent already defines the grid and the engine
+        // ignores it, so sending false there keeps the payload self-consistent.
+        bool Cover);
 
     private sealed record WorkerCenter(double Lng, double Lat);
 
-    /// <summary>A saved location → the worker's <c>RenderLocation</c> ({ center, label, scalePresetId, pin, notes }).</summary>
-    private sealed record WorkerLocation(WorkerCenter Center, string? Label, string? ScalePresetId, WorkerPin? Pin, string? Notes);
+    /// <summary>A saved location → the worker's <c>RenderLocation</c> ({ center, label, scalePresetId, pin, notes, zoomLevels }).</summary>
+    private sealed record WorkerLocation(
+        WorkerCenter Center,
+        string? Label,
+        string? ScalePresetId,
+        WorkerPin? Pin,
+        string? Notes,
+        // Ordered zoom ladder; omitted from the wire when null (WhenWritingNull) so a
+        // location with no ladder serializes exactly as it did before.
+        IReadOnlyList<string>? ZoomLevels);
 
     /// <summary>A location's custom pin → the worker's <c>{ shape, color }</c>.</summary>
     private sealed record WorkerPin(string? Shape, string? Color);
@@ -80,7 +92,8 @@ public class HttpRenderWorkerClient(HttpClient http) : IRenderWorkerClient
                     l.Label,
                     l.ScalePresetId,
                     l.PinShape is not null || l.PinColor is not null ? new WorkerPin(l.PinShape, l.PinColor) : null,
-                    l.Notes))
+                    l.Notes,
+                    l.ZoomLevels is { Count: > 0 } ? l.ZoomLevels : null))
                 .ToArray()
             : null;
 
@@ -115,7 +128,9 @@ public class HttpRenderWorkerClient(HttpClient http) : IRenderWorkerClient
                 TableOfContents: request.TableOfContents,
                 Overview: request.Overview,
                 ReferenceGrid: request.ReferenceGrid,
-                Notes: request.Notes);
+                Notes: request.Notes,
+                // The extent IS the grid here; a cover extent would be redundant.
+                Cover: false);
         }
 
         if (request.Locations.Count > 0)
@@ -138,7 +153,8 @@ public class HttpRenderWorkerClient(HttpClient http) : IRenderWorkerClient
                 TableOfContents: request.TableOfContents,
                 Overview: request.Overview,
                 ReferenceGrid: request.ReferenceGrid,
-                Notes: request.Notes);
+                Notes: request.Notes,
+                Cover: request.Cover);
         }
 
         throw new InvalidOperationException(

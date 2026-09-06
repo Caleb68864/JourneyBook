@@ -27,6 +27,10 @@ public class ImportantLocationConfiguration : IEntityTypeConfiguration<Important
         builder.Property(l => l.GeocodeProvider).HasMaxLength(50);
         // Optional per-location scale override; matches the ScalePresets PK width.
         builder.Property(l => l.ScalePresetId).HasMaxLength(32);
+        // Zoom ladder: an ordered list of scale preset ids -> Postgres text[].
+        // Order is meaningful (coarse -> fine), so this stays an array rather than
+        // a join table; the ids are validated against ScalePresets on write.
+        builder.Property(l => l.ZoomLevels).HasColumnType("text[]");
         // Custom pin: shape id + hex color.
         builder.Property(l => l.PinShape).HasMaxLength(20);
         builder.Property(l => l.PinColor).HasMaxLength(9);

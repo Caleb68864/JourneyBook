@@ -6,6 +6,7 @@ interface GenerateButtonProps {
   projectId: string;
   tier: MapTier;
   route?: boolean;
+  cover?: boolean;
   includeLandmarks?: boolean;
   tableOfContents?: boolean;
   overview?: boolean;
@@ -14,7 +15,7 @@ interface GenerateButtonProps {
   disabled?: boolean;
 }
 
-export function GenerateButton({ projectId, tier, route, includeLandmarks, tableOfContents, overview, referenceGrid, notes, disabled }: GenerateButtonProps) {
+export function GenerateButton({ projectId, tier, route, cover, includeLandmarks, tableOfContents, overview, referenceGrid, notes, disabled }: GenerateButtonProps) {
   const [status, setStatus] = useState<"idle" | "generating" | "done" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
@@ -24,7 +25,7 @@ export function GenerateButton({ projectId, tier, route, includeLandmarks, table
     setErrorMsg(null);
     setPdfUrl(null);
     try {
-      const result = await api.render.start(projectId, tier, { route, includeLandmarks, tableOfContents, overview, referenceGrid, notes });
+      const result = await api.render.start(projectId, tier, { route, cover, includeLandmarks, tableOfContents, overview, referenceGrid, notes });
       const downloadUrl = result.downloadUrl || api.render.getContent(result.generatedPdfId);
       setPdfUrl(downloadUrl);
       // Try to open the PDF; if a popup blocker stops it, the link below still works.

@@ -19,7 +19,8 @@ public class ProjectsApiTests(PostgisApiFactory factory) : IClassFixture<Postgis
         await _client.PutAsJsonAsync($"/api/projects/{src!.Id}/extent",
             new BBoxDto(-96.8, 40.7, -96.6, 40.9));
         await _client.PostAsJsonAsync($"/api/projects/{src.Id}/locations",
-            new CreateLocationRequest("Home", -96.7, 40.8, PinShape: "teardrop", PinColor: "#c25e1d"));
+            new CreateLocationRequest("Home", -96.7, 40.8, PinShape: "teardrop", PinColor: "#c25e1d",
+                ZoomLevels: ["1-100000", "usgs-7-5-min"]));
 
         var dup = await _client.PostAsync($"/api/projects/{src.Id}/duplicate", null);
         Assert.Equal(HttpStatusCode.Created, dup.StatusCode);
@@ -33,6 +34,8 @@ public class ProjectsApiTests(PostgisApiFactory factory) : IClassFixture<Postgis
         Assert.Single(locs!);
         Assert.Equal("Home", locs![0].Name);
         Assert.Equal("teardrop", locs[0].PinShape); // pin copied
+        // The ladder is copied as a new array, not aliased to the original's.
+        Assert.Equal(new[] { "1-100000", "usgs-7-5-min" }, locs[0].ZoomLevels);
     }
 
     [Fact]

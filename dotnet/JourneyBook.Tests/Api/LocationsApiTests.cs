@@ -276,4 +276,108 @@ public class LocationsApiTests(PostgisApiFactory factory) : IClassFixture<Postgi
         var get = await _client.GetAsync($"/api/locations/{Guid.NewGuid()}");
         Assert.Equal(HttpStatusCode.NotFound, get.StatusCode);
     }
+
+    [Fact]
+    public async Task Zoom_ladder_round_trips_in_the_order_given()
+    {
+        var projectId = await CreateProjectAsync();
+
+        var post = await _client.PostAsJsonAsync($"/api/projects/{projectId}/locations",
+            new CreateLocationRequest("Grandma's House", -95.9345, 41.2565,
+                ZoomLevels: ["1-100000", "1-50000", "usgs-7-5-min"]));
+        Assert.Equal(HttpStatusCode.Created, post.StatusCode);
+
+        var created = await post.Content.ReadFromJsonAsync<LocationResponse>();
+        Assert.NotNull(created);
+        // Order is meaningful (coarse -> fine drives page order L1a/L1b/L1c).
+        Assert.Equal(new[] { "1-100000", "1-50000", "usgs-7-5-min" }, created!.ZoomLevels);
+
+        var fetched = await _client.GetFromJsonAsync<LocationResponse>($"/api/locations/{created.Id}");
+        Assert.NotNull(fetched);
+        Assert.Equal(new[] { "1-100000", "1-50000", "usgs-7-5-min" }, fetched!.ZoomLevels);
+    }
+
+    [Fact]
+    public async Task Zoom_ladder_can_be_set_and_cleared_by_update()
+    {
+        var projectId = await CreateProjectAsync();
+        var post = await _client.PostAsJsonAsync($"/api/projects/{projectId}/locations",
+            new CreateLocationRequest("Overlook", -96.1, 41.05));
+        var created = await post.Content.ReadFromJsonAsync<LocationResponse>();
+        Assert.Null(created!.ZoomLevels);
+
+        var set = await _client.PutAsJsonAsync($"/api/locations/{created.Id}",
+            new UpdateLocationRequest("Overlook", -96.1, 41.05, "Other", null, "Unknown",
+                ZoomLevels: ["1-50000", "usgs-7-5-min"]));
+        Assert.Equal(HttpStatusCode.OK, set.StatusCode);
+        var withLadder = await set.Content.ReadFromJsonAsync<LocationResponse>();
+        Assert.Equal(new[] { "1-50000", "usgs-7-5-min" }, withLadder!.ZoomLevels);
+
+        // An empty list means "no ladder" and normalizes to null, so there is a
+        // single representation of that state.
+        var cleared = await _client.PutAsJsonAsync($"/api/locations/{created.Id}",
+            new UpdateLocationRequest("Overlook", -96.1, 41.05, "Other", null, "Unknown",
+                ZoomLevels: []));
+        var withoutLadder = await cleared.Content.ReadFromJsonAsync<LocationResponse>();
+        Assert.Null(withoutLadder!.ZoomLevels);
+    }
+
+    [Fact]
+    public async Task Unknown_zoom_level_returns_400_and_creates_nothing()
+    {
+        var projectId = await CreateProjectAsync();
+
+        var post = await _client.PostAsJsonAsync($"/api/projects/{projectId}/locations",
+            new CreateLocationRequest("Bad Ladder", -96.7, 40.8,
+                ZoomLevels: ["1-50000", "not-a-scale"]));
+        Assert.Equal(HttpStatusCode.BadRequest, post.StatusCode);
+
+        var list = await _client.GetFromJsonAsync<List<LocationResponse>>($"/api/projects/{projectId}/locations");
+        Assert.Empty(list!);
+    }
+
+    [Fact]
+    public async Task Import_csv_reads_pin_color_and_zoom_columns()
+    {
+        var projectId = await CreateProjectAsync();
+        var csv = string.Join("\n",
+            "name,lng,lat,notes,scale,pin,color,zoom",
+            "Home Base,-96.7026,40.8136,Start,,shield,#1f3d2b,",
+            "Grandma's,-95.9345,41.2565,\"Omaha, zoom in\",usgs-7-5-min,star,#b03a2e,1-100000|1-50000|usgs-7-5-min");
+
+        var post = await _client.PostAsJsonAsync($"/api/projects/{projectId}/locations/import",
+            new ImportLocationsRequest(csv));
+        Assert.Equal(HttpStatusCode.OK, post.StatusCode);
+
+        var result = await post.Content.ReadFromJsonAsync<ImportLocationsResponse>();
+        Assert.Equal(2, result!.Imported);
+
+        var home = result.Locations[0];
+        Assert.Equal("shield", home.PinShape);
+        Assert.Equal("#1f3d2b", home.PinColor);
+        Assert.Null(home.ZoomLevels);
+
+        var grandma = result.Locations[1];
+        Assert.Equal("star", grandma.PinShape);
+        Assert.Equal("#b03a2e", grandma.PinColor);
+        Assert.Equal("Omaha, zoom in", grandma.Notes);
+        Assert.Equal(new[] { "1-100000", "1-50000", "usgs-7-5-min" }, grandma.ZoomLevels);
+    }
+
+    [Fact]
+    public async Task Import_csv_with_an_unknown_zoom_level_returns_400_and_imports_nothing()
+    {
+        var projectId = await CreateProjectAsync();
+        var csv = string.Join("\n",
+            "name,lng,lat,zoom",
+            "Good,-96.7,40.8,1-50000",
+            "Bad,-96.6,40.9,1-50000|nope");
+
+        var post = await _client.PostAsJsonAsync($"/api/projects/{projectId}/locations/import",
+            new ImportLocationsRequest(csv));
+        Assert.Equal(HttpStatusCode.BadRequest, post.StatusCode);
+
+        var list = await _client.GetFromJsonAsync<List<LocationResponse>>($"/api/projects/{projectId}/locations");
+        Assert.Empty(list!);
+    }
 }

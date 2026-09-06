@@ -8,7 +8,12 @@ public record RenderProjectRequest(
     bool TableOfContents = true,
     bool Overview = true,
     bool ReferenceGrid = true,
-    bool Notes = true);
+    bool Notes = true,
+    // Tile a page grid over the box enclosing every saved location ("cover all my
+    // stops"), prepended before the L# pages. Only meaningful for a project with
+    // no saved extent - an extent already defines the grid, and the engine ignores
+    // Cover in that case.
+    bool Cover = false);
 
 /// <summary>Successful render response (200): generated PDF id, status, and download URL.</summary>
 public record RenderProjectResponse(Guid GeneratedPdfId, string Status, string DownloadUrl);
@@ -54,7 +59,10 @@ public record RenderWorkerRequest(
     // (camelCase `overview`/`referenceGrid`/`notes` on the wire). Default true.
     bool Overview = true,
     bool ReferenceGrid = true,
-    bool Notes = true);
+    bool Notes = true,
+    // Cover extent: tile a grid over the box enclosing every location (camelCase
+    // `cover` on the wire). Ignored by the engine when an extent/bbox is present.
+    bool Cover = false);
 
 /// <summary>A single landmark forwarded to the render worker.</summary>
 public record RenderLandmarkDto(double Longitude, double Latitude, string Name, string Category, double Score);
@@ -73,7 +81,10 @@ public record RenderLocationDto(
     string? ScalePresetId = null,
     string? PinShape = null,
     string? PinColor = null,
-    string? Notes = null);
+    string? Notes = null,
+    // Ordered zoom ladder (scale preset ids, coarse -> fine). The engine renders one
+    // page per level as L#a, L#b, …; null/empty means a single page at ScalePresetId.
+    IReadOnlyList<string>? ZoomLevels = null);
 
 /// <summary>Response from the render worker: output path, page count, and optional attribution.</summary>
 public record RenderWorkerResult(string OutputPath, int PageCount, string? Attribution);

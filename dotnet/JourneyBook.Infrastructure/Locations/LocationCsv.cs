@@ -4,18 +4,43 @@ using JourneyBook.Application.Locations;
 namespace JourneyBook.Infrastructure.Locations;
 
 /// <summary>One parsed CSV row, ready to become an <c>ImportantLocation</c>.</summary>
-public record LocationCsvRow(string Name, double Lng, double Lat, string? Notes, string? ScalePresetId);
+public record LocationCsvRow(
+    string Name,
+    double Lng,
+    double Lat,
+    string? Notes,
+    string? ScalePresetId,
+    string? PinShape = null,
+    string? PinColor = null,
+    string[]? ZoomLevels = null);
 
 /// <summary>
 /// Minimal RFC4180-ish CSV parser for location imports. A header row is required;
 /// columns are matched by name (case-insensitive): <c>name</c>, <c>lng</c>|
 /// <c>longitude</c>, <c>lat</c>|<c>latitude</c> (required); <c>notes</c>,
-/// <c>scale</c>|<c>scalePresetId</c> (optional). Supports double-quoted fields
+/// <c>scale</c>|<c>scalePresetId</c>, <c>pin</c>|<c>shape</c>, <c>color</c>|
+/// <c>pinColor</c>, <c>zoom</c>|<c>zoomLevels</c> (optional). The zoom column is a
+/// <c>|</c>- or <c>;</c>-separated ladder of scale preset ids, coarse to fine.
+/// These are the same columns the headless render-cli reads, so one file drives
+/// both the web importer and a CLI render. Supports double-quoted fields
 /// (with <c>""</c> escaping) so notes may contain commas. Aggregates all row
 /// errors into one <see cref="LocationValidationException"/> (all-or-nothing).
 /// </summary>
 public static class LocationCsv
 {
+    /// <summary>
+    /// Split a zoom-ladder cell ("1-100000|1-50000|usgs-7-5-min"; <c>;</c> also
+    /// accepted) into ordered scale preset ids. Empty → null (no ladder). The ids
+    /// themselves are validated against the seeded ScalePresets by the service,
+    /// alongside the per-location scale override.
+    /// </summary>
+    internal static string[]? ParseZoomLevels(string? cell)
+    {
+        if (string.IsNullOrWhiteSpace(cell)) return null;
+        var ids = cell.Split(['|', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return ids.Length > 0 ? ids : null;
+    }
+
     public static IReadOnlyList<LocationCsvRow> Parse(string csv)
     {
         var lines = SplitLines(csv);
@@ -28,6 +53,9 @@ public static class LocationCsv
         int latIdx = IndexOfAny(header, "lat", "latitude");
         int notesIdx = IndexOfAny(header, "notes", "note");
         int scaleIdx = IndexOfAny(header, "scale", "scalepresetid", "scaleid");
+        int pinIdx = IndexOfAny(header, "pin", "pinshape", "shape");
+        int colorIdx = IndexOfAny(header, "color", "pincolor", "colour");
+        int zoomIdx = IndexOfAny(header, "zoom", "zoomlevels", "levels");
 
         var missing = new List<string>();
         if (nameIdx < 0) missing.Add("name");
@@ -65,8 +93,11 @@ public static class LocationCsv
 
             string? notes = notesIdx >= 0 ? NullIfEmpty(Get(fields, notesIdx).Trim()) : null;
             string? scale = scaleIdx >= 0 ? NullIfEmpty(Get(fields, scaleIdx).Trim()) : null;
+            string? pinShape = pinIdx >= 0 ? NullIfEmpty(Get(fields, pinIdx).Trim()) : null;
+            string? pinColor = colorIdx >= 0 ? NullIfEmpty(Get(fields, colorIdx).Trim()) : null;
+            string[]? zoomLevels = zoomIdx >= 0 ? ParseZoomLevels(Get(fields, zoomIdx)) : null;
 
-            rows.Add(new LocationCsvRow(name, lng, lat, notes, scale));
+            rows.Add(new LocationCsvRow(name, lng, lat, notes, scale, pinShape, pinColor, zoomLevels));
         }
 
         if (errors.Count > 0)
