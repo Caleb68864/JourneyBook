@@ -78,30 +78,47 @@ jb_ensure_pnpm() {
 
 # --- .NET ------------------------------------------------------------------
 
-# The API targets ASP.NET Core, which ships as its own shared framework. An SDK
-# without it fails with NETSDK1226 ("Prune Package data not found ...
-# Microsoft.AspNetCore.App"), which reads like a project bug but is a missing
-# system package. Returns 1 (with remediation) when it is absent.
+# apps/api targets ASP.NET Core, which needs TWO separate pieces, and distros
+# package them separately:
+#   * the shared framework (Microsoft.AspNetCore.App) to RUN the app
+#   * the targeting pack (Microsoft.AspNetCore.App.Ref) to BUILD against it
+# Only the second is required to compile, and its absence surfaces as
+# NETSDK1226 "Prune Package data not found ... Microsoft.AspNetCore.App" —
+# which names the runtime, so installing the runtime looks like the fix and
+# leaves the build failing exactly as before. Check the pack directly.
 jb_check_dotnet() {
   if ! command -v dotnet >/dev/null 2>&1; then
     jb_warn "    dotnet is not installed - install the .NET 10 SDK."
     return 1
   fi
 
-  if dotnet --list-runtimes 2>/dev/null | grep -q '^Microsoft.AspNetCore.App '; then
-    return 0
-  fi
+  # Resolve the dotnet root from the SDK path ("10.0.111 [/usr/share/dotnet/sdk]").
+  local sdk_dir dotnet_root
+  sdk_dir="$(dotnet --list-sdks 2>/dev/null | tail -1 | sed 's/.*\[\(.*\)\]/\1/')"
+  dotnet_root="${DOTNET_ROOT:-$(dirname "${sdk_dir:-/usr/share/dotnet/sdk}")}"
 
-  jb_warn "    The ASP.NET Core runtime (Microsoft.AspNetCore.App) is missing;"
-  jb_warn "    the .NET SDK alone cannot build apps/api (error NETSDK1226)."
-  if command -v pacman >/dev/null 2>&1; then
-    jb_warn "      sudo pacman -S aspnet-runtime"
-  elif command -v apt-get >/dev/null 2>&1; then
-    jb_warn "      sudo apt-get install -y aspnetcore-runtime-10.0"
-  elif command -v dnf >/dev/null 2>&1; then
-    jb_warn "      sudo dnf install -y aspnetcore-runtime-10.0"
+  local have_pack=0 have_runtime=0
+  [ -d "$dotnet_root/packs/Microsoft.AspNetCore.App.Ref" ] && have_pack=1
+  dotnet --list-runtimes 2>/dev/null | grep -q '^Microsoft.AspNetCore.App ' && have_runtime=1
+
+  if [ "$have_pack" -eq 1 ]; then return 0; fi
+
+  jb_warn "    The ASP.NET Core TARGETING PACK (Microsoft.AspNetCore.App.Ref) is"
+  jb_warn "    missing from $dotnet_root/packs, so apps/api cannot compile"
+  jb_warn "    (error NETSDK1226). Note the error text names the runtime, but the"
+  if [ "$have_runtime" -eq 1 ]; then
+    jb_warn "    runtime IS already installed - the targeting pack is a separate package."
   else
-    jb_warn "      Install the ASP.NET Core 10 runtime for your distribution."
+    jb_warn "    runtime and the targeting pack are separate packages."
+  fi
+  if command -v pacman >/dev/null 2>&1; then
+    jb_warn "      sudo pacman -S aspnet-targeting-pack"
+  elif command -v apt-get >/dev/null 2>&1; then
+    jb_warn "      sudo apt-get install -y dotnet-sdk-10.0   # bundles the targeting pack"
+  elif command -v dnf >/dev/null 2>&1; then
+    jb_warn "      sudo dnf install -y aspnetcore-targeting-pack-10.0"
+  else
+    jb_warn "      Install the ASP.NET Core 10 targeting pack for your distribution."
   fi
   return 1
 }
