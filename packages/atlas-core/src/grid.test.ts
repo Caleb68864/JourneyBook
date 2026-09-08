@@ -40,8 +40,10 @@ describe("buildLocationPage", () => {
     const width = geodesicDistanceMeters({ lng: w, lat: midLat }, { lng: e, lat: midLat });
     const height = geodesicDistanceMeters({ lng: midLng, lat: s }, { lng: midLng, lat: n });
 
-    expect(width).toBeCloseTo(4572, -1); // ~7.5in * 1:24,000
-    expect(height).toBeCloseTo(6096, -1); // ~10in * 1:24,000
+    // The map box (printable area less page furniture), not the printable area:
+    // 5.7639in x 7.625in at 1:24,000.
+    expect(width).toBeCloseTo(3513.7, -1);
+    expect(height).toBeCloseTo(4648.2, -1);
     expect(midLng).toBeCloseTo(center.lng, 4);
     expect(midLat).toBeCloseTo(center.lat, 4);
   });
@@ -72,7 +74,7 @@ describe("buildPageGrid", () => {
     for (const p of grid.pages) {
       const [w, s, e, n] = p.bbox;
       const width = geodesicDistanceMeters({ lng: w, lat: (s + n) / 2 }, { lng: e, lat: (s + n) / 2 });
-      expect(width).toBeCloseTo(4572, -1);
+      expect(width).toBeCloseTo(3513.7, -1);
     }
   });
 

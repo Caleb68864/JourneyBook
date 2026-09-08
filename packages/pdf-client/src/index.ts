@@ -67,4 +67,11 @@ export async function renderAtlasPdfToBuffer(options: RenderPdfOptions): Promise
 }
 
 export { AtlasDocument, type RouteOverlay } from "./AtlasDocument.js";
+export {
+  measurePdfPages,
+  largestRect,
+  type MeasuredBox,
+  type MeasuredLine,
+  type MeasuredPage,
+} from "./pdf-measure.js";
 export const PDF_CLIENT_VERSION = "0.0.0";
