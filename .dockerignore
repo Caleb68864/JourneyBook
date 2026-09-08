@@ -17,3 +17,13 @@ data/map-packages/*
 *.md
 vault/
 docs/
+# Local secrets. The README's setup step is `cp .env.example .env`, and both
+# web.Dockerfile and render-worker.Dockerfile `COPY . .` — so without this the
+# filled-in file (DB password, API keys) is baked into two published images and
+# survives in their layers. The committed template stays in the context.
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example

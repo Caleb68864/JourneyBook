@@ -37,6 +37,36 @@ public class TileCacheTests : IDisposable
     }
 
     [Fact]
+    public void TryGet_does_not_serve_a_half_written_tmp_file_as_a_hit()
+    {
+        var cache = new TileCache(_root);
+        // Exactly what Store leaves on disk mid-write: the final name plus its temp
+        // suffix. The `{y}.*` glob matches it and hands back a torn tile, which is
+        // the failure the atomic temp+rename exists to prevent.
+        var dir = Path.Combine(_root, "usgs-topo", "5", "9");
+        Directory.CreateDirectory(dir);
+        File.WriteAllBytes(Path.Combine(dir, "9.png.tmp-" + Guid.NewGuid().ToString("N")), [0xDE, 0xAD]);
+
+        Assert.False(cache.TryGet("usgs-topo", 5, 9, 9, out _, out _));
+
+        // Once the rename lands, the same key is a hit with the real bytes.
+        var payload = new byte[] { 1, 2, 3, 4 };
+        cache.Store("usgs-topo", 5, 9, 9, "png", payload);
+        Assert.True(cache.TryGet("usgs-topo", 5, 9, 9, out var bytes, out var ext));
+        Assert.Equal(payload, bytes);
+        Assert.Equal("png", ext);
+    }
+
+    [Fact]
+    public void TryGet_does_not_confuse_a_longer_tile_number_with_the_one_asked_for()
+    {
+        var cache = new TileCache(_root);
+        cache.Store("usgs-topo", 5, 9, 91, "png", [7]);
+
+        Assert.False(cache.TryGet("usgs-topo", 5, 9, 9, out _, out _));
+    }
+
+    [Fact]
     public void Store_with_traversal_key_writes_nothing_outside_root()
     {
         var cache = new TileCache(_root);

@@ -19,6 +19,28 @@ public sealed class TileCache
         _root = Path.GetFullPath(string.IsNullOrWhiteSpace(cacheRoot) ? "data/cache" : cacheRoot);
     }
 
+    /// <summary>
+    /// True for a finished cache entry: <c>{y}</c>, or <c>{y}.{ext}</c> with a single
+    /// alphanumeric extension segment. Anything else — notably the <c>.tmp-{guid}</c>
+    /// file <see cref="Store"/> writes before renaming — is not a hit.
+    /// </summary>
+    private static bool IsTileName(string name, int y)
+    {
+        var stem = y.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        if (name == stem)
+        {
+            return true;
+        }
+
+        if (!name.StartsWith(stem + ".", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var ext = name[(stem.Length + 1)..];
+        return ext.Length > 0 && ext.All(char.IsLetterOrDigit);
+    }
+
     /// <summary>True on a hit; <paramref name="ext"/> is the discovered file extension (no dot).</summary>
     public bool TryGet(string sourceKey, int z, int x, int y, out byte[] bytes, out string ext)
     {
@@ -32,7 +54,14 @@ public sealed class TileCache
 
         try
         {
-            var match = Directory.EnumerateFiles(dir, $"{y}.*").FirstOrDefault();
+            // `{y}` or `{y}.{ext}` and nothing else. The `{y}.*` glob also matches
+            // the `{y}.{ext}.tmp-{guid}` file Store writes before its rename, so a
+            // concurrent reader would be handed a half-written tile as a hit —
+            // defeating the atomicity the temp-file dance exists for.
+            var match = Directory
+                .EnumerateFiles(dir, $"{y}.*")
+                .Concat(Directory.EnumerateFiles(dir, $"{y}"))
+                .FirstOrDefault(path => IsTileName(Path.GetFileName(path), y));
             if (match is null)
             {
                 return false;

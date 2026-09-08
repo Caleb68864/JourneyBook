@@ -85,6 +85,26 @@ describe("buildPageGrid", () => {
     expect(heavy.pages.length).toBeGreaterThan(none.pages.length);
   });
 
+  it("[BEHAVIORAL] rejects an oversized extent before materialising any page", () => {
+    // The continental US at 1:24,000 tiles into 1,086,537 pages. The grid used to
+    // build every one of them — a proj4 round trip and a bbox each — before the
+    // render-side MAX_ATLAS_PAGES guard threw the lot away. The row/column counts
+    // are known from the extent and the footprint alone, so the rejection must be
+    // immediate; the (generous) timing assertion is what pins that.
+    const started = Date.now();
+    expect(() =>
+      buildPageGrid({ bbox: [-125, 24, -66, 49], scale: usgs, page: LETTER_PORTRAIT }),
+    ).toThrow(/1086537 pages .*exceeding the 200-page limit/);
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  it("accepts an extent right at the page cap", () => {
+    // 200 pages exactly: 10 columns x 20 rows.
+    const bbox = bboxAround(center, 9.5, 19.5);
+    const grid = buildPageGrid({ bbox, scale: usgs, page: LETTER_PORTRAIT });
+    expect(grid.pages).toHaveLength(200);
+  });
+
   it("defaults pages to Level 1 (road-atlas) and honours a requested tier", () => {
     const bbox = bboxAround(center, 1, 1);
     const dflt = buildPageGrid({ bbox, scale: usgs, page: LETTER_PORTRAIT });

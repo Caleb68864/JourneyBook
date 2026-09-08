@@ -19,6 +19,18 @@ function resolveTileDir(cacheDir: string, source: string, z: number, x: number):
   return dir;
 }
 
+/**
+ * True for a finished cache entry named `{y}` or `{y}.{ext}` and nothing else.
+ *
+ * A `startsWith("{y}.")` prefix test also matches the `{y}.{ext}.tmp-{pid}-{ms}`
+ * file storeCachedTile writes before its rename, so a concurrent reader would be
+ * served a half-written tile as a hit — defeating the atomicity the temp-file
+ * dance exists for. A single alphanumeric extension segment is the whole rule.
+ */
+function isTileName(name: string, y: number): boolean {
+  return name === `${y}` || new RegExp(`^${y}\\.[A-Za-z0-9]+$`).test(name);
+}
+
 /** Returns the cached tile bytes + discovered extension, or null on a miss. */
 export async function getCachedTile(
   cacheDir: string,
@@ -32,7 +44,7 @@ export async function getCachedTile(
 
   try {
     const entries = await fs.readdir(dir);
-    const match = entries.find((f) => f === `${y}` || f.startsWith(`${y}.`));
+    const match = entries.find((f) => isTileName(f, y));
     if (!match) return null;
     const bytes = await fs.readFile(path.join(dir, match));
     const ext = path.extname(match).replace(/^\./, "");

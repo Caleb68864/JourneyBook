@@ -9,6 +9,7 @@ Mechanical check scripts for JourneyBook. Each returns exit 0 (pass) / 1 (fail) 
 | build.sh | TS packages + .NET solution build | `pnpm -r build && dotnet build JourneyBook.slnx` |
 | test.sh | TS test suites pass | `pnpm -r test` |
 | lint.sh | TS typecheck (no eslint yet) | `pnpm -r typecheck` |
+| secrets.sh | no local `.env` can reach a Docker build context | reads `.dockerignore` |
 
 Backend tests (`dotnet test JourneyBook.slnx`) use Testcontainers PostGIS and require a running Docker daemon — run them separately, not in `test.sh`.
 

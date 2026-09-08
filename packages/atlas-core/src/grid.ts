@@ -1,5 +1,6 @@
 import {
   DEFAULT_MAP_TIER,
+  MAX_ATLAS_PAGES,
   type AtlasContract,
   type AtlasPage,
   type BBox,
@@ -101,6 +102,18 @@ export function buildPageGrid(options: PageGridOptions): AtlasContract {
 
   const columns = Math.max(1, Math.ceil(extentWidth / stepX));
   const rows = Math.max(1, Math.ceil(extentHeight / stepY));
+
+  // Fail fast, before materialising a single page. The grid's size is known from
+  // the extent and the footprint alone, so an extent that cannot fit is rejected
+  // here rather than after millions of projections have been run only for the
+  // render-side page cap to throw them away. Mirrors the corridor guard in
+  // buildRouteAtlas, and references the same cap so both messages read alike.
+  if (rows * columns > MAX_ATLAS_PAGES) {
+    throw new Error(
+      `Invalid request: this extent produces ${rows * columns} pages (${columns} x ${rows}) at ${scale.id}, ` +
+        `exceeding the ${MAX_ATLAS_PAGES}-page limit. Use a smaller area or a coarser scale.`,
+    );
+  }
 
   // Centre the grid over the extent (distribute any overhang evenly).
   const coveredWidth = fp.widthMeters + (columns - 1) * stepX;

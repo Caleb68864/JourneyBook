@@ -78,6 +78,11 @@ export interface LngLat {
  * Map tier (learning-curve level) selecting which navigation furniture is drawn:
  * 1 road-atlas grid, 2 + scale bar & compass, 3 + UTM/USNG grid, 4 + full MGRS
  * & azimuth/declination. Additive — a Level 4 page is a Level 1 page with more.
+ *
+ * Level 4 is **not implemented by any renderer**: `AtlasDocument` gates its extra
+ * furniture on `tier >= 3`, so a Level 4 page prints exactly like a Level 3 one.
+ * The value stays in the type because the contract and the roadmap keep it; the
+ * web tier picker deliberately does not offer it (see `TIER_OPTIONS`).
  */
 export type MapTier = 1 | 2 | 3 | 4;
 

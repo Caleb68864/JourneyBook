@@ -18,7 +18,7 @@ log="$(mktemp)"
 trap 'rm -f "$log"' EXIT
 
 if pnpm -r test >"$log" 2>&1; then
-  echo "PASS: TS test suites (atlas-core, map-sources, render-cli, render-worker)"
+  echo "PASS: TS test suites (atlas-core, map-sources, pdf-client, render-cli, render-worker, web)"
 else
   echo "FAIL: TS tests failed (run 'pnpm -r test'):"
   grep -E 'FAIL|✗|×|AssertionError|Error:' "$log" | head -15 | sed 's/^/    /'
