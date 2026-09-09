@@ -14,12 +14,27 @@ import type { BBox, MapTier } from "@journeybook/atlas-core";
 // Web-facing domain types (mirror the C# API, extent normalized to a tuple)
 // ---------------------------------------------------------------------------
 
+/** Safe margins (inches) + optional binder gutter — mirrors the C# `MarginsDto`. */
+export interface Margins {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+  gutter: number;
+}
+
 export interface Project {
   id: string;
   name: string;
   scalePresetId: string;
   orientation: string;
   overlap: number;
+  /**
+   * The project's persisted margins. Carried through the adapter because the
+   * API's only update verb is a full PUT: any caller that does not resend these
+   * silently resets the user's page setup to the defaults.
+   */
+  margins: Margins;
   extent: BBox | null;
   createdAt: string;
   updatedAt: string;
@@ -114,9 +129,23 @@ interface ApiProject {
   scalePresetId: string;
   orientation: string;
   overlap: number;
+  margins?: Partial<Margins> | null;
   extent: ApiBBox | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** Page setup the API falls back to when a project has no stored grid yet. */
+const DEFAULT_MARGINS: Margins = { top: 0.5, right: 0.5, bottom: 0.5, left: 0.5, gutter: 0 };
+
+function toMargins(m: ApiProject["margins"]): Margins {
+  return {
+    top: m?.top ?? DEFAULT_MARGINS.top,
+    right: m?.right ?? DEFAULT_MARGINS.right,
+    bottom: m?.bottom ?? DEFAULT_MARGINS.bottom,
+    left: m?.left ?? DEFAULT_MARGINS.left,
+    gutter: m?.gutter ?? DEFAULT_MARGINS.gutter,
+  };
 }
 
 function toBBox(e: ApiBBox | null): BBox | null {
@@ -130,6 +159,7 @@ function normalizeProject(p: ApiProject): Project {
     scalePresetId: p.scalePresetId,
     orientation: p.orientation,
     overlap: p.overlap,
+    margins: toMargins(p.margins),
     extent: toBBox(p.extent),
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
@@ -184,18 +214,30 @@ export const api = {
     // Full update (the API's PUT replaces all grid fields); used for rename.
     update: async (
       id: string,
-      body: { name: string; scalePresetId: string; orientation: string; overlap: number; margins: { top: number; right: number; bottom: number; left: number; gutter: number } },
+      body: { name: string; scalePresetId: string; orientation: string; overlap: number; margins: Margins },
     ): Promise<Project> => normalizeProject(await request<ApiProject>("PUT", `/projects/${id}`, body)),
-    rename: async (p: Project, name: string): Promise<Project> =>
+    /**
+     * Change one field of a project without disturbing the rest.
+     *
+     * PUT /projects/{id} replaces every grid field, so a partial body is not a
+     * partial update — it is a reset of whatever it omits. Every single-field
+     * edit therefore goes through here, resending the project's current values
+     * for the fields it is not changing.
+     */
+    patch: async (p: Project, changes: Partial<Pick<Project, "name" | "scalePresetId" | "orientation" | "overlap" | "margins">>): Promise<Project> =>
       normalizeProject(
         await request<ApiProject>("PUT", `/projects/${p.id}`, {
-          name,
-          scalePresetId: p.scalePresetId,
-          orientation: p.orientation,
-          overlap: p.overlap,
-          margins: { top: 0.5, right: 0.5, bottom: 0.5, left: 0.5, gutter: 0 },
+          name: changes.name ?? p.name,
+          scalePresetId: changes.scalePresetId ?? p.scalePresetId,
+          orientation: changes.orientation ?? p.orientation,
+          overlap: changes.overlap ?? p.overlap,
+          margins: changes.margins ?? p.margins,
         }),
       ),
+    rename: (p: Project, name: string): Promise<Project> => api.projects.patch(p, { name }),
+    /** Persist the map scale. The picker used to change the view only. */
+    setScale: (p: Project, scalePresetId: string): Promise<Project> =>
+      api.projects.patch(p, { scalePresetId }),
     duplicate: async (id: string): Promise<Project> =>
       normalizeProject(await request<ApiProject>("POST", `/projects/${id}/duplicate`)),
     // PUT /extent binds a BBoxDto {west,south,east,north} directly (not wrapped).

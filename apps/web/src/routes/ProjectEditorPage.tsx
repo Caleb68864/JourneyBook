@@ -108,12 +108,31 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
     return () => { cancelled = true; };
   }, [projectId]);
 
-  function setScaleView(scalePresetId: string) {
-    // scalePresetId is persisted on the project's grid at creation (POST /api/projects)
-    // and is what the render endpoint reads. There is no PATCH endpoint to mutate it
-    // after creation yet, so changing the picker updates the working view only — see
-    // the note rendered below the pickers. Tier, by contrast, is sent at render time.
-    setProject((p) => (p ? { ...p, scalePresetId } : p));
+  /**
+   * Persist the map scale. `scalePresetId` lives on the project's page grid and is
+   * what the render endpoint reads, so a picker that only changed local state
+   * meant the user set the headline setting, got the scale they started with, and
+   * had no way back but creating a new project. PUT /api/projects/{id} has always
+   * accepted the field (it is how rename works); nothing was calling it.
+   *
+   * Applied optimistically so the footprint readout and preview track the picker,
+   * then rolled back if the write fails — a scale the server did not accept must
+   * not keep sitting in the picker looking saved.
+   */
+  async function handleScaleChange(scalePresetId: string) {
+    if (!project || scalePresetId === project.scalePresetId) return;
+    const previous = project;
+    setError(null);
+    setProject({ ...project, scalePresetId });
+    setSaving(true);
+    try {
+      setProject(await api.projects.setScale(previous, scalePresetId));
+    } catch (err) {
+      setProject(previous);
+      setError(err instanceof Error ? err.message : "Failed to save scale.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   // Typed bbox → preview box (not saved until confirmed).
@@ -410,7 +429,7 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
             <section className="flex flex-col gap-4 border-b border-bark-300 pb-5">
               <ScalePicker
                 value={project.scalePresetId}
-                onChange={setScaleView}
+                onChange={(id) => void handleScaleChange(id)}
               />
               <TierPicker
                 value={tier}
@@ -425,7 +444,7 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
                 Preview uses Web Mercator; printed pages are true-scale at the chosen preset.
               </p>
               <p className="font-mono text-[10px] italic text-bark-400">
-                Scale is fixed when the project is created (view-only here); the tier you
+                Scale is saved to the project as soon as you pick it; the tier you
                 pick is applied to the atlas when you click Generate.
               </p>
             </section>
