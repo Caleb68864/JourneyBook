@@ -13,12 +13,18 @@ services:
     image: postgis/postgis:16-3.4
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-journeybook}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-journeybook}
+      # No default, deliberately. A shipped fallback password is not a default,
+      # it is a published credential: every checkout of this repo knew the
+      # superuser password of every stack ever started from it. `:?` makes
+      # compose refuse to start until the operator sets one.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in your .env (see .env.example)}
       POSTGRES_DB: ${POSTGRES_DB:-journeybook}
     ports:
-      # 5433 on the host by default so a locally installed Postgres on 5432
-      # does not conflict; the api still reaches db:5432 inside the network.
-      - "${DB_PORT:-5433}:5432"
+      # Bound to loopback: the api reaches db:5432 inside the compose network, so
+      # the published port exists only for local psql/inspection and has no reason
+      # to be reachable from the LAN. 5433 so a locally installed Postgres on 5432
+      # does not conflict.
+      - "127.0.0.1:${DB_PORT:-5433}:5432"
     volumes:
       - db-data:/var/lib/postgresql/data
     healthcheck:
@@ -32,8 +38,13 @@ services:
       context: ../..
       dockerfile: infra/docker/api.Dockerfile
     environment:
-      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
-      ConnectionStrings__Postgres: "Host=db;Port=5432;Database=${POSTGRES_DB:-journeybook};Username=${POSTGRES_USER:-journeybook};Password=${POSTGRES_PASSWORD:-journeybook}"
+      # Production by default. This file IS the documented run path ("docker
+      # compose up --build" in the README), so defaulting to Development meant
+      # the normal way to run Journey Book served developer exception pages —
+      # stack traces, file paths and framework versions — to anything that could
+      # reach the port. Override explicitly when you want them.
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ConnectionStrings__Postgres: "Host=db;Port=5432;Database=${POSTGRES_DB:-journeybook};Username=${POSTGRES_USER:-journeybook};Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in your .env (see .env.example)}"
       Cors__AllowedOrigins__0: "http://localhost:8080"
       # The api waits for a healthy db, so apply migrations on boot here.
       Database__MigrateOnStartup: "true"

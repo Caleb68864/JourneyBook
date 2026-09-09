@@ -80,9 +80,15 @@ dotnet ef migrations add <Name> -p dotnet/JourneyBook.Infrastructure -s apps/api
 
 ```bash
 cp .env.example .env
+# POSTGRES_PASSWORD has no default — compose refuses to start without one.
+echo "POSTGRES_PASSWORD=$(openssl rand -base64 24)" >> .env
 docker compose -f infra/compose/docker-compose.yml up --build
 # web → http://localhost:8080   api → http://localhost:5180
 ```
+
+The stack runs `ASPNETCORE_ENVIRONMENT=Production` by default; set it to
+`Development` in `.env` only while debugging the API, since that turns on
+developer exception pages. The Postgres port is published on `127.0.0.1` only.
 
 ## Verify health
 

@@ -1,0 +1,105 @@
+# Journey Book CI
+#
+# The repo had no pipeline at all, so its green suites were enforced by nobody:
+# every check below was already runnable locally and nothing required anyone to
+# run it. The commands are the ones `forge-project.json` declares as the real
+# build and test commands, split into jobs rather than run as one script.
+#
+# Why split, given `pnpm -r build && dotnet build` is a single line there:
+#
+#  - The backend integration tests need a live Docker daemon (Testcontainers +
+#    postgis/postgis:16-3.4, via PostgisApiFactory). GitHub-hosted ubuntu runners
+#    ship one, so they DO run here — but as their own job, so "PostGIS container
+#    would not start" is never mistaken for "the code is broken", which is
+#    exactly the confusion a single combined job produces. Contributors without
+#    Docker locally run `dotnet test --filter "FullyQualifiedName!~Api"`, and the
+#    `dotnet-unit` job is that same filter, so what they run locally is a real
+#    gate rather than a weaker private variant.
+#  - TS and .NET failures arrive independently instead of one masking the other.
+#  - `repo-hygiene` needs no toolchain at all and answers in seconds.
+
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to a PR makes the older run pointless; don't burn runners on it.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+
+jobs:
+  # Repo hygiene: no toolchain, so it reports before the builds have installed.
+  # These are the audit checks that catch things no unit test can see — secrets
+  # reachable from a Docker build context, and a compose file that ships a
+  # credential or a debug environment.
+  repo-hygiene:
+    name: Repo hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Secrets cannot reach a Docker build context
+        run: bash harness/checks/secrets.sh
+      - name: Compose ships no credential and no Development default
+        run: bash harness/checks/compose-hardening.sh
+
+  ts:
+    name: TypeScript (build, typecheck, test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        # Version comes from the root package.json `packageManager` field, so it
+        # cannot drift from what developers use.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # `tsc -b` across the project references; must precede the tests, which
+      # resolve cross-package imports through each package's dist.
+      - run: pnpm -r build
+      - run: pnpm -r typecheck
+      - run: pnpm -r test
+
+  dotnet-unit:
+    name: .NET (build + unit tests, no Docker)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - run: dotnet restore JourneyBook.slnx
+      - run: dotnet build JourneyBook.slnx --no-restore
+      # The same filter contributors use when they have no Docker daemon, so the
+      # locally-runnable suite is itself gated.
+      - name: Unit tests
+        run: dotnet test JourneyBook.slnx --no-build --filter "FullyQualifiedName!~Api"
+
+  dotnet-integration:
+    name: .NET integration (Testcontainers PostGIS)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      # Fail here, legibly, rather than inside a hundred DockerUnavailableException
+      # stack traces if a runner image ever drops the daemon.
+      - name: Docker daemon is available
+        run: docker info
+      - run: dotnet restore JourneyBook.slnx
+      - run: dotnet build JourneyBook.slnx --no-restore
+      - name: Full test suite (pulls postgis/postgis:16-3.4)
+        run: dotnet test JourneyBook.slnx --no-build
