@@ -14,8 +14,10 @@ namespace JourneyBook.Tests.Api;
 /// </summary>
 public class PostgisApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
-    private readonly PostgreSqlContainer _db = new PostgreSqlBuilder()
-        .WithImage("postgis/postgis:16-3.4")
+    // The image goes to the constructor, not WithImage: Testcontainers deprecated the
+    // parameterless ctor in 4.x precisely because an image set afterwards arrives too
+    // late for the builder to configure the container against it.
+    private readonly PostgreSqlContainer _db = new PostgreSqlBuilder(TestContainerImages.Postgis)
         .WithDatabase("journeybook")
         .WithUsername("journeybook")
         .WithPassword("journeybook")

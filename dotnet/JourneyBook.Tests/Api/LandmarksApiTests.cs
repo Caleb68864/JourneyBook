@@ -59,8 +59,8 @@ public sealed class FakeOverpassClient : IOverpassClient
 
 public sealed class LandmarksApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
-    private readonly PostgreSqlContainer _db = new PostgreSqlBuilder()
-        .WithImage("postgis/postgis:16-3.4")
+    // Image in the constructor: the parameterless one is obsolete in Testcontainers 4.x.
+    private readonly PostgreSqlContainer _db = new PostgreSqlBuilder(TestContainerImages.Postgis)
         .WithDatabase("journeybook")
         .WithUsername("journeybook")
         .WithPassword("journeybook")

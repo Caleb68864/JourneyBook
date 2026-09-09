@@ -48,8 +48,7 @@ public sealed class FakeGeocodeClient : IGeocodeClient
 
 public sealed class GeocodeApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
-    private readonly PostgreSqlContainer _db = new PostgreSqlBuilder()
-        .WithImage("postgis/postgis:16-3.4")
+    private readonly PostgreSqlContainer _db = new PostgreSqlBuilder(TestContainerImages.Postgis)
         .WithDatabase("journeybook")
         .WithUsername("journeybook")
         .WithPassword("journeybook")
