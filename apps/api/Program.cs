@@ -1,5 +1,7 @@
+using JourneyBook.Api;
 using JourneyBook.Api.Endpoints;
 using JourneyBook.Application;
+using Microsoft.AspNetCore.Diagnostics;
 using JourneyBook.Infrastructure;
 using JourneyBook.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -38,6 +40,48 @@ if (app.Configuration.GetValue<bool>("Database:MigrateOnStartup"))
 }
 
 // --- Pipeline -------------------------------------------------------------
+
+// Global exception handler, registered FIRST so it wraps every endpoint, and
+// unconditionally so both environments answer the same shape. Without it an
+// unhandled throw fell through to the host: ordinary bad input (an unknown PDF
+// status) returned 500, and under Development — which Compose defaulted to
+// until 2026-09-09 — that 500 carried a full stack trace.
+//
+// The per-endpoint try/catch blocks that already exist are deliberately left in
+// place; this is a floor beneath them, not a replacement, so no endpoint's
+// current response body changes.
+app.UseExceptionHandler(errorApp => errorApp.Run(async context =>
+{
+    var feature = context.Features.Get<IExceptionHandlerFeature>();
+    var exception = feature?.Error;
+    var (status, message) = exception is null
+        ? (StatusCodes.Status500InternalServerError, ExceptionMapping.UnexpectedMessage)
+        : ExceptionMapping.Map(exception);
+
+    if (exception is not null && status >= StatusCodes.Status500InternalServerError)
+    {
+        // 5xx is our fault and the message is withheld from the client, so it has
+        // to reach the log or it reaches nobody.
+        context.RequestServices
+            .GetRequiredService<ILoggerFactory>()
+            .CreateLogger("JourneyBook.Api.UnhandledException")
+            .LogError(exception, "Unhandled exception for {Method} {Path}",
+                context.Request.Method, context.Request.Path);
+    }
+
+    context.Response.StatusCode = status;
+    context.Response.ContentType = "application/json";
+
+    // `{ error }`, matching what the hand-written endpoint catches already
+    // return, so the web client has one error shape to render rather than two.
+    // The stack trace is exposed only in Development, and only as a separate
+    // field a client is free to ignore.
+    var body = app.Environment.IsDevelopment() && exception is not null
+        ? new Dictionary<string, object?> { ["error"] = message, ["exception"] = exception.ToString() }
+        : new Dictionary<string, object?> { ["error"] = message };
+
+    await context.Response.WriteAsJsonAsync(body);
+}));
 
 if (app.Environment.IsDevelopment())
 {
