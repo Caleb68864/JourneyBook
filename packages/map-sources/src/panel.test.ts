@@ -123,6 +123,60 @@ describe("renderMapPanel tile-failure threshold", () => {
   });
 });
 
+/**
+ * The panel's `attribution` is what the PDF footer prints, so it has to describe
+ * the source the bytes actually came from — not the default basemap.
+ */
+describe("renderMapPanel attribution", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("falls back to the basemap's own credit when fetching its URL template", async () => {
+    stubTiles();
+    const panel = await renderMapPanel([...bbox], 256);
+    expect(panel.attribution).toBe(USGS_TOPO.attribution);
+  });
+
+  it("prefers the tile proxy's X-Tile-Attribution over the default basemap", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(new Uint8Array(TILE_PNG), {
+            status: 200,
+            headers: { "X-Tile-Attribution": "© OpenStreetMap contributors" },
+          }),
+      ),
+    );
+    const panel = await renderMapPanel([...bbox], 256, undefined, {
+      tileBaseUrl: "http://api/api/tiles",
+      sourceId: "protomaps",
+    });
+    expect(panel.attribution).toBe("© OpenStreetMap contributors");
+  });
+
+  it("does not claim the default basemap for a proxied source that sent no header", async () => {
+    stubTiles();
+    const panel = await renderMapPanel([...bbox], 256, undefined, {
+      tileBaseUrl: "http://api/api/tiles",
+      sourceId: "protomaps",
+    });
+    // Silently crediting USGS for tiles served by another source is the licensing
+    // failure this whole item is about, in the other direction.
+    expect(panel.attribution).not.toBe(USGS_TOPO.attribution);
+    expect(panel.attribution).toContain("protomaps");
+  });
+
+  it("honours an explicit caller-supplied credit", async () => {
+    stubTiles();
+    const panel = await renderMapPanel([...bbox], 256, undefined, {
+      attribution: "Natural Earth (public domain)",
+    });
+    expect(panel.attribution).toBe("Natural Earth (public domain)");
+  });
+});
+
 describe("tile fetch hardening", () => {
   afterEach(() => {
     vi.unstubAllGlobals();

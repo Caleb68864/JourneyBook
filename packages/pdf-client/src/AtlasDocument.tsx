@@ -580,6 +580,7 @@ function AtlasPageView({
   pageNumber,
   referenceGrid,
   notes,
+  attribution,
 }: {
   page: AtlasPage;
   contract: AtlasContract;
@@ -594,6 +595,8 @@ function AtlasPageView({
   referenceGrid?: boolean;
   /** Show the foot-of-page notes area (saved notes + ruled lines). */
   notes?: boolean;
+  /** Credit line for the tiles this page's panel was built from. */
+  attribution?: string;
 }) {
   const showTier2 = page.tier >= 2;
   const showTier3 = page.tier >= 3;
@@ -694,8 +697,16 @@ function AtlasPageView({
         <View style={styles.footer}>
           <View>
             {showTier2 ? <ScaleBar scale={page.scale ?? contract.scale} maxInches={maxBarInches} /> : null}
+            {/* The credit for the tiles ACTUALLY used, resolved by map-sources from
+                the tile proxy's X-Tile-Attribution header (or the basemap's own
+                declared attribution) and threaded through render-cli. This was a
+                hardcoded string naming two sources regardless of which one — if
+                either — the page was drawn from, which is a licensing problem in
+                both directions: it under-credits a source we did use and falsely
+                credits one we did not. With no basemap there is no map data to
+                credit, so only the product is named. */}
             <Text style={styles.attribution}>
-              {"© OpenStreetMap contributors · USGS — Journey Book"}
+              {attribution ? `${attribution} — Journey Book` : "Journey Book"}
             </Text>
           </View>
           <CalibrationTick />
@@ -859,6 +870,7 @@ export function AtlasDocument({
   overviewPanel,
   referenceGrid = true,
   notes = true,
+  attribution,
 }: {
   contract: AtlasContract;
   title: string;
@@ -880,6 +892,12 @@ export function AtlasDocument({
   referenceGrid?: boolean;
   /** Show the foot-of-page notes area on each map page. Default true. */
   notes?: boolean;
+  /**
+   * Credit line for the basemap tiles the panels were built from, as reported by
+   * `map-sources`. Omitted when no basemap was rendered — there is then no map
+   * data to credit.
+   */
+  attribution?: string;
 }) {
   // Front matter (overview, then TOC) precedes the content pages and shifts their
   // physical page numbers. Both are computed from the same offset so the TOC, the
@@ -925,6 +943,7 @@ export function AtlasDocument({
           pageNumber={physicalPage(i)}
           referenceGrid={referenceGrid}
           notes={notes}
+          attribution={attribution}
         />
       ))}
     </Document>

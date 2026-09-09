@@ -35,6 +35,13 @@ export interface RenderPdfOptions {
   referenceGrid?: boolean;
   /** Foot-of-page notes area (saved notes + ruled lines) on each map page. Default true. */
   notes?: boolean;
+  /**
+   * Credit line for the basemap tiles the panels were built from, as reported by
+   * `map-sources` (`MapPanel.attribution`). Printed in every page footer. Omit
+   * when no basemap was rendered: there is then no map data to credit, and the
+   * footer names only the product.
+   */
+  attribution?: string;
 }
 
 function documentElement(options: RenderPdfOptions) {
@@ -50,6 +57,7 @@ function documentElement(options: RenderPdfOptions) {
     overviewPanel: options.overviewPanel,
     referenceGrid: options.referenceGrid ?? true,
     notes: options.notes ?? true,
+    attribution: options.attribution,
   });
 }
 

@@ -436,12 +436,21 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
   const panelWidthPx = input.panelWidthPx ?? 1000;
 
   let panels: Record<string, string> | undefined;
+  // Credit lines for the tiles actually fetched, in first-seen order. Collected
+  // rather than assumed: with a tile proxy the panels can come from a registered
+  // source that is neither the default basemap nor known to this process until a
+  // tile comes back with its attribution header. Deduped because every page of an
+  // atlas normally shares one source and the footer has room for one line.
+  const attributions: string[] = [];
   if (input.basemap) {
     panels = {};
     for (const page of contract.pages) {
       try {
         const panel = await renderMapPanel(page.bbox, panelWidthPx, undefined, panelOptions);
         panels[page.id] = `data:${panel.mimeType};base64,${panel.bytes.toString("base64")}`;
+        if (panel.attribution && !attributions.includes(panel.attribution)) {
+          attributions.push(panel.attribution);
+        }
         stderr.write(`  panel ${page.id} (z${panel.zoom})\n`);
         // A hole under renderMapPanel's threshold is accepted (it is usually a
         // real coverage edge) but never silent: it is still blank paper on a map
@@ -551,10 +560,15 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
     }
   }
 
+  // One credit line for the PDF footer. Undefined when no basemap was rendered:
+  // a page with no map data on it must not claim a map source.
+  const attribution = attributions.length > 0 ? attributions.join(" · ") : undefined;
+
   await renderAtlasPdfToFile({
     contract,
     outputPath: input.outputPath,
     ...(input.title ? { title: input.title } : {}),
+    ...(attribution ? { attribution } : {}),
     panels,
     grids,
     routes,
@@ -569,9 +583,10 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
   return {
     outputPath: input.outputPath,
     pageCount: contract.pages.length,
-    attribution: input.basemap
-      ? "Map data: USGS National Map (public domain)"
-      : "JourneyBook atlas",
+    // The credit the PDF actually printed, not a guess from the input flags: the
+    // old string claimed USGS for every basemap render even when the tiles came
+    // from a proxied source that had told us its own attribution.
+    attribution: attribution ?? "JourneyBook atlas",
     contract,
     grids: grids ?? {},
     landmarks,

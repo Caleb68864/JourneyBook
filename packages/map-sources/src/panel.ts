@@ -144,6 +144,11 @@ export interface RenderPanelOptions {
    * number of holes (the pre-2026-09 behaviour), 0 to demand every tile.
    */
   maxFailedTileFraction?: number;
+  /**
+   * Credit line for the tiles, when the caller knows it and the source cannot
+   * say so itself. Overridden by the proxy's `X-Tile-Attribution` header.
+   */
+  attribution?: string;
 }
 
 /** Resolve the URL for a single tile, either via the proxy base or the source's own template. */
@@ -175,11 +180,22 @@ function isRetryableStatus(status: number): boolean {
   return status === 408 || status === 425 || status === 429 || status >= 500;
 }
 
+/** A tile's bytes, plus whatever the source said about how it must be credited. */
+interface FetchedTile {
+  bytes: Buffer;
+  /**
+   * `X-Tile-Attribution` as returned by the C# tile proxy, which knows the
+   * registered `TileSource` the bytes actually came from. Absent when talking to
+   * a basemap's own URL template, which carries no such header.
+   */
+  attribution?: string;
+}
+
 async function fetchTile(
   url: string,
   timeoutMs: number,
   attempts: number,
-): Promise<Buffer | null> {
+): Promise<FetchedTile | null> {
   for (let attempt = 1; attempt <= attempts; attempt++) {
     let retryable: boolean;
     try {
@@ -190,7 +206,11 @@ async function fetchTile(
         // tiles before it can be composited.
         signal: AbortSignal.timeout(timeoutMs),
       });
-      if (res.ok) return Buffer.from(await res.arrayBuffer());
+      if (res.ok) {
+        const bytes = Buffer.from(await res.arrayBuffer());
+        const attribution = res.headers?.get?.("x-tile-attribution") ?? null;
+        return attribution ? { bytes, attribution } : { bytes };
+      }
       retryable = isRetryableStatus(res.status);
     } catch {
       // Network error or timeout — the transient case retries exist for.
@@ -232,21 +252,56 @@ async function loadTile(
   y: number,
   cacheSource: string,
   options?: RenderPanelOptions,
-): Promise<Buffer | null> {
+): Promise<FetchedTile | null> {
   if (options?.cacheDir) {
+    // A cache hit carries no attribution: the disk cache stores bytes, not the
+    // headers they arrived with. That is why the panel falls back to the
+    // configured source attribution rather than depending on the header.
     const hit = await getCachedTile(options.cacheDir, cacheSource, z, x, y);
-    if (hit) return hit.bytes;
+    if (hit) return { bytes: hit.bytes };
   }
 
-  const buf = await fetchTile(
+  const tile = await fetchTile(
     resolveTileUrl(basemap, z, x, y, options),
     options?.tileTimeoutMs ?? DEFAULT_TILE_TIMEOUT_MS,
     options?.tileAttempts ?? DEFAULT_TILE_ATTEMPTS,
   );
-  if (buf && options?.cacheDir) {
-    await storeCachedTile(options.cacheDir, cacheSource, z, x, y, "png", buf);
+  if (tile && options?.cacheDir) {
+    await storeCachedTile(options.cacheDir, cacheSource, z, x, y, "png", tile.bytes);
   }
-  return buf;
+  return tile;
+}
+
+/**
+ * Credit line for the tiles this panel is actually built from — a licensing
+ * obligation in both directions, so it must not be a guess.
+ *
+ * Precedence, most authoritative first:
+ *  1. `X-Tile-Attribution` from the C# tile proxy, which looks the credit up on
+ *     the registered `TileSource` the bytes really came from.
+ *  2. An explicit `options.attribution` from the caller.
+ *  3. The basemap's own declared attribution — correct when we fetched that
+ *     basemap's URL template directly, which is the default path.
+ *
+ * The one case with no honest answer is a proxied `sourceId` that returned no
+ * header (an older proxy, or every tile served from the local disk cache, which
+ * stores bytes without headers). Printing the default basemap's credit there
+ * would be a false claim about a source we never contacted, so the panel says
+ * which source it used and leaves the crediting to whoever registered it.
+ */
+function resolveAttribution(
+  basemap: RasterBasemap,
+  placements: { attribution?: string }[],
+  options?: RenderPanelOptions,
+): string {
+  const fromSource = placements.find((p) => p.attribution)?.attribution;
+  if (fromSource) return fromSource;
+  if (options?.attribution) return options.attribution;
+  const proxiedSourceId = options?.tileBaseUrl ? options.sourceId : undefined;
+  if (proxiedSourceId && proxiedSourceId !== basemap.id) {
+    return `Map tiles: ${proxiedSourceId}`;
+  }
+  return basemap.attribution;
 }
 
 /**
@@ -271,14 +326,18 @@ export async function renderMapPanel(
 
   // Fetch every covering tile, at most `tileConcurrency` at a time; reuse the
   // shared disk cache if given.
-  const jobs: (() => Promise<{ left: number; top: number; input: Buffer } | null>)[] = [];
+  const jobs: (() => Promise<
+    { left: number; top: number; input: Buffer; attribution?: string } | null
+  >)[] = [];
   for (let ty = range.minY; ty <= range.maxY; ty++) {
     for (let tx = range.minX; tx <= range.maxX; tx++) {
       const left = (tx - range.minX) * TILE_SIZE;
       const top = (ty - range.minY) * TILE_SIZE;
       jobs.push(async () => {
-        const buf = await loadTile(basemap, zoom, tx, ty, cacheSource, options);
-        return buf ? { left, top, input: buf } : null;
+        const tile = await loadTile(basemap, zoom, tx, ty, cacheSource, options);
+        return tile
+          ? { left, top, input: tile.bytes, ...(tile.attribution ? { attribution: tile.attribution } : {}) }
+          : null;
       });
     }
   }
@@ -324,7 +383,8 @@ export async function renderMapPanel(
       background: PANEL_BACKGROUND,
     },
   })
-    .composite(placements)
+    // Strip the attribution field: sharp rejects unknown keys on a composite.
+    .composite(placements.map(({ left: l, top: t, input }) => ({ left: l, top: t, input })))
     .extract({ left, top, width, height });
 
   const bytes =
@@ -344,7 +404,7 @@ export async function renderMapPanel(
     widthPx: width,
     heightPx: height,
     zoom,
-    attribution: basemap.attribution,
+    attribution: resolveAttribution(basemap, placements, options),
     tilesRequested,
     tilesMissing,
   };
