@@ -213,6 +213,80 @@ source_urls:
 > unvalidated render-worker wire input, the absent linter/formatter, and neither
 > tile cache ever evicting. See `vault/audit-2026-09-08/scan-summary.md`.
 
+> **Maintainability pass 4 — 2026-09-09** (findings in
+> `vault/maintainability-2026-09-09.md`). Nine items; **all nine closed**. The
+> theme was the one the 30% scale bug already taught and the tree had not yet
+> finished learning: *a check whose two sides come from the same function
+> agrees with itself.* Two live defects fell out of fixing the tests that could
+> not fail.
+>
+> - **The map panel was never cropped to the bbox.** `renderMapPanel` chained
+>   `.extract()` onto `.composite()`; sharp applies operations in pipeline order,
+>   not call order, so the blank canvas was cropped first and the tiles were then
+>   composited onto the crop at their full-mosaic offsets. Every panel was the
+>   top-left of the tile grid, anchored on a tile boundary instead of the bbox —
+>   misregistered by up to a full 256 px tile, about **460 m of ground at
+>   1:24,000**, on a printed map whose whole purpose is navigating by it. Every
+>   tile fixture in the tests served the same flat colour, so the composite was
+>   uniform and any crop window was byte-identical to the right one; the only
+>   assertions were `widthPx > 0` / `heightPx > 0`. `panel.test.ts` now serves
+>   self-locating tiles whose every pixel encodes its own global Web-Mercator
+>   address, so a painted pixel decodes back to the ground it shows. This is the
+>   30% bug's failure mode one layer upstream, and it was found by writing the
+>   test the audit asked for.
+> - **The overview page never got the fixes the atlas pages got.** `OverlaySvg`
+>   exists, and its comment says why — a square viewBox over a non-square panel
+>   letterboxes every overlay — and it was used at four of five call sites.
+>   `OverviewPage` kept `viewBox="0 0 1000 1000"` over a 487 × 625 pt panel plus
+>   an `objectFit: "cover"` the atlas pages had already dropped, so its page
+>   rectangles, route and stops sat 69 pt off-register over a basemap cropped the
+>   other way. An index map whose squares do not sit on the ground they name is
+>   worse than none. Untested; now four tests, all four failing on the old code.
+> - **`validateAtlas` can now detect a false scale bar**, which the roadmap, the
+>   README and its own doc comment all wrongly said it already could. It gained
+>   `printed-scale-fidelity`, taking the map box measured off the rendered PDF —
+>   the only input that does not come out of the contract — and `journeybook
+>   validate` (this project's declared e2e validation command) renders and
+>   measures before reporting. When nothing was measured the check is reported
+>   `unmeasured` / `[SKIP]`, never as a pass. The corrections are recorded in
+>   `staged-build-roadmap.md` beside the claims they replace.
+> - **The printed-scale test now measures both axes.** It computed the page's
+>   ground height and never asserted it; height was only ever compared against
+>   `mapBoxInches()`, the function the renderer laid out from. A 1.3× error in
+>   `groundFootprintMeters().heightMeters` now fails that one assertion and
+>   nothing else.
+> - **The golden fixture asserts something**, and
+>   `scripts/regenerate-sample-atlas.mjs` reproduces it byte for byte from
+>   recorded parameters (`--check` proves it). Its only real assertion had been
+>   `validateAtlas(...).pass`, so it inherited that tautology and would have
+>   accepted a wrong atlas.
+> - **`pdf-measure` has tests** — 22 of them, over hand-written content streams.
+>   It is the instrument every scale claim rests on and it had none.
+> - **The default zoom has headroom.** At 1:24,000 a 1000 px panel selects z16
+>   and USGS Topo's ceiling is z16; `--panel-px 2000` asked for z17 and every
+>   tile 404'd, so asking for a sharper print produced no print. Now clamped and
+>   warned. **Not fixed, and a real product limit: 1000 px over 5.76 in is ~173
+>   DPI, and the 300 DPI target at this scale needs z17, which this source does
+>   not have.** Reaching it needs a deeper basemap, not a bigger number — worth
+>   scheduling against Stage 7.
+> - **Project references** added where two workspaces imported packages they did
+>   not reference (a clean `tsc -b apps/web` failed with 15 errors), with
+>   `harness/checks/project-references.sh` in CI so it cannot silently return.
+> - **Four status documents that described four different repos** — this
+>   roadmap's sibling, the README, `harness/progress.json` and
+>   `forge-project.json` — reconciled, with a note in each saying they move
+>   together.
+>
+> Suites after this pass: **223 TS** (was 178; +45, every one of them a test that
+> could previously not fail) and **79 .NET** non-Docker, unchanged — this pass
+> touched no C# beyond reading the seeded `TileSource.MaxZoom`. The Docker-gated
+> `Api` integration suites **were not run**: this machine has no daemon, and CI's
+> `dotnet-integration` job is the only place they execute.
+>
+> Still open, and now the largest items on this roadmap: the async render
+> decision above, the ~173 DPI ceiling, the unvalidated render-worker wire input,
+> the absent linter/formatter, and neither tile cache ever evicting.
+
 ## Phase 1: Print Geometry
 Build the Docker-hosted React/Vite/shadcn/Tailwind web app skeleton, define the outdoor field-guide visual system, accept bounding boxes, create page grid, generate overview and detail pages, and validate Letter-size PDF output from the preferred client-side React PDF path.
 

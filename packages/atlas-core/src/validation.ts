@@ -71,9 +71,16 @@ function pageGroundSize(page: AtlasPage): { width: number; height: number } {
 
 /**
  * Validate an atlas contract's geometry: that every page covers the ground
- * footprint its scale implies (true scale bar) and that neighbour references
- * are reciprocal and resolvable. The heart of the Stage 1E print-validation
- * harness — a false scale bar or broken page-to-page link fails here.
+ * footprint its scale implies, that neighbour references are reciprocal and
+ * resolvable, and — when {@link ValidateOptions.printedMapBoxes} is supplied —
+ * that the ground each page covers over the paper it is printed on is the scale
+ * it advertises.
+ *
+ * That last check is the only one that can catch a false scale bar, and it is
+ * the only one whose two sides do not both come out of the contract. This
+ * comment used to claim "a false scale bar … fails here" of the whole function;
+ * it did not. Without measurements, `printed-scale-fidelity` is reported in
+ * {@link ValidationReport.unmeasured} rather than passing by default.
  */
 export function validateAtlas(
   contract: AtlasContract,
