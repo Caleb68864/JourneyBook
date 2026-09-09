@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { contractFromArgs, inputFromArgs, parseFlags } from "./cli.js";
+import { stdout } from "node:process";
+import { contractFromArgs, inputFromArgs, parseFlags, runCli } from "./cli.js";
 
 describe("cli inputFromArgs", () => {
   it("composes --locations file + --location + --cover + --zoom-levels into one input", () => {
@@ -86,5 +87,50 @@ describe("cli inputFromArgs", () => {
     expect(flags.get("basemap")).toBe("true");
     expect(flags.get("tier")).toBe("3");
     expect(flags.get("route")).toBe("true");
+  });
+});
+
+/**
+ * `journeybook validate` is this project's declared end-to-end validation
+ * command, and until now every check it printed compared the contract with
+ * itself. It now renders the atlas and measures the printed map box first, so
+ * the `printed-scale-fidelity` check has a real input.
+ */
+describe("cli validate", () => {
+  const args = ["validate", "--location", "-96.7026,40.8136", "--scale", "usgs-7-5-min", "--tier", "2"];
+
+  it("renders and measures the atlas, and reports the printed-scale check", async () => {
+    const out: string[] = [];
+    const write = stdout.write.bind(stdout);
+    stdout.write = ((s: string) => {
+      out.push(String(s));
+      return true;
+    }) as typeof stdout.write;
+    try {
+      const code = await runCli(args);
+      expect(code).toBe(0);
+    } finally {
+      stdout.write = write;
+    }
+    const text = out.join("");
+    expect(text).toMatch(/\[PASS\] printed-scale-fidelity/);
+    expect(text).toContain("VALID");
+  }, 30_000);
+
+  it("says the check was skipped — never that it passed — under --no-print-check", async () => {
+    const out: string[] = [];
+    const write = stdout.write.bind(stdout);
+    stdout.write = ((s: string) => {
+      out.push(String(s));
+      return true;
+    }) as typeof stdout.write;
+    try {
+      expect(await runCli([...args, "--no-print-check"])).toBe(0);
+    } finally {
+      stdout.write = write;
+    }
+    const text = out.join("");
+    expect(text).toMatch(/\[SKIP\] printed-scale-fidelity/);
+    expect(text).not.toMatch(/\[PASS\] printed-scale-fidelity/);
   });
 });

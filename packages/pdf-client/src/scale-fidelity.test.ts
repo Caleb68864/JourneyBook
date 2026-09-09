@@ -13,7 +13,7 @@ import {
   type PageOrientation,
 } from "@journeybook/atlas-core";
 import { renderAtlasPdfToBuffer } from "./index.js";
-import { measurePdfPages, largestRect, type MeasuredBox, type MeasuredPage } from "./pdf-measure.js";
+import { measurePdfPages, mapBoxOf, type MeasuredBox, type MeasuredPage } from "./pdf-measure.js";
 
 /**
  * The one check nothing in this repo could make: open the PDF the renderer
@@ -85,14 +85,9 @@ async function renderPage(options: PageOptions = {}) {
  * itself is painted inside that border.
  */
 function panelMapBox(measured: MeasuredPage, borderPt = 1): MeasuredBox {
-  const border = largestRect(measured);
-  expect(border).toBeDefined();
-  return {
-    x: border!.x + borderPt,
-    y: border!.y + borderPt,
-    width: border!.width - 2 * borderPt,
-    height: border!.height - 2 * borderPt,
-  };
+  const box = mapBoxOf(measured, borderPt);
+  expect(box, "no map panel found on the rendered page").toBeDefined();
+  return box!;
 }
 
 /**
@@ -144,6 +139,17 @@ describe("printed scale fidelity — measured off the rendered PDF", () => {
     // And therefore the page prints at the ratio it advertises.
     const printedRatio = ground.width / ((map.width / PT) * 0.0254);
     expect(Math.abs(printedRatio / (page.scale ?? usgs).ratio - 1)).toBeLessThan(0.005);
+
+    // The same relation on the OTHER axis. Everything above measures width, and
+    // the height was previously only ever compared against `mapBoxInches()` —
+    // the very function the renderer laid the page out from, so that comparison
+    // agrees with itself no matter how much ground the bbox claims. This is the
+    // independent one: metres measured geodesically off the page's own bbox,
+    // divided by millimetres measured off the printed PDF. A page whose bbox
+    // height was sized from anything but the printed map box (the exact shape of
+    // the ~30% bug, on the axis it was never checked on) fails here.
+    const printedRatioHeight = ground.height / ((map.height / PT) * 0.0254);
+    expect(Math.abs(printedRatioHeight / (page.scale ?? usgs).ratio - 1)).toBeLessThan(0.005);
   });
 
   it("paints the map into exactly the box its ground footprint was sized from", async () => {

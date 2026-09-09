@@ -78,6 +78,7 @@ export { AtlasDocument, type RouteOverlay } from "./AtlasDocument.js";
 export {
   measurePdfPages,
   largestRect,
+  mapBoxOf,
   type MeasuredBox,
   type MeasuredLine,
   type MeasuredPage,

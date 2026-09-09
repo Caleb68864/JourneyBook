@@ -1,7 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { LETTER_PORTRAIT, mapBoxInches } from "@journeybook/atlas-core";
+import { measurePdfPages } from "@journeybook/pdf-client";
 import { renderAtlas } from "./render.js";
 
 /**
@@ -453,5 +455,70 @@ describe("renderAtlas", () => {
         outputPath: "ignored.pdf",
       }),
     ).rejects.toThrow(/^Invalid request:.*200/);
+  });
+});
+
+/**
+ * The basemap path, end to end. Every other test in this file renders with
+ * `basemap` unset — the fastest way to keep the suite offline, and the reason
+ * the one branch that fetches tiles, crops them and embeds the result in the PDF
+ * had no coverage at all between `renderMapPanel`'s unit tests and a real
+ * network. This drives `renderAtlas` with tiles stubbed, then reads the produced
+ * PDF back to check the panel is actually in it and actually painted into the
+ * map box.
+ */
+describe("renderAtlas with a basemap", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * A real 256x256 PNG tile. Inline rather than generated so this package needs
+   * no image dependency of its own; the crop is measured precisely one layer
+   * down, in `map-sources`' `panel.test.ts`, against self-locating tiles.
+   */
+  const TILE_PNG = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAIAAADTED8xAAAACXBIWXMAAAPoAAAD6AG1e1JrAAACAElEQVR42u3TMQ0AAAgEsVfMjAhEM6OBJlVwyaWn4K1IgAHAAGAAMAAYAAwABgADgAHAAGAAMAAYAAwABgADgAHAAGAAMAAYAAwABgADgAHAAGAAMAAYAAwABgADgAHAAGAAMAAYAAwABgADgAHAAGAAMAAYAAwABgADgAHAAGAADKACBgADgAHAAGAAMAAYAAwABgADgAHAAGAAMAAYAAwABgADgAHAAGAAMAAYAAwABgADgAHAAGAAMAAYAAwABgADgAHAAGAAMAAYAAwABgADgAHAAGAAMAAYAAwABgADgAEwABgADAAGAAOAAcAAYAAwABgADAAGAAOAAcAAYAAwABgADAAGAAOAAcAAYAAwABgADAAGAAOAAcAAYAAwABgADAAGAAOAAcAAYAAwABgADAAGAAOAAcAAYAAwABgADIABVMAAYAAwABgADAAGAAOAAcAAYAAwABgADAAGAAOAAcAAYAAwABgADAAGAAOAAcAAYAAwABgADAAGAAOAAcAAYAAwABgADAAGAAOAAcAAYAAwABgADAAGAAOAAcAAYAAwAAYAA4ABwABgADAAGAAMAAYAA4ABwABgADAAGAAMAAYAA4ABwABgADAAGAAMAAYAA4ABwABgADAAGAAMAAYAA4ABwABgADAAGAAMAAYAA4ABwABgADAAGAAMANcCwUIVr6HMf/cAAAAASUVORK5CYII=",
+    "base64",
+  );
+
+  it("fetches tiles, embeds the panel, and paints it into the printed map box", async () => {
+    const fetchMock = vi.fn(
+      async () => new Response(new Uint8Array(TILE_PNG), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const dir = mkdtempSync(join(tmpdir(), "jb-render-basemap-"));
+    try {
+      const out = join(dir, "basemap.pdf");
+      const res = await renderAtlas({
+        mode: "location",
+        center: { lng: -96.7026, lat: 40.8136 },
+        scalePresetId: "usgs-7-5-min",
+        tier: 2,
+        basemap: true,
+        panelWidthPx: 512,
+        outputPath: out,
+      });
+      expect(res.pageCount).toBe(1);
+      expect(fetchMock.mock.calls.length).toBeGreaterThan(0);
+
+      const measured = measurePdfPages(readFileSync(out));
+      expect(measured).toHaveLength(1);
+      const page = measured[0]!;
+
+      // The panel made it into the PDF as a real image XObject...
+      expect(page.images).toHaveLength(1);
+      // ...painted into exactly the map box the page's ground footprint was
+      // sized from — the constant 415 x 549 pt box, not a letterboxed crop.
+      const box = mapBoxInches(LETTER_PORTRAIT);
+      expect(page.images[0]!.width).toBeCloseTo(box.widthIn * 72, 3);
+      expect(page.images[0]!.height).toBeCloseTo(box.heightIn * 72, 3);
+
+      // The tiles the panel actually used are the ones credited in the footer.
+      expect(page.texts.join(" ")).toContain("USGS The National Map");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

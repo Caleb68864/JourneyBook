@@ -13,8 +13,12 @@ RUN corepack enable
 COPY . .
 
 RUN pnpm install --frozen-lockfile
-# Build apps/web AND its workspace dependencies (atlas-core, ui, …) first so
-# their dist/*.d.ts exist before web's `tsc -b` resolves `@journeybook/*`.
+# Build apps/web AND its workspace dependencies (atlas-core, ui, …). The `...`
+# was originally a workaround for web's `tsc -b` not resolving `@journeybook/*`
+# — a build-order bug that belonged in tsconfig, and is now fixed there
+# (apps/web/tsconfig.app.json references both projects; harness/checks/
+# project-references.sh keeps it that way). It stays because vite still bundles
+# the dependencies' emitted JS, which has to exist.
 RUN pnpm --filter @journeybook/web... build
 
 FROM nginx:alpine AS runtime

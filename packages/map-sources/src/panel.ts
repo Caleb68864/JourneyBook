@@ -64,17 +64,29 @@ export interface RasterBasemap {
   /** URL template with {z} {x} {y} tokens. */
   urlTemplate: string;
   attribution: string;
+  /**
+   * Deepest zoom this source actually has tiles for. Above it every request is a
+   * 404 (or, through the C# proxy, a `ZoomOutOfRange` 400), so the panel is
+   * rendered at this zoom instead of asking for pixels that do not exist.
+   */
+  maxZoom?: number;
 }
 
 /**
  * USGS The National Map topo basemap — public domain, no key, land-nav-friendly.
  * NOTE: ArcGIS tile order is {z}/{y}/{x}.
+ *
+ * `maxZoom` mirrors the seeded `TileSource.MaxZoom` in
+ * `TileSourceConfiguration.cs`; the C# tile proxy refuses anything deeper with
+ * `TileResult.ZoomOutOfRange()`, and the source's own endpoint 404s. The two
+ * numbers have to agree, and until now only the C# side wrote one down.
  */
 export const USGS_TOPO: RasterBasemap = {
   id: "usgs-topo",
   urlTemplate:
     "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}",
   attribution: "USGS The National Map",
+  maxZoom: 16,
 };
 
 /** Encoded image formats a panel can be emitted in (both embeddable in a PDF). */
@@ -94,6 +106,13 @@ export interface MapPanel {
   widthPx: number;
   heightPx: number;
   zoom: number;
+  /**
+   * The panel wanted a deeper zoom than the source has tiles for, and was
+   * rendered at the source's ceiling instead. The map is correct and correctly
+   * georeferenced; it is simply softer than `targetWidthPx` asked for, and the
+   * caller should say so rather than let a print silently miss its DPI target.
+   */
+  zoomClamped: boolean;
   attribution: string;
   /** Tiles the panel needed. */
   tilesRequested: number;
@@ -116,6 +135,15 @@ export interface RenderPanelOptions {
   tileBaseUrl?: string;
   sourceId?: string;
   cacheDir?: string;
+  /**
+   * Deepest zoom the source being used actually has, overriding the basemap's
+   * own {@link RasterBasemap.maxZoom}. Needed with `tileBaseUrl` + `sourceId`,
+   * where the tiles come from a registered `TileSource` whose `MaxZoom` this
+   * process cannot see; the proxy enforces it either way, so without this a
+   * deep-zoom request fails every tile instead of rendering the map the source
+   * can give.
+   */
+  maxZoom?: number;
   /**
    * Panel encoding. Defaults to JPEG, which is what keeps a printable atlas a
    * sane size: a page panel of USGS topo raster encodes to ~2.9 MB as RGBA PNG
@@ -316,7 +344,20 @@ export async function renderMapPanel(
   basemap: RasterBasemap = USGS_TOPO,
   options?: RenderPanelOptions,
 ): Promise<MapPanel> {
-  const zoom = zoomForBBox(bbox, targetWidthPx);
+  // Zoom, clamped to what the source actually has.
+  //
+  // At 1:24,000 — the default scale — a 1000 px panel over the 5.76 in map box
+  // selects z16, and USGS Topo's ceiling is z16. Zero headroom: `--panel-px
+  // 2000` asks for z17 and every single tile 404s, so a request for a sharper
+  // print produced no print at all. Clamping renders the deepest map the source
+  // can give and reports it, which is a softer page rather than a missing one.
+  // (1000 px over 5.76 in is ~173 DPI; the roadmap's 300 DPI target needs z17,
+  // which this source does not have at this scale. That is a source limitation,
+  // and it is now visible instead of arriving as a wall of tile failures.)
+  const wantedZoom = zoomForBBox(bbox, targetWidthPx);
+  const ceiling = options?.maxZoom ?? basemap.maxZoom;
+  const zoom = ceiling === undefined ? wantedZoom : Math.min(wantedZoom, ceiling);
+  const zoomClamped = zoom < wantedZoom;
   const range = tileRangeForBBox(bbox, zoom);
   const [west, south, east, north] = bbox;
 
@@ -367,25 +408,52 @@ export async function renderMapPanel(
   // Crop window in mosaic pixels.
   const topLeft = lngLatToGlobalPixel(west, north, zoom);
   const bottomRight = lngLatToGlobalPixel(east, south, zoom);
+  const mosaicWidth = cols * TILE_SIZE;
+  const mosaicHeight = rows * TILE_SIZE;
   const left = Math.round(topLeft.x - range.minX * TILE_SIZE);
   const top = Math.round(topLeft.y - range.minY * TILE_SIZE);
-  const width = Math.max(1, Math.round(bottomRight.x - topLeft.x));
-  const height = Math.max(1, Math.round(bottomRight.y - topLeft.y));
+  // Clamp to the mosaic: the tile range covers the bbox by construction, but
+  // rounding can put the far edge a pixel past the last tile, and sharp treats
+  // an out-of-bounds extract as a hard error.
+  const width = Math.max(1, Math.min(Math.round(bottomRight.x - topLeft.x), mosaicWidth - left));
+  const height = Math.max(1, Math.min(Math.round(bottomRight.y - topLeft.y), mosaicHeight - top));
 
   const format = options?.format ?? DEFAULT_PANEL_FORMAT;
   const quality = options?.quality ?? DEFAULT_PANEL_QUALITY;
 
-  const mosaic = sharp({
+  // The mosaic has to be MATERIALIZED before the crop. sharp's pipeline order is
+  // fixed, not call order: an `extract` chained onto a `composite` is applied as
+  // a pre-extract on the *input* image, so the blank canvas was cropped first and
+  // the tiles were then composited onto the crop at their full-mosaic offsets.
+  // The panel that came out was the top-left `width x height` of the tile grid,
+  // anchored on the tile boundary instead of on the bbox — misregistered by up to
+  // a whole tile (~460 m of ground at 1:24,000) on a printed page whose entire
+  // purpose is true-scale land navigation, and clipping the east/south edge the
+  // bbox asked for. Every tile fixture in the tests served the same flat colour,
+  // so the composite was uniform and the misplaced window was byte-identical to
+  // the right one; `panel.test.ts` now serves self-locating tiles that decode
+  // back to the ground they show. Round-tripping through a raw buffer (no
+  // re-encode) puts the crop in a second pipeline, where it means what it reads.
+  const composited = await sharp({
     create: {
-      width: cols * TILE_SIZE,
-      height: rows * TILE_SIZE,
+      width: mosaicWidth,
+      height: mosaicHeight,
       channels: 4,
       background: PANEL_BACKGROUND,
     },
   })
     // Strip the attribution field: sharp rejects unknown keys on a composite.
     .composite(placements.map(({ left: l, top: t, input }) => ({ left: l, top: t, input })))
-    .extract({ left, top, width, height });
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  const mosaic = sharp(composited.data, {
+    raw: {
+      width: composited.info.width,
+      height: composited.info.height,
+      channels: composited.info.channels,
+    },
+  }).extract({ left, top, width, height });
 
   const bytes =
     format === "png"
@@ -404,6 +472,7 @@ export async function renderMapPanel(
     widthPx: width,
     heightPx: height,
     zoom,
+    zoomClamped,
     attribution: resolveAttribution(basemap, placements, options),
     tilesRequested,
     tilesMissing,

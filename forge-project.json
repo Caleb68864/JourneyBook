@@ -17,13 +17,15 @@
   "test_command": "pnpm -r test && dotnet test JourneyBook.slnx --nologo",
   "e2e_command": "node packages/render-cli/dist/cli.js render --bbox -96.75,40.78,-96.65,40.85 --scale usgs-7-5-min --tier 3 --out /tmp/atlas.pdf",
   "notes": [
-    "pnpm is not always on PATH here; npx vitest run --dir <package> and npx tsc -b work without it.",
+    "pnpm is not always on PATH here. `npx vitest run --dir <package>` works without it. `npx tsc -b` does NOT work from the repo root - there is no root tsconfig.json (only tsconfig.base.json, which is `extends`-only), so it fails with TS5083. Run it per workspace: `cd packages/<name> && npx tsc -b`, in dependency order (atlas-core, ui, map-sources, pdf-client, render-cli, services/render-worker, apps/web) - or let the project references do it, since 2026-09-09 every workspace references what it imports.",
+    "Cross-package imports resolve through each package's dist, so a package must be BUILT before another package's vitest run can import it. A source change with no rebuild means the tests ran against the old code. Note .tsbuildinfo sits beside the tsconfig, not inside dist: deleting dist alone leaves `tsc -b` believing everything is current.",
     "The render CLI is `journeybook` -> packages/render-cli/dist/cli.js, so it needs a build first. `--scale` takes a preset id such as usgs-7-5-min (1:24,000), not a ratio, and `validate` takes the same geometry flags as `render` rather than a path to a PDF.",
     "Backend integration tests use Testcontainers and REQUIRE a running Docker daemon. Without one, filter them out: dotnet test --filter \"FullyQualifiedName!~Api\".",
     "vault/ is git-TRACKED in this repo, unlike the sibling projects. That is deliberate - it is the planning record the README links to.",
     "ADR 0004: atlas-core is the single source of truth for geometry. Do not reimplement projection maths in C#.",
     "The printed map box is a constant 415 x 549 pt. packages/pdf-client/src/pdf-measure.ts measures a real PDF; scale-fidelity.test.ts asserts it.",
-    "runtime_paths used to list C:/Program Files entries from the Windows machine this started on, and was removed on 2026-09-09."
+    "runtime_paths used to list C:/Program Files entries from the Windows machine this started on, and was removed on 2026-09-09.",
+    "e2e_validate_command (`journeybook validate`) RENDERS the atlas and measures the printed map box before reporting, so it costs a render. Its `printed-scale-fidelity` check is the only one that can catch a false scale bar; every other check compares the contract with itself. `--no-print-check` skips the render and prints that check as [SKIP], never as a pass."
   ],
   "name": "JourneyBook",
   "frontend_build": "pnpm --filter @journeybook/web build",

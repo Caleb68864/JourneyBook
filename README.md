@@ -13,10 +13,23 @@ decisions are in [`docs/decisions/`](docs/decisions/).
 
 ## Status
 
-**Stage 0 — Foundation Skeleton.** Monorepo, headless atlas engine stubs, a
-no-UI render CLI, the ASP.NET Core API with health + PostGIS-ready EF Core, and
-a React/Vite/Tailwind shell. The riskiest work (true-scale printable PDFs) is
-built headless first; see the roadmap.
+**Through Stage 6C — the product runs end to end.** Draw or enter an extent (or
+import locations), pick a scale and a map tier, and generate a printable
+true-scale atlas: page grid, per-location pages, route corridor pages, USGS topo
+basemap panels, USNG grid overlays, landmarks, an overview index page and a
+locations table of contents. It works in the browser (React/Vite → ASP.NET Core
+API → Node render worker) and headlessly (`journeybook render …`).
+
+The printed map box is a constant **415 × 549 pt**, and that is measured off the
+produced PDF rather than asserted about it — see
+`packages/pdf-client/src/scale-fidelity.test.ts` and `journeybook validate`,
+which renders the atlas and measures it before reporting.
+
+Not done: Stage 7 (PMTiles offline packages), Stage 9 (MVP polish), map Tier 4
+(full MGRS + declination), and asynchronous render with progress and cancel.
+See [`vault/staged-build-roadmap.md`](vault/staged-build-roadmap.md) for the
+current status and [`vault/development-roadmap.md`](vault/development-roadmap.md)
+for the audit trail.
 
 ## Layout
 

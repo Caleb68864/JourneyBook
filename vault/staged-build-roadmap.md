@@ -40,7 +40,16 @@ This roadmap turns Journey Book into a buildable sequence. The MVP target is a D
 
 The build order is deliberately **risk-first and headless-first**: the riskiest unknowns (true print scale, projection, PDF fidelity, attribution survival) are proven by a no-UI engine before any visual theming exists. This lets an autonomous builder (Dark Factory) produce and validate the core engine before the brand/hero work begins.
 
-## Current Status (2026-06-25)
+## Current Status (2026-09-09)
+
+> **Status-date discipline.** This heading, the test tally below, `README.md`'s
+> Status section and `harness/progress.json` are four places that describe the
+> same repo, and until 2026-09-09 they described four different repos: this
+> heading said June, the tally said TS 101 / backend 86 against an actual
+> 178 / 79, the README said "Stage 0 — Foundation Skeleton … engine stubs" for a
+> product that has been rendering true-scale atlases end to end for months, and
+> `progress.json` named a commit 145 behind `master`. A reader had no way to
+> tell which was current. Update all four together, or update none.
 
 **Phase A (headless engine), Phase B (persistence), Stage 3 (tile proxy), Phase C (first usable web UI), and Stages 6 / 6B / 6C (landmarks, USNG grid, route atlas) are all complete.** The product runs end-to-end in a browser; **every Phase-C-and-earlier stage plus the land-nav (6B), route-atlas (6C), and landmark (6) stages are built and merged.** Built and verified:
 
@@ -69,7 +78,12 @@ The build order is deliberately **risk-first and headless-first**: the riskiest 
 
 The headless pipeline still runs with **zero UI** (`journeybook render … --out atlas.pdf`); the same `renderAtlas` now also backs the web app via the render-worker.
 
-**Test tally:** atlas-core **50** · map-sources 26 · render-cli **19** · render-worker 6 (TS **101**) · backend **86** — all green. Merged to `master` (Phase C → Stage 6B → all six map-gen enhancements → Stage 6C route atlas → Stage 6 landmarks).
+**Test tally (2026-09-09):** atlas-core **75** · map-sources **53** · pdf-client **38** · render-cli **44** · render-worker 6 · web 7 — **223 TS** — plus **79 .NET** unit/policy tests. All green. The .NET `Api` integration suites (Testcontainers + PostGIS) are **not** in that 79: they need a live Docker daemon and run only in CI's `dotnet-integration` job.
+
+> The previous tally read "TS **101** · backend **86**" and was three months and
+> several stages old. Counts drift the moment they are written down; the number
+> that matters is that CI runs `pnpm -r test` and both `dotnet test` jobs on
+> every push, which no hand-maintained tally can substitute for.
 
 **Next (decided): Stages 6, 6B, 6C and all six map-generation options are built and live** (tier work stays parked; Level 4 deferred). Remaining toward MVP: **Stage 7** (PMTiles offline packages + optional self-hosted tile server) → **Stage 9** (MVP polish: geocode search, project rename/duplicate, error UX). Stage 8 (QuestPDF) stays conditional; Stages 10–11 are post-MVP.
 
@@ -334,7 +348,24 @@ Done when:
 
 ### Stage 1E: Print-validation harness — ✅ built (2026-06-24)
 
-Delivered: `validateAtlas(contract)` in `atlas-core` (TDD) emits a structured report — **scale-consistency** (each page's measured ground footprint vs. the scale-implied footprint, via ECEF geodesic, 0.5% tolerance — catches a false scale bar), **neighbor-reciprocity** (every N/S/E/W reference resolves and points back), and has-pages; plus `effectiveDpi(panelPx, printableInches)`. CLI `journeybook validate --bbox|--location --scale` prints PASS/FAIL per check and exits 0/1 — verified flagging a tampered footprint and a dangling neighbor, and passing a real 36-page grid (worst error 0.21%). Committed golden fixture `data/fixtures/sample-atlas.json` (2×2) with a regression test. The PDF now draws a **1-inch calibration tick** ("print check") so a printed page reveals printer scaling. **This completes Phase A — the headless engine — entirely with zero UI.** (Remaining nicety: page-boundary crop fiducials beyond the 1-inch tick.)
+Delivered: `validateAtlas(contract)` in `atlas-core` (TDD) emits a structured report — **scale-consistency** (each page's measured ground footprint vs. the scale-implied footprint, via ECEF geodesic, 0.5% tolerance), **neighbor-reciprocity** (every N/S/E/W reference resolves and points back), and has-pages; plus `effectiveDpi(panelPx, printableInches)`. CLI `journeybook validate --bbox|--location --scale` prints PASS/FAIL per check and exits 0/1 — verified flagging a tampered footprint and a dangling neighbor, and passing a real 36-page grid (worst error 0.21%). Committed golden fixture `data/fixtures/sample-atlas.json` (2×2) with a regression test. The PDF now draws a **1-inch calibration tick** ("print check") so a printed page reveals printer scaling. **This completes Phase A — the headless engine — entirely with zero UI.** (Remaining nicety: page-boundary crop fiducials beyond the 1-inch tick.)
+
+> **Correction (2026-09-09).** This entry used to say `scale-consistency`
+> "catches a false scale bar". It could not. That check puts
+> `groundFootprintMeters(scale, spec)` on one side and the page bbox on the
+> other — and the page bbox was built by `groundFootprintMeters(scale, spec)`,
+> so it agreed with itself no matter how small the map was printed. Change
+> `PAGE_FURNITURE_PT.edgeLabelColumn` from 54 to 154 and the atlas prints at a
+> different scale while the report still says VALID. It caught the *tampered
+> bbox* it was tested against, which is a different defect from a false scale
+> bar, and the claim was repeated here, in the README and in the decision log.
+>
+> `validateAtlas` now also has **printed-scale-fidelity**, which takes the map
+> box measured off the rendered PDF — the one input that does not come out of
+> the contract — and asserts ground metres over printed inches equals the
+> advertised scale. `journeybook validate` renders and measures before
+> reporting; with `--no-print-check` the check is printed `[SKIP]`, never as a
+> pass. **That** is what catches a false scale bar.
 
 Spec:
 
