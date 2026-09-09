@@ -25,8 +25,19 @@ produced PDF rather than asserted about it — see
 `packages/pdf-client/src/scale-fidelity.test.ts` and `journeybook validate`,
 which renders the atlas and measures it before reporting.
 
+Rendering is **asynchronous**: `POST /api/projects/{id}/render` answers 202 with
+the record id, a background loop performs the render, and the web app polls
+`GET /api/generated-pdfs/{id}` until it reads `Completed`. See
+[`docs/decisions/0006-asynchronous-rendering.md`](docs/decisions/0006-asynchronous-rendering.md)
+for the accepted limits — the queue is in-process, one render runs at a time,
+and there is no cancel yet.
+
 Not done: Stage 7 (PMTiles offline packages), Stage 9 (MVP polish), map Tier 4
-(full MGRS + declination), and asynchronous render with progress and cancel.
+(full MGRS + declination), and **worker-owned per-page progress and cancel** —
+only the render worker knows it is on page 12 of 60, and today it does not
+report it. Also: ADRs 0001 and 0003–0005 are cited across this repo and their
+text does not exist; `docs/decisions/` is now tracked but those four have not
+been reconstructed — see [`docs/decisions/README.md`](docs/decisions/README.md).
 See [`vault/staged-build-roadmap.md`](vault/staged-build-roadmap.md) for the
 current status and [`vault/development-roadmap.md`](vault/development-roadmap.md)
 for the audit trail.
