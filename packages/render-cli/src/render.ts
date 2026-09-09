@@ -443,6 +443,14 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
         const panel = await renderMapPanel(page.bbox, panelWidthPx, undefined, panelOptions);
         panels[page.id] = `data:${panel.mimeType};base64,${panel.bytes.toString("base64")}`;
         stderr.write(`  panel ${page.id} (z${panel.zoom})\n`);
+        // A hole under renderMapPanel's threshold is accepted (it is usually a
+        // real coverage edge) but never silent: it is still blank paper on a map
+        // someone will navigate from, so it is called out per page.
+        if (panel.tilesMissing > 0) {
+          stderr.write(
+            `  WARNING: page ${page.id} is missing ${panel.tilesMissing} of ${panel.tilesRequested} tiles — those areas print blank\n`,
+          );
+        }
       } catch (err) {
         // Surface a clear, source-aware message so the worker can map a tile
         // failure to 502 (its classifier matches "tile"/"fetch") rather than 500.

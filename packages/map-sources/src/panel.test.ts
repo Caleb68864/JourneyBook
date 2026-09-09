@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { resolveTileUrl, renderMapPanel, USGS_TOPO } from "./panel.js";
+import { describe, it, expect, vi, afterEach, beforeAll } from "vitest";
+import sharp from "sharp";
+import { resolveTileUrl, renderMapPanel, USGS_TOPO, TILE_USER_AGENT } from "./panel.js";
 
 describe("resolveTileUrl", () => {
   it("uses the source's URL template when no proxy base is given", () => {
@@ -24,28 +25,44 @@ describe("resolveTileUrl", () => {
   });
 });
 
+const bbox = [-96.72, 40.79, -96.68, 40.82] as const;
+
 /**
- * Panel encoding. Every tile fetch is stubbed to fail, which renderMapPanel
- * degrades to the parchment background - enough to exercise the encode path
- * with no network. (The size win that motivates the JPEG default was measured
- * on real topo tiles; see docs/decisions.md.)
+ * A real 256x256 PNG tile. The encoding tests used to stub every fetch to 404 and
+ * assert success, which meant they exercised the encode path over a panel with
+ * no map in it — and, worse, encoded the very failure mode this suite now has to
+ * detect. Serving actual tile bytes tests the composite/crop path too.
  */
+let TILE_PNG: Buffer;
+beforeAll(async () => {
+  TILE_PNG = await sharp({
+    create: { width: 256, height: 256, channels: 3, background: { r: 120, g: 140, b: 110 } },
+  })
+    .png()
+    .toBuffer();
+});
+
+/** Stub fetch so the first `failCount` tile requests fail with `status`. */
+function stubTiles(options: { failCount?: number; status?: number } = {}) {
+  const failCount = options.failCount ?? 0;
+  const status = options.status ?? 404;
+  let served = 0;
+  const fetchMock = vi.fn(async () => {
+    const n = served++;
+    if (n < failCount) return new Response(null, { status });
+    return new Response(new Uint8Array(TILE_PNG), { status: 200 });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
 describe("renderMapPanel encoding", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
 
-  function stubFailedTiles() {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response(null, { status: 404 })),
-    );
-  }
-
-  const bbox = [-96.72, 40.79, -96.68, 40.82] as const;
-
   it("defaults to JPEG, which a PDF can embed directly", async () => {
-    stubFailedTiles();
+    stubTiles();
     const panel = await renderMapPanel([...bbox], 256);
     expect(panel.format).toBe("jpeg");
     expect(panel.mimeType).toBe("image/jpeg");
@@ -54,7 +71,7 @@ describe("renderMapPanel encoding", () => {
   });
 
   it("emits PNG on request", async () => {
-    stubFailedTiles();
+    stubTiles();
     const panel = await renderMapPanel([...bbox], 256, undefined, { format: "png" });
     expect(panel.format).toBe("png");
     expect(panel.mimeType).toBe("image/png");
@@ -62,11 +79,116 @@ describe("renderMapPanel encoding", () => {
   });
 
   it("reports the cropped panel size and the zoom it chose", async () => {
-    stubFailedTiles();
+    stubTiles();
     const panel = await renderMapPanel([...bbox], 256);
     expect(panel.widthPx).toBeGreaterThan(0);
     expect(panel.heightPx).toBeGreaterThan(0);
     expect(panel.zoom).toBeGreaterThan(0);
     expect(panel.attribution).toBe(USGS_TOPO.attribution);
+    expect(panel.tilesMissing).toBe(0);
+    expect(panel.tilesRequested).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * A failed tile used to become parchment and the render still reported success,
+ * so a total upstream outage produced HTTP 200 and an empty printed atlas.
+ */
+describe("renderMapPanel tile-failure threshold", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("throws rather than returning a blank panel when every tile fails", async () => {
+    stubTiles({ failCount: Infinity });
+    await expect(renderMapPanel([...bbox], 256)).rejects.toThrow(/Tile fetch failed for \d+ of \d+/);
+  });
+
+  it("throws once the missing share passes the threshold", async () => {
+    // 1 of 4 tiles missing = 25%, over the 10% default.
+    stubTiles({ failCount: 1 });
+    await expect(
+      renderMapPanel([...bbox], 256, undefined, { tileConcurrency: 1 }),
+    ).rejects.toThrow(/Tile fetch failed/);
+  });
+
+  it("tolerates a hole inside the threshold and reports it", async () => {
+    stubTiles({ failCount: 1 });
+    const panel = await renderMapPanel([...bbox], 256, undefined, {
+      tileConcurrency: 1,
+      maxFailedTileFraction: 0.5,
+    });
+    expect(panel.tilesMissing).toBe(1);
+    expect(panel.tilesRequested).toBeGreaterThan(1);
+  });
+});
+
+describe("tile fetch hardening", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("sends a descriptive User-Agent (Overpass 406'd every request without one)", async () => {
+    const fetchMock = stubTiles();
+    await renderMapPanel([...bbox], 256);
+    expect(fetchMock).toHaveBeenCalled();
+    for (const call of fetchMock.mock.calls) {
+      const init = (call as unknown as [string, RequestInit])[1];
+      expect((init.headers as Record<string, string>)["User-Agent"]).toBe(TILE_USER_AGENT);
+    }
+  });
+
+  it("aborts a hung request instead of waiting forever", async () => {
+    const fetchMock = stubTiles();
+    await renderMapPanel([...bbox], 256);
+    for (const call of fetchMock.mock.calls) {
+      const init = (call as unknown as [string, RequestInit])[1];
+      expect(init.signal).toBeInstanceOf(AbortSignal);
+    }
+  });
+
+  it("caps concurrency so a page does not open ~35 sockets at once", async () => {
+    let inFlight = 0;
+    let peak = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        inFlight++;
+        peak = Math.max(peak, inFlight);
+        await new Promise((r) => setTimeout(r, 5));
+        inFlight--;
+        return new Response(new Uint8Array(TILE_PNG), { status: 200 });
+      }),
+    );
+    // Wide bbox so the panel needs many more tiles than the concurrency limit.
+    await renderMapPanel([-97.2, 40.6, -96.2, 41.2], 1400, undefined, { tileConcurrency: 3 });
+    expect(peak).toBeLessThanOrEqual(3);
+    expect(peak).toBeGreaterThan(1);
+  });
+
+  it("retries a transient 503, and the retry's success counts", async () => {
+    let served = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        // Fail the very first request only; the retry must recover it.
+        if (served++ === 0) return new Response(null, { status: 503 });
+        return new Response(new Uint8Array(TILE_PNG), { status: 200 });
+      }),
+    );
+    const panel = await renderMapPanel([...bbox], 256, undefined, { tileConcurrency: 1 });
+    expect(panel.tilesMissing).toBe(0);
+  });
+
+  it("does not retry a 404 — an absent tile is an answer, not a failure", async () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 404 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(
+      renderMapPanel([...bbox], 256, undefined, { tileConcurrency: 1 }),
+    ).rejects.toThrow(/Tile fetch failed/);
+    // One request per tile, not three.
+    const tiles = fetchMock.mock.calls.length;
+    expect(tiles).toBeGreaterThan(0);
+    expect(new Set(fetchMock.mock.calls.map((c) => String(c[0]))).size).toBe(tiles);
   });
 });

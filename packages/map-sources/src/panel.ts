@@ -11,6 +11,53 @@ import { getCachedTile, storeCachedTile } from "./tilecache.js";
 /** Parchment fill behind the mosaic, showing wherever a tile fetch failed. */
 const PANEL_BACKGROUND = { r: 244, g: 240, b: 230, alpha: 1 } as const;
 
+/**
+ * Descriptive User-Agent for every outbound tile request.
+ *
+ * Node's `fetch` sends no UA at all, and the public endpoints this repo talks to
+ * treat that as abuse: Overpass answered `406 Not Acceptable` to every landmark
+ * import until a UA was added (see `DependencyInjection.cs`), and Nominatim's
+ * usage policy requires one. Tile endpoints are the same class of shared public
+ * infrastructure, and a UA-less client is the first thing an operator blocks.
+ * Same `JourneyBook/1.0 (<what for>)` shape as the two C# clients, so a server
+ * log identifies which part of the product is calling.
+ */
+export const TILE_USER_AGENT = "JourneyBook/1.0 (atlas basemap tiles)";
+
+/** Per-attempt tile timeout. Shorter than Nominatim's 15 s: a tile is small. */
+export const DEFAULT_TILE_TIMEOUT_MS = 10_000;
+
+/** Total attempts per tile (1 try + 2 retries). */
+export const DEFAULT_TILE_ATTEMPTS = 3;
+
+/**
+ * Concurrent tile requests per panel. A letter page covers ~35 tiles, and the
+ * previous code opened all of them at once with `Promise.all` — a burst that
+ * looks like a scraper to the source and, across a 30-page atlas rendered
+ * serially, is the single rudest thing this product does. 6 matches the
+ * conventional per-host browser limit.
+ */
+export const DEFAULT_TILE_CONCURRENCY = 6;
+
+/**
+ * Share of a page's tiles allowed to go missing before the panel is rejected.
+ *
+ * Not zero: raster pyramids have genuine holes. USGS topo has no tiles beyond
+ * the CONUS coverage edge, so a page whose bbox clips the coast legitimately
+ * 404s a few tiles, and failing that render would break a valid request to
+ * protect against a defect it does not have. Those gaps are already handled —
+ * they flatten onto the parchment background.
+ *
+ * Not lenient either: at 10% of ~35 tiles a page tolerates three absent tiles,
+ * which reads as a coverage edge, while anything worse — a whole missing row, a
+ * throttling source, a total upstream outage — is not a map anyone should print
+ * and navigate from. Above the threshold `renderMapPanel` throws, which
+ * `render-cli` already turns into a named per-page error and the render worker
+ * classifies as a 502. Before this, every tile could fail and the caller got a
+ * blank sheet of parchment and HTTP 200.
+ */
+export const DEFAULT_MAX_FAILED_TILE_FRACTION = 0.1;
+
 /** A raster XYZ basemap source with attribution. */
 export interface RasterBasemap {
   id: string;
@@ -48,6 +95,14 @@ export interface MapPanel {
   heightPx: number;
   zoom: number;
   attribution: string;
+  /** Tiles the panel needed. */
+  tilesRequested: number;
+  /**
+   * Tiles that produced no pixels and were left as parchment. Always within the
+   * accepted threshold (above it `renderMapPanel` throws), but reported so a
+   * caller can warn: a tolerated hole is still a hole in a printed map.
+   */
+  tilesMissing: number;
 }
 
 /**
@@ -77,6 +132,18 @@ export interface RenderPanelOptions {
   format?: PanelFormat;
   /** JPEG quality 1–100 (ignored for PNG). Default 90. */
   quality?: number;
+  /** Per-attempt tile timeout in ms. Default {@link DEFAULT_TILE_TIMEOUT_MS}. */
+  tileTimeoutMs?: number;
+  /** Total attempts per tile. Default {@link DEFAULT_TILE_ATTEMPTS}. */
+  tileAttempts?: number;
+  /** Max concurrent tile requests. Default {@link DEFAULT_TILE_CONCURRENCY}. */
+  tileConcurrency?: number;
+  /**
+   * Share of a page's tiles allowed to go missing before the panel is rejected,
+   * 0..1. Default {@link DEFAULT_MAX_FAILED_TILE_FRACTION}; set 1 to accept any
+   * number of holes (the pre-2026-09 behaviour), 0 to demand every tile.
+   */
+  maxFailedTileFraction?: number;
 }
 
 /** Resolve the URL for a single tile, either via the proxy base or the source's own template. */
@@ -98,14 +165,63 @@ export function resolveTileUrl(
     .replace("{y}", String(y));
 }
 
-async function fetchTile(url: string): Promise<Buffer | null> {
-  try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    return Buffer.from(await res.arrayBuffer());
-  } catch {
-    return null;
+/**
+ * Is this status worth trying again? 429 and 5xx are the source telling us it is
+ * busy or broken — transient by definition. 404/403 are answers, not failures:
+ * the tile is genuinely absent or forbidden, and retrying it twice more just
+ * triples the load on a coverage edge that will never return pixels.
+ */
+function isRetryableStatus(status: number): boolean {
+  return status === 408 || status === 425 || status === 429 || status >= 500;
+}
+
+async function fetchTile(
+  url: string,
+  timeoutMs: number,
+  attempts: number,
+): Promise<Buffer | null> {
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    let retryable: boolean;
+    try {
+      const res = await fetch(url, {
+        headers: { "User-Agent": TILE_USER_AGENT },
+        // Without this a hung source stalls the whole render forever: Node's
+        // fetch has no default timeout, and a page waits on every one of its
+        // tiles before it can be composited.
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (res.ok) return Buffer.from(await res.arrayBuffer());
+      retryable = isRetryableStatus(res.status);
+    } catch {
+      // Network error or timeout — the transient case retries exist for.
+      retryable = true;
+    }
+    if (!retryable || attempt === attempts) return null;
+    // Exponential backoff (200 ms, 400 ms). Retrying a throttled source
+    // immediately is how a 429 becomes a ban.
+    await new Promise((resolve) => setTimeout(resolve, 200 * 2 ** (attempt - 1)));
   }
+  return null;
+}
+
+/**
+ * Run `jobs` with at most `limit` in flight, preserving result order. Kept local
+ * and dependency-free — the only concurrency this package needs.
+ */
+async function mapWithConcurrency<T>(
+  jobs: (() => Promise<T>)[],
+  limit: number,
+): Promise<T[]> {
+  const results = new Array<T>(jobs.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, jobs.length) }, async () => {
+    while (next < jobs.length) {
+      const index = next++;
+      results[index] = await jobs[index]!();
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 /** Read a tile from the shared disk cache when configured, else fetch and (best-effort) cache it. */
@@ -122,7 +238,11 @@ async function loadTile(
     if (hit) return hit.bytes;
   }
 
-  const buf = await fetchTile(resolveTileUrl(basemap, z, x, y, options));
+  const buf = await fetchTile(
+    resolveTileUrl(basemap, z, x, y, options),
+    options?.tileTimeoutMs ?? DEFAULT_TILE_TIMEOUT_MS,
+    options?.tileAttempts ?? DEFAULT_TILE_ATTEMPTS,
+  );
   if (buf && options?.cacheDir) {
     await storeCachedTile(options.cacheDir, cacheSource, z, x, y, "png", buf);
   }
@@ -149,20 +269,41 @@ export async function renderMapPanel(
   const rows = range.maxY - range.minY + 1;
   const cacheSource = options?.sourceId ?? basemap.id;
 
-  // Fetch every covering tile (blank where a fetch fails); reuse the shared disk cache if given.
-  const jobs: Promise<{ left: number; top: number; input: Buffer } | null>[] = [];
+  // Fetch every covering tile, at most `tileConcurrency` at a time; reuse the
+  // shared disk cache if given.
+  const jobs: (() => Promise<{ left: number; top: number; input: Buffer } | null>)[] = [];
   for (let ty = range.minY; ty <= range.maxY; ty++) {
     for (let tx = range.minX; tx <= range.maxX; tx++) {
       const left = (tx - range.minX) * TILE_SIZE;
       const top = (ty - range.minY) * TILE_SIZE;
-      jobs.push(
-        loadTile(basemap, zoom, tx, ty, cacheSource, options).then((buf) =>
-          buf ? { left, top, input: buf } : null,
-        ),
-      );
+      jobs.push(async () => {
+        const buf = await loadTile(basemap, zoom, tx, ty, cacheSource, options);
+        return buf ? { left, top, input: buf } : null;
+      });
     }
   }
-  const placements = (await Promise.all(jobs)).filter((p) => p !== null);
+  const loaded = await mapWithConcurrency(
+    jobs,
+    options?.tileConcurrency ?? DEFAULT_TILE_CONCURRENCY,
+  );
+  const placements = loaded.filter((p) => p !== null);
+
+  // A tile that produced no pixels leaves a parchment hole in a map somebody is
+  // going to print and navigate from. Below the threshold that is a coverage
+  // edge and acceptable; above it the panel is not a map, and returning it as a
+  // success is how a total upstream outage used to yield HTTP 200 and a blank
+  // atlas. Throwing here is what `render-cli` already expects: it wraps the
+  // failure with the page id, and the render worker maps it to a 502.
+  const tilesRequested = jobs.length;
+  const tilesMissing = tilesRequested - placements.length;
+  const maxFailedFraction = options?.maxFailedTileFraction ?? DEFAULT_MAX_FAILED_TILE_FRACTION;
+  if (tilesMissing > 0 && tilesMissing / tilesRequested > maxFailedFraction) {
+    throw new Error(
+      `Tile fetch failed for ${tilesMissing} of ${tilesRequested} tiles at z${zoom} from ` +
+        `${cacheSource} (limit ${(maxFailedFraction * 100).toFixed(0)}%). ` +
+        `The map panel would be mostly blank, so it is not rendered.`,
+    );
+  }
 
   // Crop window in mosaic pixels.
   const topLeft = lngLatToGlobalPixel(west, north, zoom);
@@ -204,5 +345,7 @@ export async function renderMapPanel(
     heightPx: height,
     zoom,
     attribution: basemap.attribution,
+    tilesRequested,
+    tilesMissing,
   };
 }
