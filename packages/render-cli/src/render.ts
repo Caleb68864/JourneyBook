@@ -70,6 +70,12 @@ export interface RenderAtlasInput {
   basemap?: boolean;
   tileBaseUrl?: string;
   tileSourceId?: string;
+  /**
+   * Deepest zoom the tile source has, overriding the basemap's own ceiling.
+   * Needed when tiles come through the proxy from a registered `TileSource`
+   * whose `MaxZoom` this process cannot see.
+   */
+  tileMaxZoom?: number;
   cacheDir?: string;
   outputPath: string;
   /**
@@ -429,6 +435,7 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
   const panelOptions = {
     ...(input.tileBaseUrl ? { tileBaseUrl: input.tileBaseUrl } : {}),
     ...(input.tileSourceId ? { sourceId: input.tileSourceId } : {}),
+    ...(input.tileMaxZoom !== undefined ? { maxZoom: input.tileMaxZoom } : {}),
     ...(input.cacheDir ? { cacheDir: input.cacheDir } : {}),
     ...(input.panelFormat ? { format: input.panelFormat } : {}),
     ...(input.panelQuality !== undefined ? { quality: input.panelQuality } : {}),
@@ -452,6 +459,16 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
           attributions.push(panel.attribution);
         }
         stderr.write(`  panel ${page.id} (z${panel.zoom})\n`);
+        // The source has no tiles below this zoom, so the panel is softer than
+        // --panel-px asked for. Before the clamp this was not a warning: the
+        // request went out at a zoom the source does not serve and every tile
+        // 404'd, which the threshold check then turned into a failed render.
+        if (panel.zoomClamped) {
+          stderr.write(
+            `  WARNING: page ${page.id} rendered at z${panel.zoom}, the source's deepest zoom — ` +
+              `--panel-px ${panelWidthPx} asked for more resolution than this basemap has\n`,
+          );
+        }
         // A hole under renderMapPanel's threshold is accepted (it is usually a
         // real coverage edge) but never silent: it is still blank paper on a map
         // someone will navigate from, so it is called out per page.

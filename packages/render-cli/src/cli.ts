@@ -62,6 +62,8 @@ Options:
   --tile-base-url <url>       route basemap tiles through the C# proxy (e.g. http://localhost:5180/api/tiles)
   --tile-source <id>          proxy source key (with --tile-base-url)
   --tile-cache-dir <dir>      shared local tile cache (default: none)
+  --tile-max-zoom <n>         deepest zoom the source has (default: the basemap's own;
+                              USGS topo is z16, so --panel-px above ~1000 is clamped there)
   --landmarks <file.json>     JSON array of LandmarkMarker objects placed as per-page furniture
   --no-print-check            (validate) skip rendering the atlas to measure the printed map
                               box; the printed-scale check is then reported SKIP, not PASS
@@ -263,6 +265,15 @@ export function inputFromArgs(args: readonly string[]): Omit<RenderAtlasInput, "
     }
   }
 
+  let tileMaxZoom: number | undefined;
+  const tileMaxZoomRaw = valueOf(flags, "tile-max-zoom");
+  if (tileMaxZoomRaw !== undefined) {
+    tileMaxZoom = Number(tileMaxZoomRaw);
+    if (!Number.isInteger(tileMaxZoom) || tileMaxZoom < 0 || tileMaxZoom > 24) {
+      throw new Error(`--tile-max-zoom expects an integer 0–24 (got "${tileMaxZoomRaw}")`);
+    }
+  }
+
   return {
     mode: bbox ? "bbox" : "location",
     ...(bbox ? { bbox } : {}),
@@ -284,6 +295,7 @@ export function inputFromArgs(args: readonly string[]): Omit<RenderAtlasInput, "
     ...(valueOf(flags, "tile-base-url") ? { tileBaseUrl: valueOf(flags, "tile-base-url") } : {}),
     ...(valueOf(flags, "tile-source") ? { tileSourceId: valueOf(flags, "tile-source") } : {}),
     ...(valueOf(flags, "tile-cache-dir") ? { cacheDir: valueOf(flags, "tile-cache-dir") } : {}),
+    ...(tileMaxZoom !== undefined ? { tileMaxZoom } : {}),
     ...(landmarks ? { landmarks } : {}),
     tableOfContents: !flags.has("no-toc"),
     overview: !flags.has("no-overview"),

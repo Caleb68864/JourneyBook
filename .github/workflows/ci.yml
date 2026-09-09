@@ -52,6 +52,8 @@ jobs:
         run: bash harness/checks/secrets.sh
       - name: Compose ships no credential and no Development default
         run: bash harness/checks/compose-hardening.sh
+      - name: Every workspace import has a TypeScript project reference
+        run: bash harness/checks/project-references.sh
 
   ts:
     name: TypeScript (build, typecheck, test)

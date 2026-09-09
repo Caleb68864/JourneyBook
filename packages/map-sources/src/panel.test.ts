@@ -251,6 +251,70 @@ describe("tile fetch hardening", () => {
 });
 
 /**
+ * Zoom headroom over the source's ceiling.
+ *
+ * At 1:24,000 — the default scale — the 5.76 in printed map box at the default
+ * 1000 px panel selects z16, and USGS Topo's deepest zoom is z16 (the seeded
+ * `TileSource.MaxZoom` in `TileSourceConfiguration.cs`, which the C# proxy
+ * enforces with `ZoomOutOfRange`). Zero headroom: `--panel-px 2000` asked for
+ * z17 and every tile 404'd, so the failed-tile threshold turned a request for a
+ * sharper print into no print at all. That is the wrong failure — the source
+ * has a perfectly good z16 map — so the zoom is clamped and the shortfall
+ * reported.
+ */
+describe("renderMapPanel zoom ceiling", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("renders at the source's deepest zoom instead of 404ing past it", async () => {
+    stubTiles();
+    // Far more resolution than USGS Topo has for this extent.
+    const panel = await renderMapPanel([...bbox], 8000);
+    expect(panel.zoom).toBe(USGS_TOPO.maxZoom);
+    expect(panel.zoomClamped).toBe(true);
+    expect(panel.tilesMissing).toBe(0);
+  });
+
+  it("never asks a tile URL for a zoom past the ceiling", async () => {
+    const fetchMock = stubTiles();
+    await renderMapPanel([...bbox], 8000);
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(0);
+    for (const call of fetchMock.mock.calls) {
+      const z = Number(/\/(\d+)\/\d+\/\d+$/.exec(String(call[0]))![1]);
+      expect(z).toBeLessThanOrEqual(USGS_TOPO.maxZoom!);
+    }
+  });
+
+  it("leaves a request within the ceiling exactly where it was", async () => {
+    stubTiles();
+    const panel = await renderMapPanel([...bbox], 256);
+    expect(panel.zoom).toBeLessThan(USGS_TOPO.maxZoom!);
+    expect(panel.zoomClamped).toBe(false);
+  });
+
+  it("takes an explicit ceiling for a proxied source whose MaxZoom it cannot see", async () => {
+    stubTiles();
+    const panel = await renderMapPanel([...bbox], 8000, undefined, {
+      tileBaseUrl: "http://api/api/tiles",
+      sourceId: "protomaps",
+      maxZoom: 14,
+    });
+    expect(panel.zoom).toBe(14);
+    expect(panel.zoomClamped).toBe(true);
+  });
+
+  it("does not clamp a basemap that declares no ceiling", async () => {
+    stubTiles();
+    const uncapped = { ...USGS_TOPO, maxZoom: undefined };
+    // A tiny extent, so a deep zoom is only a handful of tiles.
+    const panel = await renderMapPanel([-96.7, 40.8, -96.699, 40.8009], 700, uncapped);
+    expect(panel.zoom).toBeGreaterThan(USGS_TOPO.maxZoom!);
+    expect(panel.zoomClamped).toBe(false);
+  });
+});
+
+/**
  * Georeferenced crop — the last unmeasured link in the true-scale chain.
  *
  * Every other test in this file serves the SAME flat-colour tile for every
