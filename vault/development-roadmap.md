@@ -146,10 +146,72 @@ source_urls:
 > tiles, warned about the one it missed, and printed "USGS The National Map" in
 > the footer.
 >
-> Still open from the audit and worth scheduling: the SSRF on anonymous
-> tile-source registration, the synchronous single-request render (no progress,
-> no cancel), the unvalidated render-worker wire input, and the absent
-> linter/formatter. See `vault/audit-2026-09-08/scan-summary.md`.
+> **Third pass, 2026-09-09 — three closed, one escalated for a decision.**
+>
+> - **CLOSED — SSRF in the tile-source registry.** Two controls, because either
+>   alone is insufficient. *Authorisation:* `AdminApiKeyGate` on the registry's
+>   POST/PUT/DELETE (reads stay anonymous), failing **closed** — no key
+>   configured means read-only. It is a shared key, not invented identity: this
+>   API has no authentication at all and adding some is a product decision.
+>   *Egress:* `TileEgressPolicy` enforced in a `SocketsHttpHandler`
+>   `ConnectCallback`, so the check runs against the address actually being
+>   connected to, on every connection including redirect hops — a URL-string
+>   check cannot work, because an attacker's own DNS can answer public at
+>   registration and `127.0.0.1` at fetch time. Redirects refused; IPv4-mapped
+>   IPv6 unwrapped. **What it does not stop:** a sensitive host in *public*
+>   address space (set `Tiles:AllowedHosts` for that — the deny-ranges are only
+>   the floor), exfiltration to an attacker-controlled public host, anything at
+>   all under the `Tiles:AllowPrivateNetworks` dev escape hatch, and the other
+>   HTTP clients (Overpass, Nominatim, render worker), which take their base URLs
+>   from configuration rather than user input.
+> - **CLOSED — no exception handler.** `UseExceptionHandler` over a pure
+>   `ExceptionMapping.Map`. Validation exceptions → 400 (409 for a duplicate tile
+>   source key, matching the endpoint beneath it); everything else → 500 with the
+>   message **discarded** and logged instead, since an arbitrary exception message
+>   is an internal detail. The existing per-endpoint catches stay, so no response
+>   body and no integration assertion moves.
+> - **CLOSED — test files were never typechecked.** The build keeps excluding
+>   them (dist must not ship tests); a `tsconfig.test.json` per workspace includes
+>   them with `noEmit` and `typecheck` runs both. Nine real errors surfaced and
+>   were fixed, not suppressed.
+> - **ESCALATED, not started — async render with progress and cancel.** This one
+>   needs a decision rather than an implementation, so nothing was guessed. See
+>   the note below.
+>
+> **Async render — the decision this needs.** Useful finding: the persistence is
+> already there. `PdfStatus` is `Pending → Rendering → Completed → Failed`, the
+> `GeneratedPdf` row is created *before* the worker is invoked, and
+> `GET /api/generated-pdfs/{id}` already reads it. Nothing ever sets `Rendering`,
+> the POST blocks on the worker, and there is no cancel. So the remaining work is
+> a transport and an ownership choice, not a schema one:
+>
+> - **A. In-process background task in the API.** POST returns 202 immediately,
+>   a `BackgroundService`/channel drives the worker call, the web app polls
+>   `GET /generated-pdfs/{id}`. Cheapest by far and needs no new infrastructure.
+>   Cost: a render dies with the API process, and it does not survive scale-out.
+> - **B. The worker owns jobs.** `POST /render` returns a job id, the worker keeps
+>   a job registry with per-page progress, the API proxies status and cancel.
+>   Correct place for the knowledge (only the worker knows it is on page 12 of
+>   60) and gives real cancel. Cost: new state and a new contract in a service
+>   that is currently stateless, and ADR 0005 governs that boundary.
+> - **C. A durable queue.** Survives restarts and scales out; genuinely new
+>   infrastructure for a product that today runs one API and one worker.
+>
+> Progress transport is a second axis (poll vs SSE vs WebSocket); polling pairs
+> with A and B and needs nothing new. **Recommendation if forced: B for progress
+> and cancel, with A's 202 as the first step** — but this is a product/ADR call,
+> not an audit fix, so it is left open deliberately.
+>
+> Suites after this pass: **178 TS** (unchanged — the TS work was typechecking,
+> which found no runtime defects) and **79 .NET** non-Docker (was 29): +7
+> `ExceptionMappingTests`, +39 `TileEgressPolicyTests`, +4
+> `AdminApiKeyGateTests`. Three new `Api` integration tests were written but
+> **have not been run** — Testcontainers needs a Docker daemon this machine
+> lacks.
+>
+> Still open from the audit and worth scheduling: the async render above, the
+> unvalidated render-worker wire input, the absent linter/formatter, and neither
+> tile cache ever evicting. See `vault/audit-2026-09-08/scan-summary.md`.
 
 ## Phase 1: Print Geometry
 Build the Docker-hosted React/Vite/shadcn/Tailwind web app skeleton, define the outdoor field-guide visual system, accept bounding boxes, create page grid, generate overview and detail pages, and validate Letter-size PDF output from the preferred client-side React PDF path.
