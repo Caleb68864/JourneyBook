@@ -54,9 +54,26 @@ public class HttpRenderWorkerClient(HttpClient http) : IRenderWorkerClient
         // Tile a grid over the box enclosing every location. Only sent in "location"
         // mode - with a bbox the extent already defines the grid and the engine
         // ignores it, so sending false there keeps the payload self-consistent.
-        bool Cover);
+        bool Cover,
+        // Page setup. These reach the engine's PageSpec, and the printed map box is
+        // the printable area less the page furniture - so margins and the gutter
+        // MOVE THE PRINTED FOOTPRINT, and with it the page count and the ground each
+        // page covers. The project carried them faithfully through EF, validation,
+        // the duplicate endpoint and the web adapter and then dropped them here;
+        // every atlas printed at 0.5in portrait no matter what the user set.
+        //
+        // Orientation is lower-cased on the wire on purpose: the C# enum renders
+        // "Portrait"/"Landscape", the TS `PageOrientation` union is
+        // "portrait"|"landscape", and the renderer's own test is
+        // `orientation === "landscape"` - so a raw ToString() would have made every
+        // landscape project silently print portrait.
+        string Orientation,
+        WorkerMargins Margins);
 
     private sealed record WorkerCenter(double Lng, double Lat);
+
+    /// <summary>Safe margins (inches) + binder gutter → the engine's <c>PageMargins</c>.</summary>
+    private sealed record WorkerMargins(double Top, double Right, double Bottom, double Left, double Gutter);
 
     /// <summary>A saved location → the worker's <c>RenderLocation</c> ({ center, label, scalePresetId, pin, notes, zoomLevels }).</summary>
     private sealed record WorkerLocation(
@@ -74,6 +91,20 @@ public class HttpRenderWorkerClient(HttpClient http) : IRenderWorkerClient
 
     /// <summary>A persisted landmark → the worker's landmark furniture ({ lng, lat, name, category, score }).</summary>
     private sealed record WorkerLandmark(double Lng, double Lat, string Name, string Category, double Score);
+
+    /// <summary>
+    /// The C# <c>PageOrientation</c> name ("Portrait") as the engine's
+    /// <c>PageOrientation</c> union member ("portrait"). Anything unrecognised falls
+    /// back to portrait — the engine would reject an unknown value outright, and a
+    /// stray orientation string is not worth failing a render over.
+    /// </summary>
+    private static string ToWireOrientation(string orientation) =>
+        string.Equals(orientation, "Landscape", StringComparison.OrdinalIgnoreCase)
+            ? "landscape"
+            : "portrait";
+
+    private static WorkerMargins ToWireMargins(RenderMarginsDto m) =>
+        new(m.Top, m.Right, m.Bottom, m.Left, m.Gutter);
 
     /// <summary>
     /// Translate the C# <see cref="RenderWorkerRequest"/> into the worker's
@@ -130,7 +161,9 @@ public class HttpRenderWorkerClient(HttpClient http) : IRenderWorkerClient
                 ReferenceGrid: request.ReferenceGrid,
                 Notes: request.Notes,
                 // The extent IS the grid here; a cover extent would be redundant.
-                Cover: false);
+                Cover: false,
+                Orientation: ToWireOrientation(request.Orientation),
+                Margins: ToWireMargins(request.Margins));
         }
 
         if (request.Locations.Count > 0)
@@ -154,7 +187,9 @@ public class HttpRenderWorkerClient(HttpClient http) : IRenderWorkerClient
                 Overview: request.Overview,
                 ReferenceGrid: request.ReferenceGrid,
                 Notes: request.Notes,
-                Cover: request.Cover);
+                Cover: request.Cover,
+                Orientation: ToWireOrientation(request.Orientation),
+                Margins: ToWireMargins(request.Margins));
         }
 
         throw new InvalidOperationException(
