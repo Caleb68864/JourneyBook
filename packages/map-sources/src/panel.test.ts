@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach, beforeAll } from "vitest";
 import sharp from "sharp";
 import { resolveTileUrl, renderMapPanel, USGS_TOPO, TILE_USER_AGENT } from "./panel.js";
+import { TILE_SIZE, lngLatToGlobalPixel, tileRangeForBBox } from "./tilemath.js";
 
 describe("resolveTileUrl", () => {
   it("uses the source's URL template when no proxy base is given", () => {
@@ -246,5 +247,148 @@ describe("tile fetch hardening", () => {
     const tiles = fetchMock.mock.calls.length;
     expect(tiles).toBeGreaterThan(0);
     expect(new Set(fetchMock.mock.calls.map((c) => String(c[0]))).size).toBe(tiles);
+  });
+});
+
+/**
+ * Georeferenced crop — the last unmeasured link in the true-scale chain.
+ *
+ * Every other test in this file serves the SAME flat-colour tile for every
+ * z/x/y, so the composite is one uniform block of pixels and any crop window
+ * anywhere inside it is byte-identical. The only crop assertions were
+ * `widthPx > 0` / `heightPx > 0`: multiply the extract width and height by 1.3,
+ * or slide `left`/`top` by half a tile, and the whole suite still passed. The
+ * PDF tests downstream would then confirm, correctly and uselessly, that the
+ * *wrong* image had been painted into an exactly-right box — the 30% scale bug's
+ * failure mode, one layer upstream.
+ *
+ * These tiles are self-locating instead. Every pixel carries its own global
+ * Web-Mercator address: red = global x mod 256, green = global y mod 256, blue =
+ * a hash of the tile indices. So a painted panel pixel can be decoded back to
+ * the ground it shows and compared with the coordinate the bbox says belongs
+ * there — a check that shares no arithmetic with the crop it is checking.
+ */
+const TILE_HASH = (x: number, y: number) => (x * 37 + y * 17) & 255;
+
+/** A 256x256 tile whose every pixel encodes its own global-pixel address. */
+async function locatingTile(x: number, y: number): Promise<Buffer> {
+  const raw = Buffer.alloc(TILE_SIZE * TILE_SIZE * 3);
+  const blue = TILE_HASH(x, y);
+  for (let py = 0; py < TILE_SIZE; py++) {
+    for (let px = 0; px < TILE_SIZE; px++) {
+      const i = (py * TILE_SIZE + px) * 3;
+      raw[i] = px;
+      raw[i + 1] = py;
+      raw[i + 2] = blue;
+    }
+  }
+  return sharp(raw, { raw: { width: TILE_SIZE, height: TILE_SIZE, channels: 3 } })
+    .png()
+    .toBuffer();
+}
+
+/**
+ * Serve a self-locating tile per request. The USGS template is ArcGIS-ordered
+ * ({z}/{y}/{x}), so the trailing path segments are read in that order.
+ */
+function stubLocatingTiles() {
+  const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
+    const m = /\/(\d+)\/(\d+)\/(\d+)$/.exec(String(url));
+    if (!m) return new Response(null, { status: 404 });
+    const y = Number(m[2]);
+    const x = Number(m[3]);
+    return new Response(new Uint8Array(await locatingTile(x, y)), { status: 200 });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+/** Decode one pixel of a raw RGBA/RGB buffer. */
+function pixelAt(
+  p: { data: Buffer; info: { width: number; channels: number } },
+  px: number,
+  py: number,
+): [number, number, number] {
+  const i = (py * p.info.width + px) * p.info.channels;
+  return [p.data[i]!, p.data[i + 1]!, p.data[i + 2]!];
+}
+
+describe("renderMapPanel crop registration", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("crops the mosaic to exactly the bbox, at exactly the right offset", async () => {
+    stubLocatingTiles();
+    const panel = await renderMapPanel([...bbox], 600, undefined, { format: "png" });
+
+    // The fixture only means anything across a multi-tile mosaic: adjacent tiles
+    // must differ, or an offset of a whole tile would be invisible.
+    const range = tileRangeForBBox([...bbox], panel.zoom);
+    expect(range.maxX - range.minX).toBeGreaterThanOrEqual(1);
+    expect(range.maxY - range.minY).toBeGreaterThanOrEqual(1);
+
+    const [west, south, east, north] = bbox;
+    const nw = lngLatToGlobalPixel(west, north, panel.zoom);
+    const se = lngLatToGlobalPixel(east, south, panel.zoom);
+
+    // The panel covers the bbox and nothing else: its pixel dimensions are the
+    // bbox's own span in Web-Mercator pixels at the zoom it chose.
+    expect(panel.widthPx).toBe(Math.round(se.x - nw.x));
+    expect(panel.heightPx).toBe(Math.round(se.y - nw.y));
+
+    const raw = await sharp(panel.bytes).raw().toBuffer({ resolveWithObject: true });
+    expect(raw.info.width).toBe(panel.widthPx);
+    expect(raw.info.height).toBe(panel.heightPx);
+
+    /** The ground address the bbox says belongs at that offset from the origin. */
+    const expectedAt = (px: number, py: number): [number, number, number] => {
+      const gx = Math.round(nw.x) + px;
+      const gy = Math.round(nw.y) + py;
+      return [gx & 255, gy & 255, TILE_HASH(Math.floor(gx / TILE_SIZE), Math.floor(gy / TILE_SIZE))];
+    };
+
+    // Both far corners plus the centre: one corner pins the origin, the opposite
+    // corner pins the extent (a 1.3x crop lands it in a different tile), and the
+    // centre catches a scale error that happened to keep the corners.
+    for (const [px, py] of [
+      [0, 0],
+      [panel.widthPx - 1, 0],
+      [0, panel.heightPx - 1],
+      [panel.widthPx - 1, panel.heightPx - 1],
+      [panel.widthPx >> 1, panel.heightPx >> 1],
+    ] as const) {
+      expect(pixelAt(raw, px, py), `panel pixel (${px}, ${py}) shows the wrong ground`).toEqual(
+        expectedAt(px, py),
+      );
+    }
+  });
+
+  it("moves the crop when the bbox moves, by the distance the bbox moved", async () => {
+    stubLocatingTiles();
+    const a = await renderMapPanel([...bbox], 600, undefined, { format: "png" });
+    // Shift east by a third of the bbox width; same size, so the same zoom.
+    const width = bbox[2] - bbox[0];
+    const shifted: [number, number, number, number] = [
+      bbox[0] + width / 3,
+      bbox[1],
+      bbox[2] + width / 3,
+      bbox[3],
+    ];
+    const b = await renderMapPanel(shifted, 600, undefined, { format: "png" });
+    expect(b.zoom).toBe(a.zoom);
+    expect(b.widthPx).toBe(a.widthPx);
+
+    const originA = lngLatToGlobalPixel(bbox[0], bbox[3], a.zoom);
+    const originB = lngLatToGlobalPixel(shifted[0], shifted[3], b.zoom);
+    const dx = Math.round(originB.x) - Math.round(originA.x);
+    expect(dx).toBeGreaterThan(0);
+
+    const pa = await sharp(a.bytes).raw().toBuffer({ resolveWithObject: true });
+    const pb = await sharp(b.bytes).raw().toBuffer({ resolveWithObject: true });
+    // The shifted panel's left edge shows what sat `dx` pixels into the first.
+    expect(pixelAt(pb, 0, 10)).toEqual(pixelAt(pa, dx, 10));
+    // And that is genuinely different ground from the first panel's left edge.
+    expect(pixelAt(pb, 0, 10)).not.toEqual(pixelAt(pa, 0, 10));
   });
 });

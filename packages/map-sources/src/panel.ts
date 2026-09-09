@@ -367,25 +367,52 @@ export async function renderMapPanel(
   // Crop window in mosaic pixels.
   const topLeft = lngLatToGlobalPixel(west, north, zoom);
   const bottomRight = lngLatToGlobalPixel(east, south, zoom);
+  const mosaicWidth = cols * TILE_SIZE;
+  const mosaicHeight = rows * TILE_SIZE;
   const left = Math.round(topLeft.x - range.minX * TILE_SIZE);
   const top = Math.round(topLeft.y - range.minY * TILE_SIZE);
-  const width = Math.max(1, Math.round(bottomRight.x - topLeft.x));
-  const height = Math.max(1, Math.round(bottomRight.y - topLeft.y));
+  // Clamp to the mosaic: the tile range covers the bbox by construction, but
+  // rounding can put the far edge a pixel past the last tile, and sharp treats
+  // an out-of-bounds extract as a hard error.
+  const width = Math.max(1, Math.min(Math.round(bottomRight.x - topLeft.x), mosaicWidth - left));
+  const height = Math.max(1, Math.min(Math.round(bottomRight.y - topLeft.y), mosaicHeight - top));
 
   const format = options?.format ?? DEFAULT_PANEL_FORMAT;
   const quality = options?.quality ?? DEFAULT_PANEL_QUALITY;
 
-  const mosaic = sharp({
+  // The mosaic has to be MATERIALIZED before the crop. sharp's pipeline order is
+  // fixed, not call order: an `extract` chained onto a `composite` is applied as
+  // a pre-extract on the *input* image, so the blank canvas was cropped first and
+  // the tiles were then composited onto the crop at their full-mosaic offsets.
+  // The panel that came out was the top-left `width x height` of the tile grid,
+  // anchored on the tile boundary instead of on the bbox — misregistered by up to
+  // a whole tile (~460 m of ground at 1:24,000) on a printed page whose entire
+  // purpose is true-scale land navigation, and clipping the east/south edge the
+  // bbox asked for. Every tile fixture in the tests served the same flat colour,
+  // so the composite was uniform and the misplaced window was byte-identical to
+  // the right one; `panel.test.ts` now serves self-locating tiles that decode
+  // back to the ground they show. Round-tripping through a raw buffer (no
+  // re-encode) puts the crop in a second pipeline, where it means what it reads.
+  const composited = await sharp({
     create: {
-      width: cols * TILE_SIZE,
-      height: rows * TILE_SIZE,
+      width: mosaicWidth,
+      height: mosaicHeight,
       channels: 4,
       background: PANEL_BACKGROUND,
     },
   })
     // Strip the attribution field: sharp rejects unknown keys on a composite.
     .composite(placements.map(({ left: l, top: t, input }) => ({ left: l, top: t, input })))
-    .extract({ left, top, width, height });
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  const mosaic = sharp(composited.data, {
+    raw: {
+      width: composited.info.width,
+      height: composited.info.height,
+      channels: composited.info.channels,
+    },
+  }).extract({ left, top, width, height });
 
   const bytes =
     format === "png"
