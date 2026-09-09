@@ -23,4 +23,16 @@ public class GeneratedPdf : EntityBase
 
     /// <summary>When the generated file expires and may be purged.</summary>
     public DateTimeOffset? ExpiresAt { get; set; }
+
+    /// <summary>
+    /// Why a <see cref="PdfStatus.Failed"/> render failed, in the renderer's own words.
+    /// </summary>
+    /// <remarks>
+    /// Renders became asynchronous (POST returns 202 and the client polls), so the
+    /// worker's diagnostic no longer has an HTTP response to ride home on: by the
+    /// time the render fails the request that started it is long finished. Without
+    /// somewhere to put it the user's whole answer is the word "Failed". Null for
+    /// every status except <c>Failed</c>, and cleared on a subsequent success.
+    /// </remarks>
+    public string? ErrorMessage { get; set; }
 }

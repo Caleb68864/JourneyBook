@@ -15,14 +15,21 @@ public record RenderProjectRequest(
     // Cover in that case.
     bool Cover = false);
 
-/// <summary>Successful render response (200): generated PDF id, status, and download URL.</summary>
-public record RenderProjectResponse(Guid GeneratedPdfId, string Status, string DownloadUrl);
-
-/// <summary>Worker-failure render response (502): generated PDF id and error message.</summary>
-public record RenderFailedResponse(Guid GeneratedPdfId, string Error);
+/// <summary>
+/// Render-accepted response (202): the record id, its status at the moment of
+/// acceptance (<c>Pending</c>), where the PDF will be once it exists, and where to
+/// poll until it does.
+/// </summary>
+public record RenderProjectResponse(Guid GeneratedPdfId, string Status, string DownloadUrl, string StatusUrl);
 
 /// <summary>Discriminated outcome from <see cref="IRenderService.RenderProjectAsync"/>.</summary>
-public enum RenderOutcome { Success, ProjectNotFound, InvalidParameters, WorkerFailed }
+/// <remarks>
+/// There is no worker-failure outcome any more. The POST returns before the worker is
+/// called, so a worker failure is not an outcome of the request that started it — it
+/// lands on the record as <c>Failed</c> with an <c>ErrorMessage</c>, and the polling
+/// client reads it there.
+/// </remarks>
+public enum RenderOutcome { Accepted, ProjectNotFound, InvalidParameters }
 
 /// <summary>Result returned by <see cref="IRenderService"/> to the endpoint handler.</summary>
 public record RenderServiceResult(
@@ -30,7 +37,8 @@ public record RenderServiceResult(
     Guid? GeneratedPdfId = null,
     string? Status = null,
     string? DownloadUrl = null,
-    string? Error = null);
+    string? Error = null,
+    string? StatusUrl = null);
 
 /// <summary>Payload sent to the render worker over HTTP.</summary>
 public record RenderWorkerRequest(

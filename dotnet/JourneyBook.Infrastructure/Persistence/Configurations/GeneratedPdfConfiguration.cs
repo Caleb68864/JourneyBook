@@ -19,6 +19,10 @@ public class GeneratedPdfConfiguration : IEntityTypeConfiguration<GeneratedPdf>
 
         builder.Property(g => g.ExpiresAt);
 
+        // Bounded so an exception message with a stack-trace-sized payload cannot
+        // become an unbounded column; the runner truncates before it gets here.
+        builder.Property(g => g.ErrorMessage).HasMaxLength(2000);
+
         builder.HasIndex(g => g.ProjectId);
     }
 }

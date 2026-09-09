@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { MapTier } from "@journeybook/atlas-core";
 import { api } from "../api/client";
+import { waitForRender } from "../api/render-polling";
 
 interface GenerateButtonProps {
   projectId: string;
@@ -15,18 +16,44 @@ interface GenerateButtonProps {
   disabled?: boolean;
 }
 
+/** What the button says while it waits, keyed by the record's server-side status. */
+const WAITING_LABEL: Record<string, string> = {
+  Pending: "Queued…",
+  Rendering: "Rendering…",
+};
+
 export function GenerateButton({ projectId, tier, route, cover, includeLandmarks, tableOfContents, overview, referenceGrid, notes, disabled }: GenerateButtonProps) {
   const [status, setStatus] = useState<"idle" | "generating" | "done" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [jobStatus, setJobStatus] = useState<string | null>(null);
+
+  // Stop polling if the user navigates away mid-render. The render itself keeps
+  // going server-side and the PDF lands in the project's history either way.
+  const abortRef = useRef<AbortController | null>(null);
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   async function handleGenerate() {
     setStatus("generating");
     setErrorMsg(null);
     setPdfUrl(null);
+    setJobStatus("Pending");
+
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
+      // 202: the render is accepted, not done. `downloadUrl` names a file that does
+      // not exist yet, so opening it here would 404 — poll the record first.
       const result = await api.render.start(projectId, tier, { route, cover, includeLandmarks, tableOfContents, overview, referenceGrid, notes });
       const downloadUrl = result.downloadUrl || api.render.getContent(result.generatedPdfId);
+
+      await waitForRender(result.generatedPdfId, {
+        signal: controller.signal,
+        onStatus: setJobStatus,
+      });
+
       setPdfUrl(downloadUrl);
       // Try to open the PDF; if a popup blocker stops it, the link below still works.
       window.open(downloadUrl, "_blank", "noopener,noreferrer");
@@ -34,6 +61,8 @@ export function GenerateButton({ projectId, tier, route, cover, includeLandmarks
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : "Render failed.");
       setStatus("error");
+    } finally {
+      setJobStatus(null);
     }
   }
 
@@ -50,7 +79,7 @@ export function GenerateButton({ projectId, tier, route, cover, includeLandmarks
             <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
               <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
             </svg>
-            Generating…
+            {(jobStatus && WAITING_LABEL[jobStatus]) ?? "Generating…"}
           </>
         ) : (
           <>

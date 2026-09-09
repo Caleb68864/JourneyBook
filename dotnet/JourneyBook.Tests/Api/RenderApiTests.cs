@@ -20,15 +20,21 @@ public sealed class FakeRenderWorkerClient(string generatedDir) : IRenderWorkerC
 {
     public bool ShouldFail { get; set; }
 
-    public Task<RenderWorkerResult> RenderAsync(RenderWorkerRequest request, CancellationToken ct = default)
+    /// <summary>Held open to keep a render "in flight" while a test observes it.</summary>
+    public TaskCompletionSource? Gate { get; set; }
+
+    public async Task<RenderWorkerResult> RenderAsync(RenderWorkerRequest request, CancellationToken ct = default)
     {
+        if (Gate is not null)
+            await Gate.Task.WaitAsync(TimeSpan.FromSeconds(30), ct);
+
         if (ShouldFail)
             throw new InvalidOperationException("Simulated render worker failure.");
 
         Directory.CreateDirectory(generatedDir);
         var fullPath = Path.Combine(generatedDir, request.OutputFileName);
-        File.WriteAllBytes(fullPath, "%PDF-1.4\n%%EOF\n"u8.ToArray());
-        return Task.FromResult(new RenderWorkerResult(request.OutputFileName, 1, null));
+        await File.WriteAllBytesAsync(fullPath, "%PDF-1.4\n%%EOF\n"u8.ToArray(), ct);
+        return new RenderWorkerResult(request.OutputFileName, 1, null);
     }
 }
 
@@ -111,49 +117,140 @@ public class RenderApiTests(RenderApiFactory factory) : IClassFixture<RenderApiF
         Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
     }
 
+    /// <summary>
+    /// Poll the status endpoint the web app polls until the record leaves the
+    /// non-terminal states, or fail loudly rather than hang.
+    /// </summary>
+    private async Task<GeneratedPdfResponse> PollUntilTerminalAsync(Guid pdfId)
+    {
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(30);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var record = await _client.GetFromJsonAsync<GeneratedPdfResponse>($"/api/generated-pdfs/{pdfId}");
+            Assert.NotNull(record);
+            if (record!.Status is "Completed" or "Failed") return record;
+            await Task.Delay(50);
+        }
+
+        throw new TimeoutException($"Generated PDF {pdfId} never reached a terminal status.");
+    }
+
+    /// <summary>
+    /// The POST answers immediately with the record id; the render happens after.
+    /// </summary>
+    /// <remarks>
+    /// This used to be a 200 that did not arrive until the render was finished, so a
+    /// 60-page atlas held one HTTP connection open behind an indefinite spinner for
+    /// as long as 60 sequential basemap fetches took. Asserting 202 + "Pending" here
+    /// is what fails if the endpoint ever goes back to blocking.
+    /// </remarks>
     [Fact]
-    public async Task Render_returns_200_and_transitions_record_to_completed()
+    public async Task Render_returns_202_immediately_with_a_pending_record()
     {
         factory.FakeClient.ShouldFail = false;
-        var projectId = await CreateProjectAsync();
+        // Hold the worker open so the assertions below observe the accepted state
+        // rather than racing a fake render that finishes in microseconds.
+        var gate = new TaskCompletionSource();
+        factory.FakeClient.Gate = gate;
+        try
+        {
+            var projectId = await CreateProjectAsync();
 
-        var resp = await _client.PostAsJsonAsync($"/api/projects/{projectId}/render",
-            new RenderProjectRequest(Tier: 1));
-        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+            var resp = await _client.PostAsJsonAsync($"/api/projects/{projectId}/render",
+                new RenderProjectRequest(Tier: 1));
 
-        var body = await resp.Content.ReadFromJsonAsync<RenderProjectResponse>();
-        Assert.NotNull(body);
-        Assert.Equal("Completed", body!.Status);
-        Assert.Contains("/content", body.DownloadUrl);
+            Assert.Equal(HttpStatusCode.Accepted, resp.StatusCode);
 
-        using var scope = factory.Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<JourneyBookDbContext>();
-        var pdf = await db.GeneratedPdfs.FirstOrDefaultAsync(g => g.Id == body.GeneratedPdfId);
-        Assert.NotNull(pdf);
-        Assert.Equal(JourneyBook.Domain.PdfStatus.Completed, pdf!.Status);
+            var body = await resp.Content.ReadFromJsonAsync<RenderProjectResponse>();
+            Assert.NotNull(body);
+            Assert.Equal("Pending", body!.Status);
+            Assert.Contains("/content", body.DownloadUrl);
+            Assert.Equal($"/api/generated-pdfs/{body.GeneratedPdfId}", body.StatusUrl);
+            // Location names the status resource to poll, not the PDF — which does
+            // not exist yet, and will 404 if a client opens it now.
+            Assert.Equal(body.StatusUrl, resp.Headers.Location?.ToString());
+
+            var contentTooEarly = await _client.GetAsync(body.DownloadUrl);
+            Assert.Equal(HttpStatusCode.NotFound, contentTooEarly.StatusCode);
+        }
+        finally
+        {
+            gate.TrySetResult();
+            factory.FakeClient.Gate = null;
+        }
+    }
+
+    /// <summary>
+    /// <c>Rendering</c> is observable while the worker holds the job.
+    /// </summary>
+    /// <remarks>
+    /// The status has existed in the schema since it was written and nothing ever set
+    /// it, because the whole render happened inside one blocking call. A polling
+    /// client needs it to distinguish "queued behind other work" from "running".
+    /// </remarks>
+    [Fact]
+    public async Task Record_reaches_Rendering_while_the_worker_holds_the_job()
+    {
+        factory.FakeClient.ShouldFail = false;
+        var gate = new TaskCompletionSource();
+        factory.FakeClient.Gate = gate;
+        try
+        {
+            var projectId = await CreateProjectAsync("Rendering Status Project");
+            var resp = await _client.PostAsJsonAsync($"/api/projects/{projectId}/render",
+                new RenderProjectRequest());
+            var body = (await resp.Content.ReadFromJsonAsync<RenderProjectResponse>())!;
+
+            var deadline = DateTimeOffset.UtcNow.AddSeconds(20);
+            string? status = null;
+            while (DateTimeOffset.UtcNow < deadline && status != "Rendering")
+            {
+                status = (await _client.GetFromJsonAsync<GeneratedPdfResponse>(
+                    $"/api/generated-pdfs/{body.GeneratedPdfId}"))!.Status;
+                if (status != "Rendering") await Task.Delay(25);
+            }
+
+            Assert.Equal("Rendering", status);
+
+            gate.SetResult();
+            var final = await PollUntilTerminalAsync(body.GeneratedPdfId);
+            Assert.Equal("Completed", final.Status);
+        }
+        finally
+        {
+            gate.TrySetResult();
+            factory.FakeClient.Gate = null;
+        }
     }
 
     [Fact]
-    public async Task Content_endpoint_returns_pdf_bytes_for_completed_record()
+    public async Task Content_endpoint_returns_pdf_bytes_once_polling_reports_completed()
     {
         factory.FakeClient.ShouldFail = false;
         var projectId = await CreateProjectAsync("Content DL Project");
 
         var renderResp = await _client.PostAsJsonAsync($"/api/projects/{projectId}/render",
             new RenderProjectRequest());
-        Assert.Equal(HttpStatusCode.OK, renderResp.StatusCode);
+        Assert.Equal(HttpStatusCode.Accepted, renderResp.StatusCode);
 
         var body = await renderResp.Content.ReadFromJsonAsync<RenderProjectResponse>();
         Assert.NotNull(body);
 
-        var contentResp = await _client.GetAsync(body!.DownloadUrl);
+        var final = await PollUntilTerminalAsync(body!.GeneratedPdfId);
+        Assert.Equal("Completed", final.Status);
+
+        var contentResp = await _client.GetAsync(body.DownloadUrl);
         Assert.Equal(HttpStatusCode.OK, contentResp.StatusCode);
         Assert.Equal("application/pdf", contentResp.Content.Headers.ContentType?.MediaType);
         Assert.True((await contentResp.Content.ReadAsByteArrayAsync()).Length > 0);
     }
 
+    /// <summary>
+    /// A worker failure is no longer an outcome of the POST, so the record has to
+    /// carry the diagnostic — otherwise the user's whole answer is the word "Failed".
+    /// </summary>
     [Fact]
-    public async Task Worker_failure_records_failed_status_and_returns_502()
+    public async Task Worker_failure_lands_on_the_record_with_its_diagnostic()
     {
         factory.FakeClient.ShouldFail = true;
         try
@@ -162,12 +259,16 @@ public class RenderApiTests(RenderApiFactory factory) : IClassFixture<RenderApiF
 
             var resp = await _client.PostAsJsonAsync($"/api/projects/{projectId}/render",
                 new RenderProjectRequest());
-            Assert.Equal(HttpStatusCode.BadGateway, resp.StatusCode);
+            // Accepted: the request succeeded. The RENDER is what failed, later.
+            Assert.Equal(HttpStatusCode.Accepted, resp.StatusCode);
 
-            var body = await resp.Content.ReadFromJsonAsync<RenderFailedResponse>();
+            var body = await resp.Content.ReadFromJsonAsync<RenderProjectResponse>();
             Assert.NotNull(body);
             Assert.NotEqual(Guid.Empty, body!.GeneratedPdfId);
-            Assert.False(string.IsNullOrEmpty(body.Error));
+
+            var final = await PollUntilTerminalAsync(body.GeneratedPdfId);
+            Assert.Equal("Failed", final.Status);
+            Assert.Equal("Simulated render worker failure.", final.ErrorMessage);
 
             using var scope = factory.Services.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<JourneyBookDbContext>();
