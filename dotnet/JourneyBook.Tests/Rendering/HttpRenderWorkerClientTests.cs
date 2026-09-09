@@ -74,8 +74,15 @@ public class HttpRenderWorkerClientTests
         Assert.False(root.TryGetProperty("extent", out _));
         Assert.False(root.TryGetProperty("locations", out _));
         Assert.False(root.TryGetProperty("outputFileName", out _));
-        Assert.False(root.TryGetProperty("margins", out _));
-        Assert.False(root.TryGetProperty("orientation", out _));
+
+        // Page setup MUST be on the wire. These two assertions used to read
+        // `Assert.False(...TryGetProperty("margins"))` — they pinned the drop in
+        // place: the engine has no way to know the sheet setup it is laying out for,
+        // so it fell back to LETTER_PORTRAIT and every project printed at 0.5in
+        // portrait however its page setup was saved.
+        Assert.True(root.TryGetProperty("margins", out var margins));
+        Assert.Equal(0.5, margins.GetProperty("left").GetDouble());
+        Assert.Equal("portrait", root.GetProperty("orientation").GetString());
 
         Assert.Equal("atlas-x.pdf", result.OutputPath);
         Assert.Equal(1, result.PageCount);
@@ -223,6 +230,96 @@ public class HttpRenderWorkerClientTests
         {
             Assert.False(doc.RootElement.GetProperty("cover").GetBoolean());
         }
+    }
+
+    /// <summary>
+    /// Non-default page setup reaches the engine intact.
+    /// </summary>
+    /// <remarks>
+    /// Margins, gutter and orientation survive EF, validation, the duplicate endpoint
+    /// and the web adapter — each with its own tests using non-default values — and
+    /// then stopped here, because the wire payload had no member for them. Since the
+    /// print fix, the printed map box is the printable area less the page furniture,
+    /// so a margin change MOVES THE PRINTED FOOTPRINT: the one setting that changes
+    /// scale and page count was the one setting that could not reach the renderer.
+    ///
+    /// Every other test in this file passes the 0.5in portrait defaults, so the drop
+    /// was literally unobservable — the values the engine fell back to were the values
+    /// it was being sent.
+    /// </remarks>
+    [Fact]
+    public async Task Non_default_margins_gutter_and_orientation_reach_the_worker()
+    {
+        var (client, handler) = Build();
+        var req = new RenderWorkerRequest(
+            ScalePresetId: "usgs-7-5-min",
+            Tier: 2,
+            Orientation: "Landscape",
+            Overlap: 0,
+            // Four DIFFERENT sides plus a gutter: a payload that copied one value to
+            // all four, or dropped the gutter, cannot pass this.
+            Margins: new RenderMarginsDto(Top: 0.75, Right: 0.6, Bottom: 0.8, Left: 0.9, Gutter: 0.25),
+            Extent: new RenderBBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Locations: [],
+            OutputFileName: "atlas-margins.pdf");
+
+        await client.RenderAsync(req);
+
+        using var doc = JsonDocument.Parse(handler.CapturedBody!);
+        var margins = doc.RootElement.GetProperty("margins");
+        Assert.Equal(0.75, margins.GetProperty("top").GetDouble());
+        Assert.Equal(0.6, margins.GetProperty("right").GetDouble());
+        Assert.Equal(0.8, margins.GetProperty("bottom").GetDouble());
+        Assert.Equal(0.9, margins.GetProperty("left").GetDouble());
+        Assert.Equal(0.25, margins.GetProperty("gutter").GetDouble());
+    }
+
+    /// <summary>
+    /// Orientation is lower-cased on the wire.
+    /// </summary>
+    /// <remarks>
+    /// The latent half of the same bug. C# renders the <c>PageOrientation</c> enum as
+    /// "Portrait"/"Landscape"; the engine's union is "portrait"|"landscape" and the
+    /// renderer's own test is <c>page.orientation === "landscape"</c>. Forwarding
+    /// <c>ToString()</c> would have made every landscape project print portrait —
+    /// silently, since neither side would have complained.
+    /// </remarks>
+    [Theory]
+    [InlineData("Landscape", "landscape")]
+    [InlineData("landscape", "landscape")]
+    [InlineData("Portrait", "portrait")]
+    [InlineData("portrait", "portrait")]
+    public async Task Orientation_is_lower_cased_for_the_engines_union_type(string csharp, string wire)
+    {
+        var (client, handler) = Build();
+        await client.RenderAsync(new RenderWorkerRequest(
+            ScalePresetId: "usgs-7-5-min", Tier: 1, Orientation: csharp, Overlap: 0,
+            Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
+            Extent: new RenderBBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Locations: [], OutputFileName: "atlas-orientation.pdf"));
+
+        using var doc = JsonDocument.Parse(handler.CapturedBody!);
+        Assert.Equal(wire, doc.RootElement.GetProperty("orientation").GetString());
+    }
+
+    [Fact]
+    public async Task Location_mode_carries_the_page_setup_too()
+    {
+        var (client, handler) = Build();
+        await client.RenderAsync(new RenderWorkerRequest(
+            ScalePresetId: "usgs-7-5-min", Tier: 1, Orientation: "Landscape", Overlap: 0,
+            Margins: new RenderMarginsDto(0.375, 0.375, 0.375, 0.375, Gutter: 0.5),
+            Extent: null,
+            Locations: [new RenderLocationDto(-96.7, 40.8, "Home")],
+            OutputFileName: "atlas-loc.pdf"));
+
+        using var doc = JsonDocument.Parse(handler.CapturedBody!);
+        var root = doc.RootElement;
+        Assert.Equal("location", root.GetProperty("mode").GetString());
+        // The bbox branch and the location branch build the payload separately, so a
+        // fix applied to one only is a fix applied to half the product.
+        Assert.Equal("landscape", root.GetProperty("orientation").GetString());
+        Assert.Equal(0.5, root.GetProperty("margins").GetProperty("gutter").GetDouble());
     }
 
     [Fact]

@@ -86,6 +86,14 @@ public static class DependencyInjection
 
         services.AddScoped<IRenderService, RenderService>();
 
+        // Asynchronous rendering: the request enqueues, a hosted loop performs.
+        // The queue is a singleton because the producer (a request scope) and the
+        // consumer (the hosted loop) have to share one channel; the runner is scoped
+        // because it reaches a scoped DbContext through IGeneratedPdfService.
+        services.AddSingleton<IRenderJobQueue, ChannelRenderJobQueue>();
+        services.AddScoped<IRenderJobRunner, RenderJobRunner>();
+        services.AddHostedService<RenderJobProcessor>();
+
         // --- Landmarks / Overpass (Stage 6) ---------------------------------
         services.AddScoped<ILandmarkService, LandmarkService>();
 

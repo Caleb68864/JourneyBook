@@ -97,19 +97,31 @@ export interface GeocodeResult {
   category: string | null;
 }
 
+/**
+ * The 202 answer to `POST /projects/{id}/render`: the render has been accepted
+ * and persisted, not performed. `status` is `"Pending"`; the PDF at `downloadUrl`
+ * does not exist yet. Poll `statusUrl` until the record reaches a terminal state.
+ */
 export interface RenderResult {
   generatedPdfId: string;
   status: string;
   downloadUrl: string;
+  statusUrl: string;
 }
 
 export interface GeneratedPdf {
   id: string;
   projectId: string;
+  /** `Pending` | `Rendering` | `Completed` | `Failed`. */
   status: string;
   filePath: string | null;
   createdAt: string;
   expiresAt: string | null;
+  /**
+   * Why a `Failed` render failed. The POST answered 202 long before the failure,
+   * so this record is the only place the renderer's diagnostic can reach the user.
+   */
+  errorMessage?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -327,6 +339,8 @@ export const api = {
     /** PDF render history for a project, newest first. */
     list: (projectId: string) =>
       request<GeneratedPdf[]>("GET", `/projects/${projectId}/generated-pdfs`),
+    /** One record's current lifecycle state — what a render poll reads. */
+    get: (pdfId: string) => request<GeneratedPdf>("GET", `/generated-pdfs/${pdfId}`),
     contentUrl: (pdfId: string) => `${BASE}/generated-pdfs/${pdfId}/content`,
   },
 

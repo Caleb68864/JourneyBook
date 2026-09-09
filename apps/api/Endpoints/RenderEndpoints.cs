@@ -19,13 +19,16 @@ public static class RenderEndpoints
             {
                 RenderOutcome.ProjectNotFound => Results.NotFound(),
                 RenderOutcome.InvalidParameters => Results.BadRequest(new { error = result.Error }),
-                RenderOutcome.WorkerFailed => Results.Json(
-                    new RenderFailedResponse(result.GeneratedPdfId!.Value, result.Error ?? "Worker error."),
-                    statusCode: StatusCodes.Status502BadGateway),
-                _ => Results.Ok(new RenderProjectResponse(
-                    result.GeneratedPdfId!.Value,
-                    result.Status!,
-                    result.DownloadUrl!)),
+                // 202, not 200: the render has been accepted and persisted, not
+                // performed. Location points at the record the client polls — the
+                // status resource, not the PDF, which does not exist yet.
+                _ => Results.Accepted(
+                    result.StatusUrl!,
+                    new RenderProjectResponse(
+                        result.GeneratedPdfId!.Value,
+                        result.Status!,
+                        result.DownloadUrl!,
+                        result.StatusUrl!)),
             };
         });
 

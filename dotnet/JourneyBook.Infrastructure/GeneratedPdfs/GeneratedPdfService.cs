@@ -74,8 +74,13 @@ public class GeneratedPdfService : IGeneratedPdfService
         var pdf = await _db.GeneratedPdfs.FirstOrDefaultAsync(g => g.Id == id, ct);
         if (pdf is null) return null;
 
-        pdf.Status = ParseStatus(request.Status);
+        var status = ParseStatus(request.Status);
+        pdf.Status = status;
         pdf.FilePath = request.FilePath;
+        // The diagnostic belongs to the failure, not to the record: a retry that
+        // reaches Completed must not leave the previous error standing next to a
+        // downloadable PDF.
+        pdf.ErrorMessage = status == PdfStatus.Failed ? request.ErrorMessage : null;
 
         await _db.SaveChangesAsync(ct);
         return ToResponse(pdf);
@@ -151,5 +156,6 @@ public class GeneratedPdfService : IGeneratedPdfService
             g.FilePath,
             g.CreatedAt,
             g.ExpiresAt,
-            g.SourceMetadataSnapshot);
+            g.SourceMetadataSnapshot,
+            g.ErrorMessage);
 }

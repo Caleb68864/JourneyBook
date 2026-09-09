@@ -169,4 +169,9 @@ graphify-out/
 .claude/
 docs/*
 !docs/decisions.md
+# ADRs are cited as binding from CLAUDE.md, forge-project.json, README.md, two C#
+# services, a TS module and both roadmaps — nine places that named a document nobody
+# cloning the repo could read, because this ignore swallowed the directory holding it.
+# Track it.
+!docs/decisions/
 pins-check.png

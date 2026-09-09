@@ -14,11 +14,15 @@ import {
   type LandmarkMarker,
   type LngLat,
   type MapTier,
+  type PageMargins,
+  type PageOrientation,
+  type PageSpec,
   type PlacedLandmark,
   type AtlasOverview,
   type PinStyle,
   type ScalePreset,
   type UsngGridOverlay,
+  mapBoxInches,
 } from "@journeybook/atlas-core";
 import { renderAtlasPdfToFile, type RouteOverlay } from "@journeybook/pdf-client";
 import {
@@ -66,6 +70,23 @@ export interface RenderAtlasInput {
   scalePresetId: string;
   tier: MapTier;
   overlap?: number;
+  /**
+   * Safe margins in inches, plus an optional binder gutter taken off the binding
+   * edge. Defaults to `DEFAULT_MARGINS` (0.5in all round, no gutter).
+   *
+   * These are not cosmetic. The printed map box is the printable area less
+   * {@link PAGE_FURNITURE_PT}, and a page's ground footprint is measured against
+   * that box — so a margin change **moves the printed footprint**, and with it how
+   * many pages the atlas is and what ground each one covers. This is the one
+   * page-setup value that changes the geometry, which is exactly why it has to
+   * reach the renderer rather than stop at the API.
+   */
+  margins?: PageMargins;
+  /**
+   * Sheet orientation. Defaults to `"portrait"`. Landscape swaps the sheet's
+   * 8.5 x 11, giving a wider, shorter map box (and a different page count).
+   */
+  orientation?: PageOrientation;
   title?: string;
   basemap?: boolean;
   tileBaseUrl?: string;
@@ -165,6 +186,33 @@ function validateInput(input: RenderAtlasInput): void {
   if (input.overlap !== undefined) {
     if (!Number.isFinite(input.overlap) || input.overlap < 0 || input.overlap >= 1) {
       throw new Error(`Invalid overlap ${String(input.overlap)}: must be in [0, 1).`);
+    }
+  }
+  if (input.orientation !== undefined && input.orientation !== "portrait" && input.orientation !== "landscape") {
+    throw new Error(
+      `Invalid orientation "${String(input.orientation)}": must be "portrait" or "landscape".`,
+    );
+  }
+  if (input.margins !== undefined) {
+    const m = input.margins;
+    for (const side of ["top", "right", "bottom", "left", "gutter"] as const) {
+      const v = m[side];
+      if (v === undefined && side === "gutter") continue;
+      if (!Number.isFinite(v) || (v as number) < 0) {
+        throw new Error(`Invalid margins.${side} ${String(v)}: must be a finite number ≥ 0.`);
+      }
+    }
+    // Margins move the printed map box, so margins large enough to consume it
+    // would produce a contract whose pages cover zero or negative ground — an
+    // atlas of blank sheets, or a division by a negative footprint. Reject at the
+    // boundary rather than emit one.
+    const box = mapBoxInches(pageSpecOf(input));
+    if (box.widthIn <= 0 || box.heightIn <= 0) {
+      throw new Error(
+        `Invalid margins: they leave a printed map box of ${(box.widthIn * 72).toFixed(1)} x ` +
+          `${(box.heightIn * 72).toFixed(1)} pt. Page furniture alone takes 125 x 171 pt, so the ` +
+          `margins plus the gutter must leave more than that on a Letter sheet.`,
+      );
     }
   }
   if (input.locations !== undefined) {
@@ -274,6 +322,23 @@ function resolveScaleOrThrow(id: string, where: string): ScalePreset {
   return preset;
 }
 
+/**
+ * The sheet the atlas is laid out on: Letter, with the caller's orientation,
+ * margins and binder gutter applied over the defaults.
+ *
+ * A partial `margins` object is not accepted — `PageMargins` requires all four
+ * sides, and merging a partial one against the defaults would let a caller who
+ * meant "0.25 all round" silently print three sides at 0.5.
+ */
+function pageSpecOf(input: RenderAtlasInput): PageSpec {
+  return {
+    widthIn: LETTER_PORTRAIT.widthIn,
+    heightIn: LETTER_PORTRAIT.heightIn,
+    orientation: input.orientation ?? LETTER_PORTRAIT.orientation,
+    margins: input.margins ?? LETTER_PORTRAIT.margins,
+  };
+}
+
 /** The assembled page contract plus the inputs the renderer needs to draw furniture. */
 export interface AssembledAtlas {
   contract: AtlasContract;
@@ -293,6 +358,13 @@ export interface AssembledAtlas {
  */
 export function assembleContract(input: RenderAtlasInput): AssembledAtlas {
   validateInput(input);
+
+  // One page spec, built once, used by every page-producing call below. Until
+  // 2026-09-09 each of those calls passed LETTER_PORTRAIT directly, so a project's
+  // saved margins, gutter and orientation — carried faithfully through EF,
+  // validation, the duplicate endpoint and the web adapter — died at this line and
+  // every atlas printed at the defaults.
+  const page = pageSpecOf(input);
 
   const scale = SCALE_PRESETS.find((p) => p.id === input.scalePresetId);
   if (!scale) {
@@ -320,7 +392,7 @@ export function assembleContract(input: RenderAtlasInput): AssembledAtlas {
     const grid = buildPageGrid({
       bbox: input.bbox,
       scale,
-      page: LETTER_PORTRAIT,
+      page,
       overlap: input.overlap ?? 0,
       tier: input.tier,
     });
@@ -335,7 +407,7 @@ export function assembleContract(input: RenderAtlasInput): AssembledAtlas {
     const grid = buildPageGrid({
       bbox: coverBBox,
       scale,
-      page: LETTER_PORTRAIT,
+      page,
       overlap: input.overlap ?? 0,
       tier: input.tier,
     });
@@ -365,7 +437,7 @@ export function assembleContract(input: RenderAtlasInput): AssembledAtlas {
           buildLocationPage(
             loc.center,
             levelScale,
-            LETTER_PORTRAIT,
+            page,
             `${baseId}${ladderSuffix(k)}`,
             input.tier,
             loc.label ?? baseId,
@@ -386,7 +458,7 @@ export function assembleContract(input: RenderAtlasInput): AssembledAtlas {
         : loc.scalePresetId !== undefined
           ? resolveScaleOrThrow(loc.scalePresetId, `location ${where}`)
           : scale;
-    pages.push(buildLocationPage(loc.center, locScale, LETTER_PORTRAIT, baseId, input.tier, loc.label, loc.pin, loc.notes));
+    pages.push(buildLocationPage(loc.center, locScale, page, baseId, input.tier, loc.label, loc.pin, loc.notes));
   });
 
   if (pages.length === 0) {
@@ -401,7 +473,7 @@ export function assembleContract(input: RenderAtlasInput): AssembledAtlas {
     const routeResult = buildRouteAtlas({
       stops: locationList.map((loc) => loc.center),
       scale,
-      page: LETTER_PORTRAIT,
+      page,
       tier: input.tier,
     });
     pages.push(...routeResult.pages);
@@ -411,7 +483,7 @@ export function assembleContract(input: RenderAtlasInput): AssembledAtlas {
   const contract: AtlasContract = {
     version: 1,
     scale,
-    margins: LETTER_PORTRAIT.margins,
+    margins: page.margins,
     pages,
   };
 

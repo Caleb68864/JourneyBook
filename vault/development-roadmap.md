@@ -287,6 +287,99 @@ source_urls:
 > decision above, the ~173 DPI ceiling, the unvalidated render-worker wire input,
 > the absent linter/formatter, and neither tile cache ever evicting.
 
+> **Async render — decided and half-landed (2026-09-09).** The owner chose **B
+> with A's 202 as the first step**. The 202 has landed; worker-owned progress has
+> not. Written up as **`docs/decisions/0006-asynchronous-rendering.md`** — an ADR
+> in a directory that is now tracked, because `docs/*` was ignored and ADRs 0001
+> and 0003–0005 are cited in nine places with **no text in the repo** (see
+> `docs/decisions/README.md`; reconstructing them is a separate item, still open).
+>
+> **Landed.** `POST /api/projects/{id}/render` answers **202** with
+> `{ generatedPdfId, status: "Pending", downloadUrl, statusUrl }` and a `Location`
+> header naming the status resource, not the PDF. `RenderService` does all the
+> reading inside the request scope and enqueues the *already-built* worker request
+> (so a project edited mid-render cannot change the atlas); a `BackgroundService`
+> drains one job at a time in its own DI scope; `RenderJobRunner` sets
+> **`Rendering`** — the status the enum has always declared and nothing had ever
+> written — then `Completed`/`Failed`. `GeneratedPdf` gains a nullable
+> `ErrorMessage` (migration `20260909203948_AddGeneratedPdfErrorMessage`): without
+> it the 202 would be a regression, since the old 502 carried the worker's
+> diagnostic in its body and the user's whole answer would have become the word
+> "Failed". The web app polls through a new `waitForRender`
+> (`apps/web/src/api/render-polling.ts`) and opens the download only on
+> `Completed`; the button now says `Queued…` / `Rendering…`.
+>
+> **Accepted limits, all recorded in the ADR:** the queue is in-process (a restart
+> strands outstanding rows; it does not survive scale-out), one render at a time,
+> and a cancelled or shut-down render is marked `Failed` rather than `Cancelled`.
+>
+> **Still to do — worker-owned progress and cancel.** Only the worker knows it is
+> on page 12 of 60, which is the whole argument for the knowledge living there.
+> Needs a job protocol on the worker (`POST /render` → job id, `GET /jobs/{id}`,
+> `DELETE /jobs/{id}`), `renderAtlas` reporting per-page progress and honouring an
+> `AbortSignal` between pages, the API proxying both, a `Cancelled` member on
+> `PdfStatus` with its migration, and a boundary ADR of its own. `waitForRender`
+> already takes an `AbortSignal` and an `onStatus` callback, so the web side is a
+> percentage and a Cancel button rather than a rewrite.
+
+> **Page setup finally reaches the renderer (2026-09-09).** Margins, binder gutter
+> and orientation survived EF, request validation, the duplicate endpoint and the
+> web adapter — each with its own tests using non-default values — and then died
+> at `assembleContract`, which passed `LETTER_PORTRAIT` to every page-producing
+> call. `WorkerRenderPayload` had no member for them at all, and all seven
+> `HttpRenderWorkerClientTests` passed the 0.5in portrait defaults, so the drop
+> was literally unobservable: the values the engine fell back to were the values
+> it was being sent. Two of those tests actively pinned it, asserting
+> `margins`/`orientation` were **absent** from the wire.
+>
+> This was not cosmetic. Since the print fix a page's ground footprint is measured
+> against the printed map box, so **a margin change moves the printed footprint** —
+> the one page-setup value that changes scale and page count was the one that
+> could not reach the geometry. Latent second half: C# emits `"Portrait"` and the
+> engine's union is `"portrait"|"landscape"`, tested as
+> `orientation === "landscape"`, so a raw `ToString()` would have made every
+> landscape project print portrait, silently. Verified by rendering real PDFs and
+> measuring them: default **415 × 549 pt** (unchanged), 1.25in margins **307 ×
+> 441**, landscape **595 × 369**, a 0.75in gutter taking exactly 54 pt off the
+> width and nothing off the height.
+
+> **Page count vs. legibility — measured, and left to the owner (2026-09-09).**
+> True scale made atlases longer (20 → 30 pages for a 20 km box at 1:24,000) and
+> the question was whether there is a happy medium. Measured with the real
+> `buildPageGrid` and real Helvetica metrics rather than estimated. **Answer: for
+> the headline case, almost nothing is recoverable without costing the reader.**
+> Page counts are `ceil()`'d, so most furniture trims buy paper and no pages:
+> a 20 km box needs **+57.4 pt** of map width to drop 6 columns to 5 and **+41.6
+> pt** of height to drop 5 rows to 4.
+>
+> | Change | map box | 20 km pages | what it costs |
+> |---|---|---|---|
+> | baseline | 415 × 549 | **30** | — |
+> | `edgeLabelColumn` 54 → 38 | 451 × 549 | **30** (no-op) | nothing — `CONTINUE` (36.6 pt) still fits whole |
+> | `edgeLabelColumn` 54 → 36 | 451 × 549 | **30** (no-op) | `CONTIN-UE` hyphenates to three lines |
+> | `edgeLabelColumn` 54 → 27 | 469 × 549 | **30** (no-op, misses by 3.4 pt) | four-line labels |
+> | `edgeLabelColumn` 54 → 18 | 487 × 549 | **25** | **overflows** — `AA200` is 21 pt; needs the label reworded |
+> | `notesBlock` 66 → 0 | 415 × 615 | **24** | the write-on notes area, the kid-facing feature |
+> | header 30 → 25 + footer 40 → 35 (honest floors) | 415 × 559 | **30** (no-op) | nothing, and buys nothing |
+> | `neatlinePadding` 6 → 3 | 421 × 555 | **30** (no-op) | tighter neatline |
+> | margins 0.5 → 0.375in | 433 × 567 | **30** (no-op) | home-printer clipping risk |
+> | notes 0 + edge 18 + header/footer/padding | 493 × 637 | **20** | all of the above at once |
+> | landscape | 595 × 369 | **28** | **−3.6% map area** — furniture is 171 pt tall vs 125 wide |
+>
+> Only two levers move the number at all: **`notesBlock → 0`** (30 → 24) and
+> **`edgeLabelColumn ≤ 18`** (30 → 25). The first deletes the notes area and can
+> only be done as a document-level setting baked into the contract *before*
+> `buildPageGrid` runs — as a render toggle it would make the scale bar lie again,
+> which is exactly what `AtlasDocument.tsx:728-733` reserves the block to prevent.
+> The second is unrenderable without rewording `CONTINUE WEST · A1`.
+> `MAX_ATLAS_PAGES` coverage barely moves under any of it: 3111 km² → 4268 km²
+> even with everything trimmed. **Nothing was changed**; the map box is still
+> 415 × 549 pt. Two free follow-ups if wanted: `edgeLabelColumn 54 → 38` renders
+> identically and buys +8.7% map area (and does drop a 40 km box 108 → 99), and
+> `overlap` is a far bigger lever than any of this — 5% overlap costs +17% pages.
+>
+> Suites after this pass: **239 TS** (was 223) and **95 .NET** non-Docker (was 79).
+
 ## Phase 1: Print Geometry
 Build the Docker-hosted React/Vite/shadcn/Tailwind web app skeleton, define the outdoor field-guide visual system, accept bounding boxes, create page grid, generate overview and detail pages, and validate Letter-size PDF output from the preferred client-side React PDF path.
 

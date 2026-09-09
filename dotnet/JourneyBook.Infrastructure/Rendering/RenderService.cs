@@ -8,14 +8,22 @@ using Microsoft.Extensions.Logging;
 namespace JourneyBook.Infrastructure.Rendering;
 
 /// <summary>
-/// Orchestrates a render: resolves the project graph, creates a Pending
-/// <c>GeneratedPdf</c> record, delegates the render call to
-/// <see cref="IRenderWorkerClient"/>, then marks the record Completed or Failed.
+/// Accepts a render: resolves the project graph, creates a Pending
+/// <c>GeneratedPdf</c> record, and hands the built worker request to
+/// <see cref="IRenderJobQueue"/>. It does not wait for the render.
 /// </summary>
+/// <remarks>
+/// This used to block the HTTP request for the whole render. A 60-page atlas is 60
+/// sequential basemap fetches, so the browser sat on one open connection behind an
+/// indefinite spinner for minutes, and any proxy or client timeout in between turned a
+/// perfectly good render into a failed request. Now the POST answers 202 with the
+/// record id and the client polls <c>GET /api/generated-pdfs/{id}</c> — which already
+/// existed, and already reported a status nothing was moving.
+/// </remarks>
 public class RenderService(
     JourneyBookDbContext db,
     IGeneratedPdfService pdfService,
-    IRenderWorkerClient workerClient,
+    IRenderJobQueue jobQueue,
     IConfiguration configuration,
     ILogger<RenderService> logger) : IRenderService
 {
@@ -113,36 +121,20 @@ public class RenderService(
             Notes: request.Notes,
             Cover: request.Cover);
 
-        // 5. Invoke the worker; mark Completed or Failed.
-        try
-        {
-            var result = await workerClient.RenderAsync(workerReq, ct);
-            await pdfService.UpdateStatusAsync(
-                created.Id,
-                new UpdateGeneratedPdfStatusRequest("Completed", result.OutputPath),
-                ct);
+        // 5. Queue it and answer. Deliberately CancellationToken.None: `ct` is the
+        //    HTTP request's, and the request is about to end — cancelling the enqueue
+        //    on it would drop the job the client has just been told is accepted.
+        //    (The unbounded channel never blocks, so this cannot hang.)
+        await jobQueue.EnqueueAsync(new RenderJob(created.Id, projectId, workerReq), CancellationToken.None);
 
-            var downloadUrl = $"/api/generated-pdfs/{created.Id}/content";
-            return new RenderServiceResult(RenderOutcome.Success, created.Id, "Completed", downloadUrl);
-        }
-        catch (OperationCanceledException)
-        {
-            // Client disconnected / request aborted — not a worker failure. Mark the
-            // record Failed (best effort, with a token that won't itself be cancelled)
-            // and let the cancellation propagate.
-            await pdfService.UpdateStatusAsync(
-                created.Id, new UpdateGeneratedPdfStatusRequest("Failed"), CancellationToken.None);
-            throw;
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Render worker failed for project {ProjectId} (pdf {GeneratedPdfId})",
-                projectId, created.Id);
-            await pdfService.UpdateStatusAsync(
-                created.Id,
-                new UpdateGeneratedPdfStatusRequest("Failed"),
-                CancellationToken.None);
-            return new RenderServiceResult(RenderOutcome.WorkerFailed, created.Id, Error: ex.Message);
-        }
+        logger.LogInformation(
+            "Queued render for project {ProjectId} as {GeneratedPdfId}", projectId, created.Id);
+
+        return new RenderServiceResult(
+            RenderOutcome.Accepted,
+            created.Id,
+            "Pending",
+            DownloadUrl: $"/api/generated-pdfs/{created.Id}/content",
+            StatusUrl: $"/api/generated-pdfs/{created.Id}");
     }
 }
