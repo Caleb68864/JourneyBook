@@ -15,9 +15,10 @@
   ],
   "build_command": "pnpm -r build && dotnet build JourneyBook.slnx --nologo",
   "test_command": "pnpm -r test && dotnet test JourneyBook.slnx --nologo",
-  "e2e_command": "npx tsx packages/render-cli/src/cli.ts render --bbox -96.75,40.78,-96.65,40.85 --scale 24000 --tier 3 -o /tmp/atlas.pdf && npx tsx packages/render-cli/src/cli.ts validate /tmp/atlas.pdf",
+  "e2e_command": "node packages/render-cli/dist/cli.js render --bbox -96.75,40.78,-96.65,40.85 --scale usgs-7-5-min --tier 3 --out /tmp/atlas.pdf",
   "notes": [
     "pnpm is not always on PATH here; npx vitest run --dir <package> and npx tsc -b work without it.",
+    "The render CLI is `journeybook` -> packages/render-cli/dist/cli.js, so it needs a build first. `--scale` takes a preset id such as usgs-7-5-min (1:24,000), not a ratio, and `validate` takes the same geometry flags as `render` rather than a path to a PDF.",
     "Backend integration tests use Testcontainers and REQUIRE a running Docker daemon. Without one, filter them out: dotnet test --filter \"FullyQualifiedName!~Api\".",
     "vault/ is git-TRACKED in this repo, unlike the sibling projects. That is deliberate - it is the planning record the README links to.",
     "ADR 0004: atlas-core is the single source of truth for geometry. Do not reimplement projection maths in C#.",
@@ -105,5 +106,6 @@
     "include_dirs": [],
     "enabled": true,
     "graph_first": true
-  }
+  },
+  "e2e_validate_command": "node packages/render-cli/dist/cli.js validate --bbox -96.75,40.78,-96.65,40.85 --scale usgs-7-5-min"
 }
