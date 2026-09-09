@@ -7,6 +7,20 @@ namespace JourneyBook.Application.TileSources;
 public class TileSourceValidationException(string message) : Exception(message);
 
 /// <summary>
+/// Thrown when a tile source's <c>SourceUrl</c> is refused by the egress policy —
+/// a disallowed scheme, a host off the allowlist, or a private/loopback/link-local
+/// address (→ 400 Bad Request at the endpoint).
+///
+/// <para>
+/// Distinct from <see cref="TileSourceValidationException"/> because that one means
+/// "this key is taken" (409) while this one means "this URL is not one the server
+/// will ever fetch" (400) — and because a reader of <c>ExceptionMapping</c> should
+/// be able to see which is which without opening the service.
+/// </para>
+/// </summary>
+public class TileSourceUrlPolicyException(string message) : Exception(message);
+
+/// <summary>
 /// Use-cases for the global tile-source registry. Tile sources are not
 /// project-scoped: each carries a unique <c>Key</c> used for by-key lookup.
 /// The owned <see cref="TileCachePolicyDto"/> round-trips with each source.

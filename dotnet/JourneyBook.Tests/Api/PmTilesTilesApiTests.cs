@@ -59,7 +59,7 @@ public class PmTilesReaderTests
 
 public class PmTilesTilesApiTests(PmTilesApiFactory factory) : IClassFixture<PmTilesApiFactory>
 {
-    private readonly HttpClient _client = factory.CreateClient();
+    private readonly HttpClient _client = factory.CreateAdminClient();
 
     private async Task SeedSourceAsync(string key, string sourceUrl)
     {

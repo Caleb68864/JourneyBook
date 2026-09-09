@@ -51,6 +51,9 @@ public static class ExceptionMapping
         // duplicate tile-source key, and the handler must not disagree with it.
         TileSourceValidationException => (StatusCodes.Status409Conflict, exception.Message),
 
+        // A URL the egress policy will never fetch is bad input, not a conflict.
+        TileSourceUrlPolicyException => (StatusCodes.Status400BadRequest, exception.Message),
+
         // Thrown by enum/string parsing on request DTOs (e.g. an unknown PDF status).
         // ArgumentNullException is a null the caller could not have supplied through
         // model binding — that is our bug, so it falls through to 500 below.

@@ -6,7 +6,63 @@ namespace JourneyBook.Tests.Api;
 
 public class TileSourcesApiTests(PostgisApiFactory factory) : IClassFixture<PostgisApiFactory>
 {
-    private readonly HttpClient _client = factory.CreateClient();
+    private readonly HttpClient _client = factory.CreateAdminClient();
+
+    /// <summary>
+    /// The SSRF's entry point: before this gate, an anonymous POST here stored a
+    /// URL that GET /api/tiles/{source}/... would make the server fetch and return
+    /// the body of. Uses the plain (unauthenticated) client on purpose.
+    /// </summary>
+    [Fact]
+    public async Task Anonymous_create_is_refused()
+    {
+        var anonymous = factory.CreateClient();
+        var request = new CreateTileSourceRequest(
+            Key: "ssrf-attempt",
+            Provider: "Attacker",
+            SourceUrl: "http://169.254.169.254/latest/meta-data/",
+            Attribution: "n/a",
+            MaxZoom: 18,
+            Cache: new TileCachePolicyDto(0, false));
+
+        var post = await anonymous.PostAsJsonAsync("/api/tile-sources", request);
+        Assert.Equal(HttpStatusCode.Unauthorized, post.StatusCode);
+
+        // And it really was not stored.
+        var fetched = await anonymous.GetAsync("/api/tile-sources/by-key/ssrf-attempt");
+        Assert.Equal(HttpStatusCode.NotFound, fetched.StatusCode);
+    }
+
+    [Fact]
+    public async Task Anonymous_delete_is_refused()
+    {
+        var anonymous = factory.CreateClient();
+        var res = await anonymous.DeleteAsync($"/api/tile-sources/{Guid.NewGuid()}");
+        Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
+    }
+
+    /// <summary>
+    /// Even an authorised admin cannot register a URL pointed at the metadata
+    /// service — authorisation and egress restriction are separate controls, and
+    /// this is the one that survives a leaked admin key.
+    /// </summary>
+    [Theory]
+    [InlineData("http://169.254.169.254/latest/meta-data/")]
+    [InlineData("http://127.0.0.1:5432/")]
+    [InlineData("file:///etc/passwd")]
+    public async Task Authorized_create_still_refuses_a_blocked_url(string sourceUrl)
+    {
+        var request = new CreateTileSourceRequest(
+            Key: "blocked-" + Guid.NewGuid().ToString("N")[..8],
+            Provider: "P",
+            SourceUrl: sourceUrl,
+            Attribution: "A",
+            MaxZoom: 18,
+            Cache: new TileCachePolicyDto(0, false));
+
+        var post = await _client.PostAsJsonAsync("/api/tile-sources", request);
+        Assert.Equal(HttpStatusCode.BadRequest, post.StatusCode);
+    }
 
     [Fact]
     public async Task List_includes_seeded_usgs_topo()

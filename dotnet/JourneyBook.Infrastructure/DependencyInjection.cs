@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Sockets;
 using JourneyBook.Application.GeneratedPdfs;
 using JourneyBook.Application.Geocoding;
 using JourneyBook.Application.Landmarks;
@@ -48,12 +50,26 @@ public static class DependencyInjection
         services.AddSingleton(new TileCache(cacheDir));
 
         var upstreamTimeout = int.TryParse(configuration["TileCache:UpstreamTimeoutSeconds"], out var t) ? t : 10;
+
+        // --- Tile egress policy (SSRF containment) --------------------------
+        // The tile registry stores a URL and the proxy fetches it and returns the
+        // body, so without this the API is a request forwarder for whoever can
+        // POST /api/tile-sources. See TileEgressPolicy for why enforcement is at
+        // the socket rather than on the URL string.
+        var egressPolicy = new TileEgressPolicy(
+            allowedHosts: configuration.GetSection("Tiles:AllowedHosts").Get<string[]>(),
+            allowPrivateNetworks: configuration.GetValue("Tiles:AllowPrivateNetworks", false),
+            allowedSchemes: configuration.GetSection("Tiles:AllowedSchemes").Get<string[]>());
+        services.AddSingleton(egressPolicy);
+
         services.AddHttpClient<RasterXyzFetcher>(http =>
-            http.Timeout = TimeSpan.FromSeconds(upstreamTimeout));
+            http.Timeout = TimeSpan.FromSeconds(upstreamTimeout))
+            .ConfigurePrimaryHttpMessageHandler(() => CreateGuardedHandler(egressPolicy));
         services.AddScoped<ITileFetcher>(sp => sp.GetRequiredService<RasterXyzFetcher>());
 
         services.AddHttpClient<PmTilesFetcher>(http =>
-            http.Timeout = TimeSpan.FromSeconds(upstreamTimeout));
+            http.Timeout = TimeSpan.FromSeconds(upstreamTimeout))
+            .ConfigurePrimaryHttpMessageHandler(() => CreateGuardedHandler(egressPolicy));
         services.AddScoped<ITileFetcher>(sp => sp.GetRequiredService<PmTilesFetcher>());
 
         services.AddScoped<ITileService, TileService>();
@@ -101,4 +117,58 @@ public static class DependencyInjection
 
         return services;
     }
+
+    /// <summary>
+    /// A handler that refuses to open a socket to a blocked address.
+    ///
+    /// <para>
+    /// The check lives in <c>ConnectCallback</c> rather than on the URL because
+    /// that is the only place that sees the address actually being connected to.
+    /// A hostname check can be defeated by an attacker's own DNS answering a
+    /// public address at validation time and a private one at fetch time; the
+    /// callback runs per connection, after resolution, so rebinding does not
+    /// help. Redirects are refused outright as well — following a 302 to
+    /// <c>169.254.169.254</c> is the other half of the same bypass, and no tile
+    /// endpoint this product supports needs redirects.
+    /// </para>
+    /// </summary>
+    private static SocketsHttpHandler CreateGuardedHandler(TileEgressPolicy policy) => new()
+    {
+        AllowAutoRedirect = false,
+        ConnectCallback = async (context, ct) =>
+        {
+            var host = context.DnsEndPoint.Host;
+            var port = context.DnsEndPoint.Port;
+
+            var addresses = IPAddress.TryParse(host, out var literal)
+                ? [literal]
+                : await Dns.GetHostAddressesAsync(host, ct);
+
+            // Every candidate must be acceptable. Connecting to the first allowed
+            // address of a name that also resolves to a private one would let an
+            // attacker win the race by ordering their DNS answers.
+            foreach (var address in addresses)
+            {
+                if (policy.IsBlockedAddress(address))
+                {
+                    throw new HttpRequestException(
+                        $"Refusing to connect to '{host}' ({address}): blocked by the tile egress policy.");
+                }
+            }
+
+            var socket = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+            try
+            {
+                // Connect to the addresses we just vetted, not to the hostname —
+                // re-resolving here would reopen the very race this closes.
+                await socket.ConnectAsync(addresses, port, ct);
+                return new NetworkStream(socket, ownsSocket: true);
+            }
+            catch
+            {
+                socket.Dispose();
+                throw;
+            }
+        },
+    };
 }

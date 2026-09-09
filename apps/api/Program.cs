@@ -17,6 +17,12 @@ builder.Services
     .AddApplication()
     .AddInfrastructure(builder.Configuration);
 
+// Admin key for the tile-source registry's write endpoints. Absent by default,
+// and absent means the registry is read-only (see AdminApiKeyGate) — the safe
+// direction to fail, since an anonymous write there is the SSRF entry point.
+builder.Services.AddSingleton(new AdminApiKeyGate(
+    builder.Configuration["TileSources:AdminApiKey"]));
+
 // CORS for the Vite/React web app (origins overridable via config "Cors:AllowedOrigins").
 const string WebCorsPolicy = "web";
 var allowedOrigins =
