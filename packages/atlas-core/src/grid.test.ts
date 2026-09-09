@@ -25,7 +25,37 @@ describe("pageLabel", () => {
   });
 
   it("rolls over to two letters past Z", () => {
-    expect(pageLabel(26, 0)).toBe("AA1");
+    // 24 row letters (L and R are reserved), so Z is row 23 and AA is row 24.
+    expect(pageLabel(23, 0)).toBe("Z1");
+    expect(pageLabel(24, 0)).toBe("AA1");
+  });
+
+  /**
+   * Grid, location (L#) and corridor (R#) pages share one flat id space inside an
+   * AtlasContract, and both the render pipeline (Record keyed by page id) and
+   * pdf-client (furniture dispatched off the id prefix) depend on that space being
+   * unambiguous. Base-26 row letters violated it: row 11 produced "L1" and row 17
+   * "R1", so a 12-row grid collided with the first location page.
+   */
+  it("never emits a label that could be read as a location (L#) or corridor (R#) page", () => {
+    for (let row = 0; row < 2000; row++) {
+      const id = pageLabel(row, 0);
+      expect(id.startsWith("L"), `row ${row} produced ${id}`).toBe(false);
+      expect(id.startsWith("R"), `row ${row} produced ${id}`).toBe(false);
+    }
+    // The reservation holds in every position, not just the first, so a label can
+    // never be confused with the reserved namespaces however wide the grid grows.
+    for (let row = 0; row < 2000; row++) {
+      expect(/[LR]/.test(pageLabel(row, 0))).toBe(false);
+    }
+  });
+
+  it("stays injective, so no two grid cells can share an id", () => {
+    const seen = new Set<string>();
+    for (let row = 0; row < 60; row++) {
+      for (let col = 0; col < 12; col++) seen.add(pageLabel(row, col));
+    }
+    expect(seen.size).toBe(60 * 12);
   });
 });
 

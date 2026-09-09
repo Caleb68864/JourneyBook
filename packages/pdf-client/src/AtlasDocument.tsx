@@ -655,14 +655,19 @@ function AtlasPageView({
               <Text style={styles.panelNote}>map panel — pass --basemap to render</Text>
             )}
             {showTier3 && grid ? <UsngGridLayer overlay={grid} box={box} /> : null}
-            {/* Route furniture is additive and only present for corridor (R#) pages. */}
+            {/* Route furniture is additive and only present for corridor (R#) pages.
+                Dispatching on the id prefix is sound because atlas-core reserves the
+                letters L and R out of the grid row alphabet (see ROW_LETTERS in
+                grid.ts) — a grid page can never be named "R1". */}
             {route && page.id.startsWith("R") ? <RouteLayer overlay={route} box={box} /> : null}
             {/* Landmark furniture is additive, keyed by page.id like routes/grids. */}
             {landmarks && landmarks.length > 0 ? <LandmarkLayer landmarks={landmarks} box={box} /> : null}
             {landmarks && landmarks.length > 0 ? <LandmarkLegend landmarks={landmarks} /> : null}
             {/* Alphanumeric reference grid for writing cell coordinates. */}
             {referenceGrid ? <ReferenceGrid box={box} /> : null}
-            {/* A location (L#) page is centred on its location → mark it with the pin. */}
+            {/* A location (L#) page is centred on its location → mark it with the pin.
+                Safe for the same reason as the R# test above: L is reserved out of
+                the grid row alphabet, so no plain grid page can claim a centre pin. */}
             {page.id.startsWith("L") ? (
               <LocationPin pin={page.pin} label={page.id} leftPct={50} topPct={50} size={34} />
             ) : null}

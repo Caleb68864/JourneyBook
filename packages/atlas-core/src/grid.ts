@@ -12,14 +12,39 @@ import {
 import { groundFootprintMeters, type PageSpec } from "./page.js";
 import { createProjector, pageBBoxAround } from "./projection.js";
 
-/** Bijective base-26 column letters: 0->A, 25->Z, 26->AA. */
+/**
+ * Letters a grid row label may use. `L` and `R` are deliberately absent: they
+ * are reserved for the location (`L1`, `L2a`, …) and corridor (`R1`, `R2`, …)
+ * page namespaces, which share one flat id space with the grid inside a single
+ * AtlasContract.
+ *
+ * Without the reservation, plain base-26 gives row 11 the label `L` and row 17
+ * the label `R`, so a 12-row grid emits a page literally called "L1". Two things
+ * then break at once in a mixed atlas (grid pages + saved locations):
+ *
+ *  - ids stop being unique, and the renderer keys panels/grids/routes/landmarks
+ *    by page id (`Record<string, …>`), so one page's map silently overwrites the
+ *    other's;
+ *  - `pdf-client` dispatches page furniture off the id prefix, so a plain grid
+ *    page gets a location pin stamped through its centre and a corridor route
+ *    drawn over it.
+ *
+ * Reserving the two letters keeps ids short and human ("M4" still reads as a
+ * map-book reference) while making the three namespaces provably disjoint —
+ * a generated row label can no longer contain `L` or `R` in ANY position, so a
+ * `startsWith` test is sound at every grid size, not just small ones.
+ */
+const ROW_LETTERS = "ABCDEFGHIJKMNOPQSTUVWXYZ";
+
+/** Bijective base-24 row letters over {@link ROW_LETTERS}: 0->A, 23->Z, 24->AA. */
 function columnLetters(index: number): string {
+  const base = ROW_LETTERS.length;
   let n = index + 1;
   let out = "";
   while (n > 0) {
-    const rem = (n - 1) % 26;
-    out = String.fromCharCode(65 + rem) + out;
-    n = Math.floor((n - 1) / 26);
+    const rem = (n - 1) % base;
+    out = ROW_LETTERS[rem] + out;
+    n = Math.floor((n - 1) / base);
   }
   return out;
 }
