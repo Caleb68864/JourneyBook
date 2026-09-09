@@ -47,7 +47,7 @@ function stubTiles(options: { failCount?: number; status?: number } = {}) {
   const failCount = options.failCount ?? 0;
   const status = options.status ?? 404;
   let served = 0;
-  const fetchMock = vi.fn(async () => {
+  const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => {
     const n = served++;
     if (n < failCount) return new Response(null, { status });
     return new Response(new Uint8Array(TILE_PNG), { status: 200 });
@@ -187,8 +187,10 @@ describe("tile fetch hardening", () => {
     await renderMapPanel([...bbox], 256);
     expect(fetchMock).toHaveBeenCalled();
     for (const call of fetchMock.mock.calls) {
-      const init = (call as unknown as [string, RequestInit])[1];
-      expect((init.headers as Record<string, string>)["User-Agent"]).toBe(TILE_USER_AGENT);
+      const init = call[1];
+      expect(init?.headers as Record<string, string> | undefined).toMatchObject({
+        "User-Agent": TILE_USER_AGENT,
+      });
     }
   });
 
@@ -196,8 +198,8 @@ describe("tile fetch hardening", () => {
     const fetchMock = stubTiles();
     await renderMapPanel([...bbox], 256);
     for (const call of fetchMock.mock.calls) {
-      const init = (call as unknown as [string, RequestInit])[1];
-      expect(init.signal).toBeInstanceOf(AbortSignal);
+      const init = call[1];
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
     }
   });
 
@@ -206,7 +208,7 @@ describe("tile fetch hardening", () => {
     let peak = 0;
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => {
+      vi.fn(async (_url: string, _init?: RequestInit) => {
         inFlight++;
         peak = Math.max(peak, inFlight);
         await new Promise((r) => setTimeout(r, 5));
@@ -224,7 +226,7 @@ describe("tile fetch hardening", () => {
     let served = 0;
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => {
+      vi.fn(async (_url: string, _init?: RequestInit) => {
         // Fail the very first request only; the retry must recover it.
         if (served++ === 0) return new Response(null, { status: 503 });
         return new Response(new Uint8Array(TILE_PNG), { status: 200 });
@@ -235,7 +237,7 @@ describe("tile fetch hardening", () => {
   });
 
   it("does not retry a 404 — an absent tile is an answer, not a failure", async () => {
-    const fetchMock = vi.fn(async () => new Response(null, { status: 404 }));
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response(null, { status: 404 }));
     vi.stubGlobal("fetch", fetchMock);
     await expect(
       renderMapPanel([...bbox], 256, undefined, { tileConcurrency: 1 }),

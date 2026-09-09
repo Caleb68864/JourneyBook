@@ -8,7 +8,7 @@
   "scripts": {
     "build": "tsc -b",
     "start": "node ./dist/server.js",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
     "test": "vitest run"
   },
   "dependencies": {

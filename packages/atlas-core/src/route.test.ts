@@ -10,6 +10,22 @@ const usgs = SCALE_PRESETS.find((p) => p.id === "usgs-7-5-min")!; // 1:24 000
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Adjacent stop pairs (the route's legs). Built by walking the array rather than
+ * indexing `stops[i + 1]` inside a `.some()` over `stops.slice(0, -1)`: the
+ * arithmetic is in range, but nothing proves it to the reader or the compiler,
+ * and an off-by-one there would silently compare a page against `undefined`.
+ */
+function legsOf(stops: LngLat[]): [LngLat, LngLat][] {
+  const legs: [LngLat, LngLat][] = [];
+  for (let i = 0; i + 1 < stops.length; i++) {
+    const from = stops[i];
+    const to = stops[i + 1];
+    if (from && to) legs.push([from, to]);
+  }
+  return legs;
+}
+
 /** Does a WGS84 bbox contain a point? */
 function bboxContains(
   bbox: [number, number, number, number],
@@ -92,8 +108,8 @@ describe("buildRouteAtlas — at least one corridor page per leg", () => {
 
     // Each page bbox must intersect at least one leg segment.
     for (const p of pages) {
-      const onSomeLeg = stops.slice(0, -1).some((_, i) =>
-        bboxIntersectsSegment(p.bbox, stops[i], stops[i + 1]),
+      const onSomeLeg = legsOf(stops).some(([from, to]) =>
+        bboxIntersectsSegment(p.bbox, from, to),
       );
       expect(onSomeLeg).toBe(true);
     }
@@ -106,8 +122,8 @@ describe("buildRouteAtlas — bbox-segment intersection per corridor page", () =
     const { pages } = buildRouteAtlas({ stops, scale: usgs, page: LETTER_PORTRAIT });
 
     for (const p of pages) {
-      const intersects = stops.slice(0, -1).some((_, i) =>
-        bboxIntersectsSegment(p.bbox, stops[i], stops[i + 1]),
+      const intersects = legsOf(stops).some(([from, to]) =>
+        bboxIntersectsSegment(p.bbox, from, to),
       );
       expect(intersects, `page ${p.id} should intersect some leg`).toBe(true);
     }
@@ -242,8 +258,9 @@ describe("buildRouteAtlas — path-source seam", () => {
     const { polyline } = buildRouteAtlas({ stops, scale: usgs, page: LETTER_PORTRAIT });
     // Default polyline equals the stops (straight-line).
     expect(polyline).toHaveLength(2);
-    expect(polyline[0].lng).toBeCloseTo(stopA.lng, 6);
-    expect(polyline[0].lat).toBeCloseTo(stopA.lat, 6);
+    const first = polyline[0]!;
+    expect(first.lng).toBeCloseTo(stopA.lng, 6);
+    expect(first.lat).toBeCloseTo(stopA.lat, 6);
   });
 });
 
@@ -255,9 +272,10 @@ describe("buildRouteAtlas — neighbor links", () => {
       page: LETTER_PORTRAIT,
     });
     if (pages.length < 2) return; // degenerate: skip
-    expect(pages[0].neighbors.west).toBeUndefined();
-    expect(pages[0].neighbors.east).toBe("R2");
-    const last = pages[pages.length - 1];
+    const firstPage = pages[0]!;
+    expect(firstPage.neighbors.west).toBeUndefined();
+    expect(firstPage.neighbors.east).toBe("R2");
+    const last = pages[pages.length - 1]!;
     expect(last.neighbors.east).toBeUndefined();
     expect(last.neighbors.west).toBe(`R${pages.length - 1}`);
   });

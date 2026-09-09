@@ -1,24 +1,48 @@
 {
   "project_name": "JourneyBook",
-  "name": "JourneyBook",
-  "repo_root": ".",
-  "project_vault": "docs",
-
+  "repo": "https://github.com/Caleb68864/JourneyBook",
+  "default_branch": "master",
+  "project_vault": "vault",
+  "tech_stack": [
+    "TypeScript",
+    "React",
+    "Vite",
+    "Tailwind v4",
+    ".NET 10",
+    "EF Core",
+    "PostGIS",
+    "pnpm workspaces"
+  ],
   "build_command": "pnpm -r build && dotnet build JourneyBook.slnx --nologo",
   "test_command": "pnpm -r test && dotnet test JourneyBook.slnx --nologo",
+  "e2e_command": "npx tsx packages/render-cli/src/cli.ts render --bbox -96.75,40.78,-96.65,40.85 --scale 24000 --tier 3 -o /tmp/atlas.pdf && npx tsx packages/render-cli/src/cli.ts validate /tmp/atlas.pdf",
+  "notes": [
+    "pnpm is not always on PATH here; npx vitest run --dir <package> and npx tsc -b work without it.",
+    "Backend integration tests use Testcontainers and REQUIRE a running Docker daemon. Without one, filter them out: dotnet test --filter \"FullyQualifiedName!~Api\".",
+    "vault/ is git-TRACKED in this repo, unlike the sibling projects. That is deliberate - it is the planning record the README links to.",
+    "ADR 0004: atlas-core is the single source of truth for geometry. Do not reimplement projection maths in C#.",
+    "The printed map box is a constant 415 x 549 pt. packages/pdf-client/src/pdf-measure.ts measures a real PDF; scale-fidelity.test.ts asserts it.",
+    "runtime_paths used to list C:/Program Files entries from the Windows machine this started on, and was removed on 2026-09-09."
+  ],
+  "name": "JourneyBook",
   "frontend_build": "pnpm --filter @journeybook/web build",
   "frontend_test": null,
   "start_command": "docker compose -f infra/compose/docker-compose.yml up --build",
   "dev_server": "pnpm dev:web",
   "migrate_command": "dotnet ef migrations add <Name> -p dotnet/JourneyBook.Infrastructure -s apps/api",
-
   "spec_output_dir": "docs/specs",
   "notes_dir": "docs/notes",
-
   "factory_aware_config": {
     "frontend_test_runner": "vitest",
     "frontend_build_tool": "vite",
-    "ts_strict_flags": ["strict", "noUncheckedIndexedAccess", "verbatimModuleSyntax", "isolatedModules", "noImplicitOverride", "noFallthroughCasesInSwitch"],
+    "ts_strict_flags": [
+      "strict",
+      "noUncheckedIndexedAccess",
+      "verbatimModuleSyntax",
+      "isolatedModules",
+      "noImplicitOverride",
+      "noFallthroughCasesInSwitch"
+    ],
     "tailwind_major": 4,
     "is_esm_package": true,
     "dotnet_test_framework": "xunit",
@@ -34,13 +58,6 @@
       "TS package tests use vitest; *.test.ts is excluded from the tsc build (exclude in tsconfig)."
     ]
   },
-
-  "runtime_paths": [
-    "C:/Program Files/dotnet",
-    "C:/Program Files/nodejs",
-    "C:/Users/CalebBennett/AppData/Roaming/npm"
-  ],
-
   "reference_sources": {
     "fixtures": "data/fixtures"
   },
@@ -53,33 +70,34 @@
     }
   ],
   "well_known_blockers": [],
-
   "decision_log": {
     "filter_stack": "mixed"
   },
-
   "envelope_validation_mode": "strict",
   "idempotency_env_fail_patterns": [
     "A connection string is required",
     "No DbContext was found",
     "Cannot connect to the Docker daemon"
   ],
-
   "verify_integrated": {
     "enabled": true,
     "max_iterations": 10,
     "severity_threshold": "minor",
     "model": "haiku",
     "parallel_files": false,
-    "max_iteration_usd": 5.00,
+    "max_iteration_usd": 5.0,
     "fix_worker_timeout_seconds": 600,
     "scope": "declared"
   },
-
   "project_graph": {
     "out_dirname": "graphify-out",
     "auto_refresh": "lazy",
-    "languages": ["csharp", "markdown", "tsx", "typescript"],
+    "languages": [
+      "csharp",
+      "markdown",
+      "tsx",
+      "typescript"
+    ],
     "storage": "sqlite",
     "search_mode": "substring",
     "vault": "",

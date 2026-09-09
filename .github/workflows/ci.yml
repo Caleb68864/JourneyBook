@@ -69,7 +69,10 @@ jobs:
       # `tsc -b` across the project references; must precede the tests, which
       # resolve cross-package imports through each package's dist.
       - run: pnpm -r build
+      # Covers test files as well as src — see typecheck-covers-tests.sh.
       - run: pnpm -r typecheck
+      - name: Test files are inside the typecheck program
+        run: bash harness/checks/typecheck-covers-tests.sh
       - run: pnpm -r test
 
   dotnet-unit:
