@@ -172,6 +172,12 @@ public class RenderApiTests(RenderApiFactory factory) : IClassFixture<RenderApiF
 
             var contentTooEarly = await _client.GetAsync(body.DownloadUrl);
             Assert.Equal(HttpStatusCode.NotFound, contentTooEarly.StatusCode);
+
+            // Drain this test's own job before leaving. The queue is shared across the
+            // class fixture and drained sequentially, so a job left in flight would
+            // run under the NEXT test's gate and ShouldFail setting.
+            gate.SetResult();
+            await PollUntilTerminalAsync(body.GeneratedPdfId);
         }
         finally
         {

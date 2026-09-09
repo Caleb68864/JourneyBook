@@ -40,11 +40,25 @@ const MOCK_LOCATION = {
   referenceLabel: "see page L1",
 };
 
+/**
+ * The 202 answer: the render is accepted, not done. `status` is "Pending" and the
+ * PDF at `downloadUrl` does not exist yet — the app has to poll `statusUrl` before
+ * it opens anything.
+ */
 const MOCK_RENDER = {
   generatedPdfId: "job-001",
   downloadUrl: "/api/generated-pdfs/job-001/content",
-  status: "Completed",
+  statusUrl: "/api/generated-pdfs/job-001",
+  status: "Pending",
 };
+
+/**
+ * The statuses the mocked status endpoint hands back, in order. Walking the record
+ * through Pending → Rendering → Completed is the point: a client that took the 202
+ * at face value and opened the download would do so on the first of these, and the
+ * PDF is not served until the third.
+ */
+const MOCK_STATUS_SEQUENCE = ["Pending", "Rendering", "Completed"];
 
 async function setupApiMocks(page: Page) {
   await page.route("**/api/projects", async (route) => {
@@ -87,8 +101,27 @@ async function setupApiMocks(page: Page) {
     await route.fulfill({ json: MOCK_RENDER });
   });
 
-  await page.route("**/api/generated-pdfs/**", async (route) => {
+  // The PDF itself — served only once the record says Completed, below.
+  await page.route("**/api/generated-pdfs/*/content", async (route) => {
     await route.fulfill({ status: 200, contentType: "application/pdf", body: "" });
+  });
+
+  // The status record the app polls. Each call advances one step, ending on
+  // Completed; a client that never polled would never reach it.
+  let poll = 0;
+  await page.route("**/api/generated-pdfs/job-001", async (route) => {
+    const status = MOCK_STATUS_SEQUENCE[Math.min(poll++, MOCK_STATUS_SEQUENCE.length - 1)];
+    await route.fulfill({
+      json: {
+        id: "job-001",
+        projectId: PROJECT_ID,
+        status,
+        filePath: status === "Completed" ? "atlas-job-001.pdf" : null,
+        createdAt: "2026-09-09T00:00:00Z",
+        expiresAt: null,
+        errorMessage: null,
+      },
+    });
   });
 
   // Suppress MapLibre tile requests
@@ -166,6 +199,11 @@ test("create project → bbox → scale + tier → location → generate", async
   ]);
   expect(renderRequest).toBeTruthy();
 
-  // 9. Verify success state
-  await expect(page.getByText(/PDF opened in a new tab/i)).toBeVisible({ timeout: 8000 });
+  // 9. The 202 does not finish the job: the app has to poll the record and only
+  //    open the download once it reads Completed. Seeing "Rendering…" on the
+  //    button proves it polled rather than trusting the accepted response.
+  await expect(page.getByRole("button", { name: /Rendering…/i })).toBeVisible({ timeout: 8000 });
+
+  // 10. Verify success state
+  await expect(page.getByText(/PDF opened in a new tab/i)).toBeVisible({ timeout: 15000 });
 });
