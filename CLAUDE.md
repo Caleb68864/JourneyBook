@@ -8,6 +8,7 @@ JourneyBook generates printable, true-to-scale land-navigation atlases (PDF) fro
 
 - Build: `pnpm -r build && dotnet build JourneyBook.slnx --nologo`
 - Test (TS): `pnpm -r test` · Test (backend, needs Docker): `dotnet test JourneyBook.slnx`
+- No Docker? `dotnet test JourneyBook.slnx --filter "FullyQualifiedName!~Api"` — the same filter the `dotnet-unit` CI job runs.
 - Headless render: `node packages/render-cli/dist/cli.js render --location LNG,LAT --scale usgs-7-5-min --tier 2 --basemap --out atlas.pdf` (also `grid`, `validate`)
 - Web dev: `pnpm dev:web` · API: `dotnet run --project apps/api` (needs PostGIS on :5433)
 - Migration: `dotnet ef migrations add <Name> -p dotnet/JourneyBook.Infrastructure -s apps/api`
@@ -18,7 +19,9 @@ JourneyBook generates printable, true-to-scale land-navigation atlases (PDF) fro
 - `apps/web` — React 19 + Vite + Tailwind v4. `apps/api` — ASP.NET Core .NET 10 host.
 - `services/render-worker` — Node/Fastify service wrapping `renderAtlas` (the C# API proxies render jobs to it over HTTP at `RenderWorker:BaseUrl`; it returns PDFs under the shared `data/generated` volume). The API owns no geometry/render (ADR 0004/0005).
 - `dotnet/` — Clean Architecture libs: `JourneyBook.{Domain,Application,Infrastructure,Tests}`.
-- `infra/` — Docker (db/api/web) + Compose. `vault/` — research + staged-build-roadmap. `docs/` — ADRs, specs, notes.
+- `infra/` — Docker (db/api/web) + Compose. `vault/` — research + staged-build-roadmap. `docs/decisions/` — ADRs (tracked); the rest of `docs/` is ignored working material.
+
+> **ADRs 0001 and 0003–0005 are cited all over this repo and their text does not exist** — `docs/*` was gitignored, so they were never committed. `docs/decisions/` is tracked as of 2026-09-09; read `docs/decisions/README.md` before citing any of them. The paraphrases under Key Conventions below are the only surviving statements of 0004 and 0005.
 
 ## Key Conventions
 
