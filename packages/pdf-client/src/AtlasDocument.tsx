@@ -13,6 +13,7 @@ import {
   StyleSheet,
 } from "@react-pdf/renderer";
 import {
+  LETTER_PORTRAIT_PT,
   mapBoxInches,
   niceScaleBar,
   PAGE_FURNITURE_PT as FURNITURE,
@@ -175,6 +176,48 @@ interface MapBox {
 function mapBoxPoints(margins: PageMargins, orientation: AtlasPage["orientation"]): MapBox {
   const box = mapBoxInches({ widthIn: 8.5, heightIn: 11, orientation, margins });
   return { width: box.widthIn * PT, height: box.heightIn * PT };
+}
+
+/**
+ * The overview page's own furniture, in points. It does not use the atlas pages'
+ * margins or PAGE_FURNITURE_PT — no edge-label columns, no notes block, no
+ * footer — so it needs its own two numbers, on the same discipline: fixed-height
+ * blocks, and a map box that is computed rather than flexed.
+ */
+const OVERVIEW_FURNITURE_PT = {
+  /** Sheet padding outside the neatline. */
+  pagePadding: 0.75 * PT,
+  /** The "N pages · numbers are PDF page numbers" caption under the panel. */
+  captionRow: 12,
+} as const;
+
+/**
+ * The overview page's map box in points — and, like every other map box in this
+ * renderer, NOT a square.
+ *
+ * The overlay used to be drawn into a `viewBox="0 0 1000 1000"` over a panel
+ * that is 487 x 625, so react-pdf's default `preserveAspectRatio="meet"`
+ * letterboxed it: the page rectangles, the route and the stop markers were
+ * uniformly scaled to the panel's smaller side and centred, landing off-register
+ * against the basemap underneath — which was itself cropped by an
+ * `objectFit: "cover"` the atlas pages had already dropped for the same reason.
+ * An overview whose rectangles do not sit on the ground they name is worse than
+ * no overview, because it is read as a map. Computing the box lets `OverlaySvg`
+ * put the overlay in the same coordinate space as the image, as on every other
+ * page in the document.
+ */
+function overviewBoxPoints(): MapBox {
+  const outer =
+    2 *
+    (OVERVIEW_FURNITURE_PT.pagePadding +
+      FURNITURE.neatlineBorder +
+      FURNITURE.neatlinePadding +
+      FURNITURE.panelBorder);
+  return {
+    width: LETTER_PORTRAIT_PT.width - outer,
+    height:
+      LETTER_PORTRAIT_PT.height - outer - FURNITURE.headerRow - OVERVIEW_FURNITURE_PT.captionRow,
+  };
 }
 
 /**
@@ -738,51 +781,68 @@ function OverviewPage({
   panel?: string;
   pageNumbers: Record<string, number>;
 }) {
-  const SIZE = 1000;
+  const box = overviewBoxPoints();
   const routePts = overview.route ?? [];
   return (
-    <Page size="LETTER" orientation="portrait" style={[styles.page, { padding: 0.75 * PT }]}>
+    <Page
+      size="LETTER"
+      orientation="portrait"
+      style={[styles.page, { padding: OVERVIEW_FURNITURE_PT.pagePadding }]}
+    >
       <View style={styles.neatline}>
         <View style={styles.header}>
           <Text style={styles.title}>{title}</Text>
           <Text style={styles.pageId}>OVERVIEW</Text>
         </View>
-        <View style={[styles.panel, { position: "relative" }]}>
+        <View
+          style={[
+            styles.mapPanel,
+            {
+              width: box.width + 2 * FURNITURE.panelBorder,
+              height: box.height + 2 * FURNITURE.panelBorder,
+            },
+          ]}
+        >
+          {/* Same geometry as an atlas page: the overview panel is already
+              cropped to the trip extent, so it fills the box exactly.
+              `objectFit: "cover"` scaled it to the box's larger side and cropped
+              the map away, which put the basemap out of register with the
+              rectangles drawn over it. */}
           {panel ? (
-            <Image src={panel} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", objectFit: "cover" }} />
+            <Image src={panel} style={{ width: "100%", height: "100%" }} />
           ) : (
             <Text style={styles.panelNote}>Trip overview</Text>
           )}
+          <OverlaySvg box={box}>
+            {/* Route line (casing + ink) across the whole trip. */}
+            {routePts.slice(1).map((p, i) => {
+              const a = routePts[i]!;
+              return (
+                <Line key={`oc-${i}`} x1={a.x * box.width} y1={a.y * box.height} x2={p.x * box.width} y2={p.y * box.height} stroke={PARCHMENT} strokeOpacity={0.9} strokeWidth={6} />
+              );
+            })}
+            {routePts.slice(1).map((p, i) => {
+              const a = routePts[i]!;
+              return (
+                <Line key={`or-${i}`} x1={a.x * box.width} y1={a.y * box.height} x2={p.x * box.width} y2={p.y * box.height} stroke={INK} strokeWidth={2.5} />
+              );
+            })}
+            {/* Page footprints. */}
+            {overview.pages.map((r) => (
+              <Rect
+                key={`pr-${r.id}`}
+                x={r.x * box.width}
+                y={r.y * box.height}
+                width={r.w * box.width}
+                height={r.h * box.height}
+                stroke={FOREST}
+                strokeWidth={1.7}
+                fill={FOREST}
+                fillOpacity={0.06}
+              />
+            ))}
+          </OverlaySvg>
           <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}>
-            <Svg width="100%" height="100%" viewBox={`0 0 ${SIZE} ${SIZE}`}>
-              {/* Route line (casing + ink) across the whole trip. */}
-              {routePts.slice(1).map((p, i) => {
-                const a = routePts[i]!;
-                return (
-                  <Line key={`oc-${i}`} x1={a.x * SIZE} y1={a.y * SIZE} x2={p.x * SIZE} y2={p.y * SIZE} stroke={PARCHMENT} strokeOpacity={0.9} strokeWidth={6} />
-                );
-              })}
-              {routePts.slice(1).map((p, i) => {
-                const a = routePts[i]!;
-                return (
-                  <Line key={`or-${i}`} x1={a.x * SIZE} y1={a.y * SIZE} x2={p.x * SIZE} y2={p.y * SIZE} stroke={INK} strokeWidth={2.5} />
-                );
-              })}
-              {/* Page footprints. */}
-              {overview.pages.map((r) => (
-                <Rect
-                  key={`pr-${r.id}`}
-                  x={r.x * SIZE}
-                  y={r.y * SIZE}
-                  width={r.w * SIZE}
-                  height={r.h * SIZE}
-                  stroke={FOREST}
-                  strokeWidth={1.7}
-                  fill={FOREST}
-                  fillOpacity={0.06}
-                />
-              ))}
-            </Svg>
             {/* Stop markers: the locations' custom pins, in the HTML overlay layer. */}
             {(overview.stops ?? []).map((s, i) => (
               <LocationPin key={`os-${i}`} pin={s.pin} label={s.label} leftPct={s.x * 100} topPct={s.y * 100} size={22} />
@@ -804,9 +864,20 @@ function OverviewPage({
             ))}
           </View>
         </View>
-        <Text style={[styles.small, { color: BARK, marginTop: 4 }]}>
-          {overview.pages.length} pages · numbers are PDF page numbers
-        </Text>
+        {/* Absorbs any slack between the furniture allowances above and what the
+            furniture actually measures, keeping the map box constant. */}
+        <View style={{ flexGrow: 1 }} />
+        <View
+          style={{
+            height: OVERVIEW_FURNITURE_PT.captionRow,
+            flexShrink: 0,
+            justifyContent: "flex-end",
+          }}
+        >
+          <Text style={[styles.small, { color: BARK }]}>
+            {overview.pages.length} pages · numbers are PDF page numbers
+          </Text>
+        </View>
       </View>
     </Page>
   );

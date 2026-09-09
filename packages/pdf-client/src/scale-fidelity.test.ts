@@ -13,7 +13,7 @@ import {
   type PageOrientation,
 } from "@journeybook/atlas-core";
 import { renderAtlasPdfToBuffer } from "./index.js";
-import { measurePdfPages, largestRect, type MeasuredBox, type MeasuredPage } from "./pdf-measure.js";
+import { measurePdfPages, mapBoxOf, type MeasuredBox, type MeasuredPage } from "./pdf-measure.js";
 
 /**
  * The one check nothing in this repo could make: open the PDF the renderer
@@ -85,14 +85,9 @@ async function renderPage(options: PageOptions = {}) {
  * itself is painted inside that border.
  */
 function panelMapBox(measured: MeasuredPage, borderPt = 1): MeasuredBox {
-  const border = largestRect(measured);
-  expect(border).toBeDefined();
-  return {
-    x: border!.x + borderPt,
-    y: border!.y + borderPt,
-    width: border!.width - 2 * borderPt,
-    height: border!.height - 2 * borderPt,
-  };
+  const box = mapBoxOf(measured, borderPt);
+  expect(box, "no map panel found on the rendered page").toBeDefined();
+  return box!;
 }
 
 /**

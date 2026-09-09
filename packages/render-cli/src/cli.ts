@@ -24,7 +24,9 @@ import {
   type BBox,
   type LandmarkMarker,
   type MapTier,
+  type PrintedMapBox,
 } from "@journeybook/atlas-core";
+import { mapBoxOf, measurePdfPages, renderAtlasPdfToBuffer } from "@journeybook/pdf-client";
 import type { PanelFormat } from "@journeybook/map-sources";
 import { assembleContract, renderAtlas, type RenderAtlasInput, type RenderLocation } from "./render.js";
 import { loadLocationsFile } from "./locations.js";
@@ -61,6 +63,8 @@ Options:
   --tile-source <id>          proxy source key (with --tile-base-url)
   --tile-cache-dir <dir>      shared local tile cache (default: none)
   --landmarks <file.json>     JSON array of LandmarkMarker objects placed as per-page furniture
+  --no-print-check            (validate) skip rendering the atlas to measure the printed map
+                              box; the printed-scale check is then reported SKIP, not PASS
 
 Locations file:
   CSV with a header row — the same file the web importer takes. Columns (case-insensitive):
@@ -135,6 +139,40 @@ function resolveTier(flags: Map<string, string>): MapTier {
 function valueOf(flags: Map<string, string>, key: string): string | undefined {
   const v = flags.get(key);
   return v === undefined || v === "true" ? undefined : v;
+}
+
+/**
+ * Render the contract and measure the map box each page is actually printed
+ * into, keyed by page id.
+ *
+ * This is what turns `validate` from a self-consistency check into a print
+ * check. Everything else `validateAtlas` compares comes out of the contract on
+ * both sides; the printed box does not, so it is the only thing that can catch a
+ * page whose bbox is honest and whose paper is the wrong size.
+ *
+ * Rendered without front matter and without a basemap: no table of contents and
+ * no overview means measured page N is contract page N, and no basemap means no
+ * network — the check is about geometry, not tiles.
+ */
+async function measurePrintedMapBoxes(
+  contract: AtlasContract,
+): Promise<Record<string, PrintedMapBox>> {
+  const pdf = await renderAtlasPdfToBuffer({
+    contract,
+    tableOfContents: false,
+    notes: true,
+    referenceGrid: true,
+  });
+  const measured = measurePdfPages(pdf);
+  const boxes: Record<string, PrintedMapBox> = {};
+  contract.pages.forEach((page, i) => {
+    const measuredPage = measured[i];
+    if (!measuredPage) return;
+    const box = mapBoxOf(measuredPage);
+    if (!box) return;
+    boxes[page.id] = { widthPt: box.width, heightPt: box.height };
+  });
+  return boxes;
 }
 
 /**
@@ -297,9 +335,20 @@ export async function runCli(args: readonly string[]): Promise<number> {
   if (cmd === "validate") {
     try {
       const contract = contractFromArgs(rest);
-      const report = validateAtlas(contract);
+      const flags = parseFlags(rest);
+      // Render the atlas and measure the printed map box, so `printed-scale-fidelity`
+      // has the one input that does not come out of the contract. Without it every
+      // check here compares the contract with itself and a page printed at the wrong
+      // size still reports VALID. `--no-print-check` skips the render.
+      const printedMapBoxes = flags.has("no-print-check")
+        ? undefined
+        : await measurePrintedMapBoxes(contract);
+      const report = validateAtlas(contract, printedMapBoxes ? { printedMapBoxes } : {});
       for (const check of report.checks) {
         stdout.write(`  [${check.pass ? "PASS" : "FAIL"}] ${check.name} — ${check.detail}\n`);
+      }
+      for (const name of report.unmeasured) {
+        stdout.write(`  [SKIP] ${name} — not measured (drop --no-print-check to render and measure)\n`);
       }
       stdout.write(report.pass ? "VALID\n" : "INVALID\n");
       return report.pass ? 0 : 1;
