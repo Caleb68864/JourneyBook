@@ -98,10 +98,58 @@ source_urls:
 > **29 .NET** non-Docker (was 27). The `Api` integration suites still need a
 > Docker daemon; this machine denies the socket.
 >
+> **Second pass, 2026-09-09 — seven more closed on the same branch.**
+>
+> - **CLOSED — failed tiles became parchment and the render reported success.**
+>   `renderMapPanel` now rejects a panel missing **more than 10%** of its tiles.
+>   The threshold is deliberate: not zero, because raster pyramids have genuine
+>   holes (a page clipping the USGS coverage edge legitimately 404s a few tiles
+>   and must still render); not lenient, because at ~35 tiles a page that
+>   tolerates three absent tiles still rejects a missing row, a throttled source
+>   or an outage. Tolerated holes are reported on `MapPanel` and warned per page
+>   instead of passing silently.
+> - **CLOSED — the Node tile fetch was unbounded.** Descriptive `User-Agent`
+>   (the same `JourneyBook/1.0 (…)` shape as the Overpass/Nominatim clients — the
+>   Overpass 406 was this same bug), 10 s per-attempt timeout, 3 attempts with
+>   backoff, and a 6-way concurrency cap. Retries are keyed on transience:
+>   408/425/429/5xx retry, 404/403 do not.
+> - **CLOSED — the scale picker was a no-op after project creation.** It now
+>   persists through `PUT /api/projects/{id}`, which has accepted the field since
+>   Stage 2B. Fixing it required carrying `margins` through the web adapter,
+>   since that PUT replaces every grid field — `rename` was already resetting the
+>   user's page setup, and a naive `setScale` would have added a second way to.
+> - **CLOSED — grid page ids collided with the `L#`/`R#` namespaces.** `L` and
+>   `R` are reserved out of the grid row alphabet, so a label can no longer
+>   contain either letter in any position and the three namespaces are provably
+>   disjoint at every grid size. The golden fixture is a 2x2 grid, so it did not
+>   move.
+> - **CLOSED — the PDF printed a hardcoded attribution.** The credit now comes
+>   from the tile source actually used: the proxy's `X-Tile-Attribution` header,
+>   else an explicit override, else the basemap's own. With no basemap the footer
+>   claims no map source at all.
+> - **CLOSED — no CI pipeline.** `.github/workflows/ci.yml`, four jobs. On
+>   Docker: **both, split** — GitHub-hosted ubuntu runners ship a daemon, so the
+>   Testcontainers PostGIS suite does run, as its own job, while `dotnet-unit`
+>   runs the same `--filter "FullyQualifiedName!~Api"` a contributor without
+>   Docker uses locally. **Unverified from here: the workflow has never run.**
+> - **CLOSED — compose shipped `Development` and a default DB password.** The
+>   password is now a required variable at both use sites, `Production` is the
+>   default, and the DB port binds to loopback. `.env.example` (which the README
+>   says to copy) shipped both weak values too and was fixed with it.
+>
+> Suites after this pass: **atlas-core 66, map-sources 46, pdf-client 12,
+> render-cli 41, render-worker 6, web 7 = 178 TS** (was 157), **29 .NET**
+> non-Docker (unchanged — no backend code changed). End-to-end on a real bbox:
+> a 6-page 1:24,000 atlas measures a constant **415.00 x 549.00 pt** map box on
+> every page and prints **1:24,008** against a claimed 1:24,000 (0.03%, the
+> geodesic-vs-planar residual). A live USGS basemap render fetched 98 of 99
+> tiles, warned about the one it missed, and printed "USGS The National Map" in
+> the footer.
+>
 > Still open from the audit and worth scheduling: the SSRF on anonymous
-> tile-source registration, failed tiles rendering as parchment while the render
-> reports success, the absent CI pipeline, and the grid/`L#`/`R#` page-id
-> collision. See `vault/audit-2026-09-08/scan-summary.md`.
+> tile-source registration, the synchronous single-request render (no progress,
+> no cancel), the unvalidated render-worker wire input, and the absent
+> linter/formatter. See `vault/audit-2026-09-08/scan-summary.md`.
 
 ## Phase 1: Print Geometry
 Build the Docker-hosted React/Vite/shadcn/Tailwind web app skeleton, define the outdoor field-guide visual system, accept bounding boxes, create page grid, generate overview and detail pages, and validate Letter-size PDF output from the preferred client-side React PDF path.
