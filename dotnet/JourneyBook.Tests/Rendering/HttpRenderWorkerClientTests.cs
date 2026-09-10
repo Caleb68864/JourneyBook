@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -332,5 +333,72 @@ public class HttpRenderWorkerClientTests
             Extent: null, Locations: [], OutputFileName: "atlas-empty.pdf");
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => client.RenderAsync(req));
+    }
+
+    // ── The client's own timeout ─────────────────────────────────────────────
+
+    /// <summary>Never answers, so the only thing that can end the call is the timeout.</summary>
+    private sealed class NeverAnsweringHandler : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            await Task.Delay(Timeout.Infinite, cancellationToken);
+            throw new UnreachableException();
+        }
+    }
+
+    [Fact]
+    public async Task A_worker_that_never_answers_reports_a_timeout_not_a_cancellation()
+    {
+        using var http = new HttpClient(new NeverAnsweringHandler())
+        {
+            BaseAddress = new Uri("http://render-worker:8090"),
+            Timeout = TimeSpan.FromMilliseconds(250),
+        };
+        var client = new HttpRenderWorkerClient(http);
+
+        var req = new RenderWorkerRequest(
+            ScalePresetId: "usgs-7-5-min", Tier: 1, Orientation: "Portrait", Overlap: 0,
+            Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
+            Extent: new RenderBBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Locations: [], OutputFileName: "atlas-slow.pdf");
+
+        // HttpClient signals its OWN timeout as TaskCanceledException — an
+        // OperationCanceledException. Left as-is it travels all the way to
+        // RenderJobRunner's catch, which reports every OperationCanceledException as
+        // "the service shut down or the job was aborted". Nothing shut down and
+        // nobody aborted: the API gave up on the worker. Name it here, where the
+        // deadline actually lives and the number is known.
+        var ex = await Assert.ThrowsAsync<TimeoutException>(() => client.RenderAsync(req));
+
+        Assert.Contains("timed out", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("RenderWorker:TimeoutSeconds", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("0.25", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_caller_cancelling_is_still_a_cancellation_not_a_timeout()
+    {
+        using var http = new HttpClient(new NeverAnsweringHandler())
+        {
+            BaseAddress = new Uri("http://render-worker:8090"),
+            Timeout = TimeSpan.FromMinutes(15),
+        };
+        var client = new HttpRenderWorkerClient(http);
+        using var cts = new CancellationTokenSource();
+
+        var req = new RenderWorkerRequest(
+            ScalePresetId: "usgs-7-5-min", Tier: 1, Orientation: "Portrait", Overlap: 0,
+            Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
+            Extent: new RenderBBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Locations: [], OutputFileName: "atlas-cancelled.pdf");
+
+        var call = client.RenderAsync(req, cts.Token);
+        await cts.CancelAsync();
+
+        // Host shutdown must keep its own diagnosis: only a deadline the caller did
+        // not ask for is a timeout.
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => call);
     }
 }

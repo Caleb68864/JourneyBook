@@ -162,4 +162,25 @@ public class RenderJobRunnerTests
         Assert.Equal("Failed", pdfs.Updates[^1].Status);
         Assert.Contains("cancelled", pdfs.Updates[^1].ErrorMessage, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public async Task Reports_our_own_deadline_as_a_timeout_not_as_a_shutdown()
+    {
+        var pdfs = new RecordingPdfService();
+        // What HttpClient.Timeout throws: a TaskCanceledException wrapping a
+        // TimeoutException, with nobody's cancellation token cancelled.
+        var worker = new StubWorkerClient(_ => throw new TaskCanceledException(
+            "The request was canceled due to the configured HttpClient.Timeout of 120 seconds elapsing.",
+            new TimeoutException()));
+
+        // Note the *uncancelled* token: the host is healthy, the job was not aborted.
+        await RunnerFor(pdfs, worker).RunAsync(SampleJob(), CancellationToken.None);
+
+        Assert.Equal("Failed", pdfs.Updates[^1].Status);
+        var message = pdfs.Updates[^1].ErrorMessage!;
+        Assert.Contains("timed out", message, StringComparison.OrdinalIgnoreCase);
+        // "the service shut down or the job was aborted" is the sentence the user got
+        // for the API's own two-minute cap. Neither half of it was true.
+        Assert.DoesNotContain("shut down", message, StringComparison.OrdinalIgnoreCase);
+    }
 }

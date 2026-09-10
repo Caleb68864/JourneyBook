@@ -50,9 +50,24 @@ public sealed class RenderJobRunner(
             // point of view — it left nothing on disk — so it is marked the same way,
             // with a token that is not itself cancelled. Leaving it at "Rendering"
             // would strand the row for ever, since nothing resumes an in-flight job.
-            var message = ex is OperationCanceledException
-                ? "Render was cancelled before it finished (the service shut down or the job was aborted)."
-                : ex.Message;
+            //
+            // But only a cancellation the *caller* asked for is a cancellation. An
+            // HttpClient deadline also arrives as an OperationCanceledException, and
+            // reporting the API's own impatience as "the service shut down or the job
+            // was aborted" told the user two things that were both untrue. The token
+            // is the discriminator: uncancelled means the deadline was ours.
+            // HttpRenderWorkerClient normally converts its own timeout to a
+            // TimeoutException (with the number in it); this is the backstop for every
+            // other timeout in the path.
+            var message = ex switch
+            {
+                OperationCanceledException when ct.IsCancellationRequested =>
+                    "Render was cancelled before it finished (the service shut down or the job was aborted).",
+                OperationCanceledException =>
+                    "Render timed out: the API stopped waiting for the render worker. " +
+                    "See RenderWorker:TimeoutSeconds.",
+                _ => ex.Message,
+            };
 
             logger.LogError(ex,
                 "Render worker failed for project {ProjectId} (pdf {GeneratedPdfId})",

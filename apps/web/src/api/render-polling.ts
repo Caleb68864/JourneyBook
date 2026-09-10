@@ -45,6 +45,13 @@ const DEFAULT_INTERVAL_MS = 1000;
  * 15 minutes. A 200-page atlas at the MAX_ATLAS_PAGES cap is 200 sequential basemap
  * fetches; this is a bound on the client's patience, not on the render, which keeps
  * going and can still be downloaded from the project's PDF history afterwards.
+ *
+ * PAIRED WITH THE SERVER. `RenderWorker:TimeoutSeconds` bounds how long the API will
+ * wait on the worker, and it must not be shorter than this number — when it was (120s
+ * against this 15 minutes), every render over two minutes was killed by the API while
+ * the browser was still waiting, and the user was told the service had shut down.
+ * `DependencyInjectionTests.Render_worker_timeout_defaults_to_at_least_the_clients_own_patience`
+ * fails if the pair drifts apart again.
  */
 const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000;
 
