@@ -16,6 +16,35 @@ function bboxAround(center: LngLat, widthMul: number, heightMul: number): BBox {
   return [sw.lng, sw.lat, ne.lng, ne.lat];
 }
 
+/**
+ * Signed ground separation across a page seam, in metres.
+ *
+ * `geodesicDistanceMeters` is a chord length and is therefore **always >= 0**: a
+ * 176 m strip of ground that two pages share and a 176 m strip that belongs to
+ * neither page are the same number to it. That is not a detail — it is the whole
+ * distinction `overlap` exists to make, and an unsigned assertion cannot make it.
+ * (Inverting `(1 - overlap)` to `(1 + overlap)` in grid.ts turns every shared
+ * strip into a hole of identical width; against an unsigned measure the suite
+ * stays green.)
+ *
+ * The sign has to come from the coordinates, so it does:
+ *
+ *   negative = the two pages overlap by that many metres (shared ground)
+ *   positive = that many metres belong to no page at all (a hole)
+ *
+ * `near` is this page's trailing edge and `far` the neighbour's leading edge, in
+ * the direction of travel: for an east seam this page's east edge and the
+ * neighbour's west edge; for a south seam this page's south edge and the
+ * neighbour's north edge. A leading edge that sits *behind* the trailing one —
+ * west of it going east, north of it going south — is shared ground, and reads
+ * as negative.
+ */
+function signedSeamMeters(near: LngLat, far: LngLat, along: "east" | "south"): number {
+  const magnitude = geodesicDistanceMeters(near, far);
+  const delta = along === "east" ? far.lng - near.lng : near.lat - far.lat;
+  return Math.sign(delta) * magnitude;
+}
+
 describe("pageLabel", () => {
   it("is row-letter + column-number", () => {
     expect(pageLabel(0, 0)).toBe("A1");
@@ -143,9 +172,10 @@ describe("buildPageGrid", () => {
       if (eastNeighbor) {
         // Signed: positive = this page's east edge sits west of its neighbour's
         // west edge, i.e. a strip of ground belonging to neither.
-        const gap = geodesicDistanceMeters(
+        const gap = signedSeamMeters(
           { lng: east, lat: midLat },
           { lng: eastNeighbor.bbox[0], lat: midLat },
+          "east",
         );
         expect(gap, `${page.id} -> ${eastNeighbor.id} east seam`).toBeLessThan(SEAM_TOLERANCE_M);
         eastSeams++;
@@ -153,9 +183,10 @@ describe("buildPageGrid", () => {
 
       const southNeighbor = page.neighbors.south ? by.get(page.neighbors.south) : undefined;
       if (southNeighbor) {
-        const gap = geodesicDistanceMeters(
+        const gap = signedSeamMeters(
           { lng: midLng, lat: south },
           { lng: midLng, lat: southNeighbor.bbox[3] },
+          "south",
         );
         expect(gap, `${page.id} -> ${southNeighbor.id} south seam`).toBeLessThan(SEAM_TOLERANCE_M);
         southSeams++;
@@ -187,6 +218,11 @@ describe("buildPageGrid", () => {
    * adjacent pages both carry, so that a feature at a seam is readable on at
    * least one of them and there is no pinhole where four pages meet. Measure that
    * strip, on the ground, against the fraction that was asked for.
+   *
+   * And measure it **signed**. This test's first version compared an unsigned
+   * geodesic distance, which cannot tell a 176 m strip on both pages from a 176 m
+   * strip on neither: `(1 - overlap)` inverted to `(1 + overlap)` in grid.ts put a
+   * hole at every seam in the atlas and left all 80 atlas-core tests green.
    */
   it("[BEHAVIORAL] carries the exact overlap fraction as shared ground, not just 'more pages'", () => {
     const fp = groundFootprintMeters(usgs, LETTER_PORTRAIT);
@@ -216,26 +252,31 @@ describe("buildPageGrid", () => {
 
         const eastNeighbor = page.neighbors.east ? by.get(page.neighbors.east) : undefined;
         if (eastNeighbor) {
-          const shared = geodesicDistanceMeters(
-            { lng: eastNeighbor.bbox[0], lat: midLat },
+          // Negated so a positive number means ground the two pages share. A
+          // negative number is a hole of the same width — the opposite defect,
+          // indistinguishable from the overlap by magnitude alone.
+          const shared = -signedSeamMeters(
             { lng: east, lat: midLat },
+            { lng: eastNeighbor.bbox[0], lat: midLat },
+            "east",
           );
           expect(
             Math.abs(shared - wantEast),
-            `${page.id}->${eastNeighbor.id}: ${shared.toFixed(1)}m shared, wanted ${wantEast.toFixed(1)}m at overlap ${overlap}`,
+            `${page.id}->${eastNeighbor.id}: ${shared.toFixed(1)}m shared (negative = ground on no page), wanted ${wantEast.toFixed(1)}m at overlap ${overlap}`,
           ).toBeLessThan(TOLERANCE_M);
           pairs++;
         }
 
         const southNeighbor = page.neighbors.south ? by.get(page.neighbors.south) : undefined;
         if (southNeighbor) {
-          const shared = geodesicDistanceMeters(
+          const shared = -signedSeamMeters(
             { lng: midLng, lat: south },
             { lng: midLng, lat: southNeighbor.bbox[3] },
+            "south",
           );
           expect(
             Math.abs(shared - wantSouth),
-            `${page.id}->${southNeighbor.id}: ${shared.toFixed(1)}m shared, wanted ${wantSouth.toFixed(1)}m at overlap ${overlap}`,
+            `${page.id}->${southNeighbor.id}: ${shared.toFixed(1)}m shared (negative = ground on no page), wanted ${wantSouth.toFixed(1)}m at overlap ${overlap}`,
           ).toBeLessThan(TOLERANCE_M);
           pairs++;
         }

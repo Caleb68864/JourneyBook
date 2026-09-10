@@ -12,9 +12,11 @@
 #    ship one, so they DO run here — but as their own job, so "PostGIS container
 #    would not start" is never mistaken for "the code is broken", which is
 #    exactly the confusion a single combined job produces. Contributors without
-#    Docker locally run `dotnet test --filter "FullyQualifiedName!~Api"`, and the
-#    `dotnet-unit` job is that same filter, so what they run locally is a real
-#    gate rather than a weaker private variant.
+#    Docker locally run `dotnet test --filter
+#    "FullyQualifiedName!~JourneyBook.Tests.Api."`, and the `dotnet-unit` job is
+#    that same filter, so what they run locally is a real gate rather than a
+#    weaker private variant. The filter names the NAMESPACE because `~` is a
+#    case-insensitive substring match — see the note on the job itself.
 #  - TS and .NET failures arrive independently instead of one masking the other.
 #  - `repo-hygiene` needs no toolchain at all and answers in seconds.
 
@@ -98,8 +100,23 @@ jobs:
       - run: dotnet build JourneyBook.slnx --no-restore
       # The same filter contributors use when they have no Docker daemon, so the
       # locally-runnable suite is itself gated.
+      #
+      # Filter on the NAMESPACE, not the bare word "Api". `~` in VSTest matches a
+      # substring and ignores case, and `api` is a substring of ordinary English —
+      # rapid, capital, therapies — and of ordinary type names. `!~Api` was silently
+      # dropping the four `AdminApiKeyGateTests` cases, which are in
+      # `JourneyBook.Tests`, need no Docker, and gate the admin API key: they ran
+      # only in `dotnet-integration`, and never in the command CLAUDE.md tells a
+      # contributor without Docker to run. `JourneyBook.Tests.Api.` cannot collide
+      # with a word.
       - name: Unit tests
-        run: dotnet test JourneyBook.slnx --no-build --filter "FullyQualifiedName!~Api"
+        run: dotnet test JourneyBook.slnx --no-build --filter "FullyQualifiedName!~JourneyBook.Tests.Api."
+
+      # Belt to the braces above: whatever the filter is, the two jobs must between
+      # them run every test. If a rename ever puts a case in neither set — the exact
+      # failure that hid those four — this fails the build instead of losing it.
+      - name: Every test is in exactly one of the two jobs
+        run: bash harness/checks/test-filter-partitions.sh
 
   dotnet-integration:
     name: .NET integration (Testcontainers PostGIS)

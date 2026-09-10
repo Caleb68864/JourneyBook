@@ -52,13 +52,42 @@ describe("project export/import", () => {
     });
   });
 
-  it("carries locations, pins and zoom ladders", () => {
-    const parsed = parseProjectImport(buildProjectExport(PROJECT, [LOCATION]));
+  /**
+   * `toMatchObject` ignores every key it is not told about, and the first version
+   * of this case named `name`, `notes`, `pinShape` and `zoomLevels` — so `lng` and
+   * `lat` appeared nowhere in the file. Renaming the exported longitude field
+   * (`lng:` → `lngDROPPED:`) left all 42 web tests green while **every imported
+   * location landed at a junk coordinate**: `ProjectListPage.tsx` reads `l.lng`
+   * and hands `undefined` straight to `api.locations.create`. The coordinates are
+   * the only thing a location *is*, and they were the one field the round-trip
+   * guard did not pin. `pinColor` and the per-location `scalePresetId` were
+   * unpinned the same way — and "changing a location's scale wipes its custom
+   * pin" is a bug this codebase has already had once.
+   *
+   * So: `toEqual` on the whole record, not `toMatchObject` on a chosen few. A
+   * field added to `ExportedLocation` and forgotten in `buildProjectExport` fails
+   * here too, which is the point.
+   */
+  it("[BEHAVIORAL] round-trips a location whole — coordinates included", () => {
+    const parsed = parseProjectImport(
+      JSON.parse(JSON.stringify(buildProjectExport(PROJECT, [LOCATION]))),
+    );
     expect(parsed.locations).toHaveLength(1);
-    expect(parsed.locations[0]).toMatchObject({
+
+    const round = parsed.locations[0]!;
+    // Named first and on their own: a location with no coordinates is not a
+    // location, whatever else survived the trip.
+    expect(round.lng, "longitude did not survive the round trip").toBe(-97.5);
+    expect(round.lat, "latitude did not survive the round trip").toBe(41.5);
+
+    expect(round).toEqual({
       name: "Trailhead",
+      lng: -97.5,
+      lat: 41.5,
       notes: "gate is locked after dark",
+      scalePresetId: "usgs-7-5-min",
       pinShape: "star",
+      pinColor: "#b03a2e",
       zoomLevels: ["1-100000", "usgs-7-5-min"],
     });
   });

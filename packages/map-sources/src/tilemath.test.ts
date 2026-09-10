@@ -1,5 +1,14 @@
 import { describe, it, expect } from "vitest";
-import type { BBox } from "@journeybook/atlas-core";
+import type { BBox, LngLat } from "@journeybook/atlas-core";
+import {
+  SCALE_PRESETS,
+  LETTER_PORTRAIT,
+  mapBoxInches,
+  buildLocationPage,
+  effectiveDpi,
+  panelWidthPxForDpi,
+  PRINT_DPI_TARGET,
+} from "@journeybook/atlas-core";
 import {
   TILE_SIZE,
   lngLatToGlobalPixel,
@@ -8,6 +17,17 @@ import {
   tileRangeForBBox,
   lngLatToPanelFraction,
 } from "./tilemath.js";
+
+/**
+ * The printed map box, from the engine that computes it. The previous version of
+ * this file hardcoded `5.763888888888889 // mapBoxInches(LETTER_PORTRAIT)` two
+ * lines below an import of the package that computes it — a fresh copy of a
+ * constant, in a file written to stop constants being copied.
+ */
+const MAP_BOX_WIDTH_IN = mapBoxInches(LETTER_PORTRAIT).widthIn;
+
+/** The render pipeline's default `--panel-px` (`render.ts`). */
+const DEFAULT_PANEL_WIDTH_PX = 1000;
 
 describe("web mercator tile math", () => {
   it("centres (0,0) at z0", () => {
@@ -91,7 +111,6 @@ describe("web mercator tile math", () => {
      */
     it("[BEHAVIORAL] a 1:24,000 Letter page at the default panel width lands on z16", () => {
       const page: BBox = [-98.020888, 40.97907, -97.979112, 41.020926];
-      const MAP_BOX_WIDTH_IN = 5.763888888888889; // mapBoxInches(LETTER_PORTRAIT)
 
       const zoom = zoomForBBox(page, 1000);
       // Also the ceiling USGS Topo actually has tiles for (USGS_TOPO.maxZoom),
@@ -104,6 +123,135 @@ describe("web mercator tile math", () => {
 
       // What "one zoom coarser" costs a printed page.
       expect(widthPxAt(page, zoom - 1) / MAP_BOX_WIDTH_IN).toBeLessThan(175);
+    });
+  });
+
+  /**
+   * Print resolution, per scale preset, as a property rather than an accident.
+   *
+   * The first version of this guard covered **1:24,000 only** — the single preset
+   * that clears 300 DPI — and nothing pinned the other four or asserted a minimum
+   * anywhere. Measured against the real engine, the delivered resolution swings by
+   * nearly 2x across the scale menu at the default panel width:
+   *
+   *   usgs-7-5-min (1:24,000)  z16  1947 px  338 DPI
+   *   1-25000                  z15  1014 px  176 DPI
+   *   usgs-15-min (1:62,500)   z14  1268 px  220 DPI
+   *   1-50000                  z14  1014 px  176 DPI
+   *   1-100000                 z13  1015 px  176 DPI
+   *
+   * None of that is a property of the product. `renderMapPanel` crops at native
+   * tile resolution and never resamples, so `targetWidthPx` is a **floor** and the
+   * delivered panel is 1x-2x it — the DPI is decided by where each preset's page
+   * happens to land relative to a Web-Mercator zoom boundary. 1:24,000 passes only
+   * because its page falls 1.95x past one; 1:25,000, a 4% change in scale, drops
+   * off a 1.92x cliff to 176.
+   *
+   * The default of 1000 px over a 5.7639 in map box is a request for **173 DPI**.
+   * Nothing anywhere asked for 300.
+   */
+  describe("print resolution per scale preset", () => {
+    const widthPxAt = (bbox: BBox, zoom: number): number => {
+      const midLat = (bbox[1] + bbox[3]) / 2;
+      return (
+        lngLatToGlobalPixel(bbox[2], midLat, zoom).x - lngLatToGlobalPixel(bbox[0], midLat, zoom).x
+      );
+    };
+
+    const CENTER: LngLat = { lng: -98.0, lat: 41.0 };
+    /** USGS Topo's deepest zoom — the ceiling this render has to live inside. */
+    const USGS_TOPO_MAX_ZOOM = 16;
+
+    /** Delivered DPI for one preset at one target width, through the real engine. */
+    function delivered(scale: (typeof SCALE_PRESETS)[number], targetPx: number) {
+      const page = buildLocationPage(CENTER, scale, LETTER_PORTRAIT, "L1");
+      const wanted = zoomForBBox(page.bbox, targetPx);
+      const zoom = Math.min(wanted, USGS_TOPO_MAX_ZOOM);
+      return {
+        zoom,
+        clamped: wanted > USGS_TOPO_MAX_ZOOM,
+        widthPx: widthPxAt(page.bbox, zoom),
+        dpi: effectiveDpi(widthPxAt(page.bbox, zoom), MAP_BOX_WIDTH_IN),
+      };
+    }
+
+    it("guards all five presets, not just the one that passes", () => {
+      // If SCALE_PRESETS grows, this test must be extended rather than silently
+      // continue to describe five of six.
+      expect(SCALE_PRESETS.map((s) => s.id)).toEqual([
+        "usgs-7-5-min",
+        "1-25000",
+        "usgs-15-min",
+        "1-50000",
+        "1-100000",
+      ]);
+    });
+
+    /**
+     * The current state of the product, pinned by value so the swing is visible in
+     * the suite instead of being discovered by measurement every few months. These
+     * are NOT approvals of 176 DPI — see the case below for the target.
+     */
+    it("[BEHAVIORAL] pins today's delivered DPI at the default panel width", () => {
+      const expected: Record<string, { zoom: number; dpi: number }> = {
+        "usgs-7-5-min": { zoom: 16, dpi: 338 },
+        "1-25000": { zoom: 15, dpi: 176 },
+        "usgs-15-min": { zoom: 14, dpi: 220 },
+        "1-50000": { zoom: 14, dpi: 176 },
+        "1-100000": { zoom: 13, dpi: 176 },
+      };
+
+      for (const scale of SCALE_PRESETS) {
+        const got = delivered(scale, DEFAULT_PANEL_WIDTH_PX);
+        const want = expected[scale.id]!;
+        expect(got.zoom, `${scale.id} zoom`).toBe(want.zoom);
+        expect(Math.round(got.dpi), `${scale.id} DPI`).toBe(want.dpi);
+      }
+    });
+
+    /**
+     * The finding the roadmap had backwards. It said the 300 DPI target "needs a
+     * deeper basemap, not a bigger number", scheduled against Stage 7. It needs a
+     * bigger number and no deeper basemap: `panelWidthPxForDpi(mapBox, 300)` = 1730
+     * clears 300 DPI at **every** preset, and every one of them still lands inside
+     * USGS Topo's z16 ceiling — nothing is clamped, so no preset renders softer
+     * than it asked for.
+     *
+     * Measured cost of raising the default, through the real `renderMapPanel`
+     * against a local tile server: at 1:24,000 — the default scale — it is **free**
+     * (same z16, same 99 tiles, same bytes). At the other four it is ~3.1-3.3x the
+     * tiles, ~3.8-4.7x the render time and ~4x the panel bytes. That trade is the
+     * owner's to make; this test only fixes what is true.
+     */
+    it("[BEHAVIORAL] a 300 DPI target is reachable at every preset inside the z16 ceiling", () => {
+      const target = panelWidthPxForDpi(MAP_BOX_WIDTH_IN, PRINT_DPI_TARGET);
+      expect(target).toBe(1730);
+
+      for (const scale of SCALE_PRESETS) {
+        const got = delivered(scale, target);
+        expect(got.dpi, `${scale.id} at ${target}px: ${got.dpi.toFixed(0)} DPI`)
+          .toBeGreaterThanOrEqual(PRINT_DPI_TARGET);
+        expect(got.clamped, `${scale.id} needs a zoom USGS Topo does not have`).toBe(false);
+        expect(got.zoom, `${scale.id} exceeds the USGS Topo ceiling`).toBeLessThanOrEqual(
+          USGS_TOPO_MAX_ZOOM,
+        );
+      }
+    });
+
+    /**
+     * And the mechanism behind the swing, stated once: the target is a floor, the
+     * delivered width is 1x-2x it, and that ratio is what the DPI actually is.
+     */
+    it("[BEHAVIORAL] the target width is a floor, and the delivered panel is 1x-2x it", () => {
+      for (const target of [DEFAULT_PANEL_WIDTH_PX, panelWidthPxForDpi(MAP_BOX_WIDTH_IN)]) {
+        for (const scale of SCALE_PRESETS) {
+          const got = delivered(scale, target);
+          if (got.clamped) continue; // a clamped panel is allowed to be softer
+          const ratio = got.widthPx / target;
+          expect(ratio, `${scale.id} at ${target}px delivered ${got.widthPx}px`).toBeGreaterThanOrEqual(1);
+          expect(ratio, `${scale.id} at ${target}px delivered ${got.widthPx}px`).toBeLessThan(2);
+        }
+      }
     });
   });
 

@@ -87,8 +87,16 @@ because it is the transport change; job ownership is a protocol change on top of
   the proxy for no gain to the person actually waiting. Concurrency belongs on the
   worker side.
 - **A cancelled or shut-down render is marked `Failed`**, not `Cancelled`. It left
-  nothing on disk, and a row left at `Rendering` is stranded for its whole retention
-  window.
+  nothing on disk.
+- **A row a crash left behind is reconciled at startup, not left for retention.** The
+  clause here used to read "a row left at `Rendering` is stranded for its whole
+  retention window", which only ever made sense if something eventually cleared it.
+  Nothing did: the retention sweep is `PruneExpiredAsync`, `ExpiresAt < now`, and a row
+  stranded ten seconds ago by a `SIGKILL` is not expired. `RenderJobProcessor` now
+  calls `IGeneratedPdfService.FailStrandedAsync` before it dequeues its first job. This
+  is sound *because* the queue is in-process — at the instant this host starts, nothing
+  is rendering — and it is one more reason a second API replica needs a lease or an
+  owner column first: it would fail the other instance's live renders.
 
 ### What this does *not* deliver
 

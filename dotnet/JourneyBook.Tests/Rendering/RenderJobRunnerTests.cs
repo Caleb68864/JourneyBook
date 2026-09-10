@@ -49,6 +49,8 @@ public class RenderJobRunnerTests
             => throw new NotSupportedException();
         public Task<int> PruneExpiredAsync(CancellationToken ct = default)
             => throw new NotSupportedException();
+        public Task<int> FailStrandedAsync(string reason, CancellationToken ct = default)
+            => throw new NotSupportedException();
     }
 
     private sealed class StubWorkerClient(Func<RenderWorkerRequest, RenderWorkerResult> handler) : IRenderWorkerClient

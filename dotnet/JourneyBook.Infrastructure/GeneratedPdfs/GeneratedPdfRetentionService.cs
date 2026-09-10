@@ -31,9 +31,19 @@ public sealed record GeneratedPdfRetentionOptions(TimeSpan Interval)
 /// only makes sense if something eventually clears it. Nothing did.
 /// </para>
 /// <para>
-/// One sweep at startup (which is when a restart's wreckage is on the floor), then one
-/// per interval. A failed sweep is logged and retried next time: a transient DB blip
-/// must not retire retention for the life of the process.
+/// One sweep at startup, then one per interval. A failed sweep is logged and retried
+/// next time: a transient DB blip must not retire retention for the life of the process.
+/// </para>
+/// <para>
+/// <b>What the startup sweep is not.</b> This comment used to read "one sweep at startup
+/// (which is when a restart's wreckage is on the floor)", which claimed a capability
+/// this service does not have. The sweep runs <c>PruneExpiredAsync</c>, which is
+/// <c>Where(g =&gt; g.ExpiresAt != null &amp;&amp; g.ExpiresAt &lt; now)</c> — rows past
+/// their 30-day retention. A row stranded ten seconds ago by a crash is <b>not
+/// expired</b> and is not touched by it. Clearing that wreckage is
+/// <c>IGeneratedPdfService.FailStrandedAsync</c>, called by
+/// <c>RenderJobProcessor</c> before it dequeues its first job; retention only ever
+/// deletes rows whose window has run out.
 /// </para>
 /// </remarks>
 public sealed class GeneratedPdfRetentionService(

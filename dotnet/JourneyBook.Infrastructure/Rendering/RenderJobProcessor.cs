@@ -29,8 +29,32 @@ public sealed class RenderJobProcessor(
     IServiceScopeFactory scopeFactory,
     ILogger<RenderJobProcessor> logger) : BackgroundService
 {
+    /// <summary>
+    /// What a row stranded by a crash is told, once this host has established that it
+    /// cannot possibly still be rendering.
+    /// </summary>
+    public const string StrandedByRestartMessage =
+        "The service restarted while this render was queued or in progress, and the queue " +
+        "does not survive a restart. Generate the atlas again.";
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // Startup reconciliation, BEFORE the first job is dequeued.
+        //
+        // FailQueuedJobsAsync below closes the orderly-SIGTERM case and nothing else.
+        // After a SIGKILL, an OOM kill, a container crash or power loss there is no
+        // shutdown path at all, and retention does not help: PruneExpiredAsync only
+        // removes rows past their 30-day ExpiresAt, and a row stranded ten seconds ago
+        // by a crash is not expired. Such a row sat at Pending for the full retention
+        // window while the client polled it 900 times and then reported that the render
+        // was still running.
+        //
+        // The queue is in-process (a Channel in this host, ADR 0005), so at the instant
+        // this host starts, nothing is rendering: a Pending or Rendering row is
+        // previous-process wreckage by definition. See IGeneratedPdfService.
+        // FailStrandedAsync for why a second API instance would invalidate that.
+        await FailStrandedOnStartupAsync(stoppingToken);
+
         // A job taken off the queue after shutdown began and therefore never started.
         // `ChannelReader.ReadAllAsync` keeps yielding whatever is already BUFFERED
         // once it has decided there is something to read — it does not re-check the
@@ -85,6 +109,35 @@ public sealed class RenderJobProcessor(
         // discarded in silence, leaving its record at Pending for ever while the
         // client polled it 900 times and then told the user it was still running.
         await FailQueuedJobsAsync(notStarted);
+    }
+
+    private async Task FailStrandedOnStartupAsync(CancellationToken ct)
+    {
+        try
+        {
+            using var scope = scopeFactory.CreateScope();
+            var pdfService = scope.ServiceProvider.GetRequiredService<IGeneratedPdfService>();
+
+            var failed = await pdfService.FailStrandedAsync(StrandedByRestartMessage, ct);
+            if (failed > 0)
+            {
+                logger.LogWarning(
+                    "Startup found {Count} render record(s) left at Pending/Rendering by a previous " +
+                    "process; marked Failed.",
+                    failed);
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Stopped before we got going; nothing to say.
+        }
+        catch (Exception ex)
+        {
+            // Deliberately swallowed. Reconciliation is a courtesy to rows from a
+            // previous process; a database that is not ready yet must not stop this
+            // host from serving the renders it is being started to serve.
+            logger.LogError(ex, "Could not reconcile stranded render records at startup.");
+        }
     }
 
     private async Task FailQueuedJobsAsync(RenderJob? notStarted)

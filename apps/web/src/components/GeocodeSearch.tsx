@@ -66,6 +66,23 @@ export function GeocodeSearch({ viewbox, onPick }: GeocodeSearchProps) {
         </button>
       </form>
 
+      {/*
+        Searching, the result count and "Adding…" are all conveyed visually by a
+        button label or by a list appearing — none of which a screen reader
+        announces. One polite region carries the whole sequence.
+      */}
+      <p aria-live="polite" className="sr-only">
+        {searching
+          ? "Searching…"
+          : adding !== null
+            ? `Adding ${adding}…`
+            : results === null
+              ? ""
+              : results.length === 0
+                ? "No matches found."
+                : `${results.length} ${results.length === 1 ? "match" : "matches"} found.`}
+      </p>
+
       {results !== null && results.length === 0 && (
         <p className="font-mono text-[11px] text-bark-500">No matches found.</p>
       )}
@@ -90,7 +107,11 @@ export function GeocodeSearch({ viewbox, onPick }: GeocodeSearchProps) {
         </ul>
       )}
 
-      {error && <p className="font-mono text-[11px] text-campfire-600">{error}</p>}
+      {error && (
+        <p role="alert" className="font-mono text-[11px] text-campfire-600">
+          {error}
+        </p>
+      )}
     </div>
   );
 }
