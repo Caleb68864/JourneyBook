@@ -45,11 +45,40 @@ function sourceFiles(dir: string): string[] {
   return out;
 }
 
-/** `--color-<family>-<shade>` names the theme actually defines. */
+/**
+ * The text inside the top-level `@theme { … }` block, and nothing else.
+ *
+ * This boundary is the whole mechanism. Tailwind v4 emits a utility only for a
+ * custom property declared **inside `@theme`**; the same declaration in
+ * `@layer base { :root { … } }`, in a bare `:root`, or in a media query is a
+ * perfectly valid CSS variable that generates **no utility at all**. Scanning the
+ * whole file therefore reports a token as defined while the class name that
+ * names it produces no rule — which is finding F11 restored with its own guard
+ * green. Proven with a real `vite build`: moving `--color-bark-300` out of
+ * `@theme` into `@layer base` took `.border-bark-300` from 3 emitted rules to
+ * **0** (control `.text-bark-600` unmoved at 3) while all 42 web tests passed.
+ *
+ * Brace-matched rather than regexed, so a nested block inside `@theme` cannot
+ * end it early.
+ */
+function themeBlock(css: string): string {
+  const at = css.indexOf("@theme");
+  if (at < 0) return "";
+  const open = css.indexOf("{", at);
+  if (open < 0) return "";
+  let depth = 0;
+  for (let i = open; i < css.length; i++) {
+    if (css[i] === "{") depth++;
+    else if (css[i] === "}" && --depth === 0) return css.slice(open + 1, i);
+  }
+  return ""; // unbalanced
+}
+
+/** `--color-<family>-<shade>` names the theme actually defines — `@theme` only. */
 function definedTokens(): Set<string> {
-  const css = readFileSync(INDEX_CSS, "utf8");
   const found = new Set<string>();
-  for (const m of css.matchAll(/--color-([a-z]+-\d+)\s*:/g)) found.add(m[1]!);
+  const block = themeBlock(readFileSync(INDEX_CSS, "utf8"));
+  for (const m of block.matchAll(/--color-([a-z]+-\d+)\s*:/g)) found.add(m[1]!);
   return found;
 }
 
@@ -76,12 +105,43 @@ function usedTokens(): Map<string, string[]> {
 }
 
 describe("brand colour tokens", () => {
+  /**
+   * The guard's own subject, tested directly. Without this, "defined" can quietly
+   * go back to meaning "the string appears somewhere in index.css", and the whole
+   * check stops asking the question Tailwind actually answers.
+   */
+  it("[BEHAVIORAL] counts a token as defined only inside @theme, not merely present in the file", () => {
+    const css = [
+      "@import 'tailwindcss';",
+      "@theme {",
+      "  --color-inside-500: #111111;",
+      "}",
+      "@layer base {",
+      "  :root {",
+      "    --color-outside-500: #222222;",
+      "  }",
+      "}",
+      ":root { --color-alsooutside-500: #333333; }",
+    ].join("\n");
+
+    const block = themeBlock(css);
+    expect(block, "the @theme block must be found at all").toContain("--color-inside-500");
+    expect(block).not.toContain("--color-outside-500");
+    expect(block).not.toContain("--color-alsooutside-500");
+
+    // …and the real file's block is a real block, not an empty string that would
+    // make every "defined" check below vacuous.
+    const real = themeBlock(readFileSync(INDEX_CSS, "utf8"));
+    expect(real.length, "@theme block not found in index.css").toBeGreaterThan(200);
+  });
+
   it("[BEHAVIORAL] every colour the app asks for is defined in the Tailwind theme", () => {
     const defined = definedTokens();
     const used = usedTokens();
 
     // Guard the guard: if the scan finds nothing, it is proving nothing.
     expect(used.size).toBeGreaterThan(10);
+    expect(defined.size, "no tokens read out of @theme").toBeGreaterThan(10);
 
     const missing = [...used.entries()]
       .filter(([name]) => !defined.has(name))
@@ -95,7 +155,9 @@ describe("brand colour tokens", () => {
     const { palette } = (await import("@journeybook/ui")) as {
       palette: Record<string, Record<string, string>>;
     };
-    const css = readFileSync(INDEX_CSS, "utf8");
+    // Scoped to @theme for the same reason as definedTokens: a hex that matches
+    // from outside the block is a variable Tailwind will never turn into a class.
+    const css = themeBlock(readFileSync(INDEX_CSS, "utf8"));
 
     const fromTokens = new Set<string>();
     for (const [family, shades] of Object.entries(palette)) {
