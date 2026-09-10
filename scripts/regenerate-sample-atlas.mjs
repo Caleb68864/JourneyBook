@@ -19,6 +19,16 @@
  *
  * Requires a built atlas-core (`cd packages/atlas-core && tsc -b`).
  *
+ * WHERE `--check` RUNS. It used to run nowhere: no package script, no CI job, no
+ * harness check. It is now `pnpm check:fixture`, a step in the `ts` CI job, and
+ * `harness/checks/golden-fixture.sh`. `packages/atlas-core/src/fixture.test.ts`
+ * also makes this comparison in-process ("is exactly what the engine produces
+ * today"), so the engine binding survives even if this file is not run; this one
+ * additionally pins the serialization (key order, indentation, trailing newline).
+ * The EXTENT/SCALE_ID/TIER below are duplicated there on purpose — both sides
+ * regenerate against the same committed file, so changing one alone fails
+ * loudly.
+ *
  * WHEN THE OUTPUT CHANGES, THE FIXTURE IS NOT THE THING TO FIX FIRST. A diff
  * here means the geometry engine now produces different pages for the same
  * input. Decide whether that change is intended — `packages/atlas-core/src/

@@ -108,6 +108,66 @@ describe("buildPageGrid", () => {
     }
   });
 
+  /**
+   * The invariant an atlas exists for: walk east across a row, or south down a
+   * column, and the ground never stops. Until this test the ONLY abutment
+   * assertions in the repo were on the frozen 2x2 fixture, so a grid step 2% too
+   * large — a 70 m strip of Nebraska on no page at all, between every adjacent
+   * pair — cost the suite one incidental page-count assertion and nothing else.
+   *
+   * Seams are measured in metres of ground, not degrees: neighbouring pages are
+   * each built about their own centre, so a shared edge carries a small
+   * geodesic-vs-planar residual. A few metres is that residual; anything larger
+   * is a hole (or a duplicated strip), and the sign says which.
+   */
+  it("[BEHAVIORAL] leaves no ground uncovered between adjacent pages at overlap 0", () => {
+    const grid = buildPageGrid({
+      bbox: bboxAround(center, 3.4, 2.6),
+      scale: usgs,
+      page: LETTER_PORTRAIT,
+      overlap: 0,
+    });
+    expect(grid.pages.length).toBeGreaterThan(6); // enough interior seams to matter
+
+    const by = new Map(grid.pages.map((p) => [p.id, p]));
+    const SEAM_TOLERANCE_M = 5;
+    let eastSeams = 0;
+    let southSeams = 0;
+
+    for (const page of grid.pages) {
+      const [west, south, east, north] = page.bbox;
+      const midLat = (south + north) / 2;
+      const midLng = (west + east) / 2;
+
+      const eastNeighbor = page.neighbors.east ? by.get(page.neighbors.east) : undefined;
+      if (eastNeighbor) {
+        // Signed: positive = this page's east edge sits west of its neighbour's
+        // west edge, i.e. a strip of ground belonging to neither.
+        const gap = geodesicDistanceMeters(
+          { lng: east, lat: midLat },
+          { lng: eastNeighbor.bbox[0], lat: midLat },
+        );
+        expect(gap, `${page.id} -> ${eastNeighbor.id} east seam`).toBeLessThan(SEAM_TOLERANCE_M);
+        eastSeams++;
+      }
+
+      const southNeighbor = page.neighbors.south ? by.get(page.neighbors.south) : undefined;
+      if (southNeighbor) {
+        const gap = geodesicDistanceMeters(
+          { lng: midLng, lat: south },
+          { lng: midLng, lat: southNeighbor.bbox[3] },
+        );
+        expect(gap, `${page.id} -> ${southNeighbor.id} south seam`).toBeLessThan(SEAM_TOLERANCE_M);
+        southSeams++;
+      }
+    }
+
+    // A grid whose neighbour links were all undefined would satisfy every
+    // assertion above by checking nothing.
+    expect(eastSeams).toBeGreaterThan(0);
+    expect(southSeams).toBeGreaterThan(0);
+  });
+
   it("adds more pages when overlap is increased", () => {
     const bbox = bboxAround(center, 2, 1);
     const none = buildPageGrid({ bbox, scale: usgs, page: LETTER_PORTRAIT, overlap: 0 });
