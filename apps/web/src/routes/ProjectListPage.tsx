@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { DEFAULT_SCALE_PRESET_ID } from "@journeybook/atlas-core";
 import { api, type Project } from "../api/client";
+import { buildProjectExport, parseProjectImport } from "../lib/project-transfer";
 
 interface ProjectListPageProps {
   onOpen: (projectId: string) => void;
@@ -66,21 +67,11 @@ export function ProjectListPage({ onOpen }: ProjectListPageProps) {
     setError(null);
     try {
       const locs = await api.locations.list(proj.id);
-      const data = {
-        version: 1,
-        project: {
-          name: proj.name,
-          scalePresetId: proj.scalePresetId,
-          orientation: proj.orientation,
-          overlap: proj.overlap,
-          extent: proj.extent,
-        },
-        locations: locs.map((l) => ({
-          name: l.name, lng: l.lng, lat: l.lat, notes: l.notes,
-          scalePresetId: l.scalePresetId, pinShape: l.pinShape, pinColor: l.pinColor,
-          zoomLevels: l.zoomLevels,
-        })),
-      };
+      // Shape and parsing live in lib/project-transfer.ts so the round trip is
+      // testable: this used to drop `margins` on the way out and `orientation` +
+      // `overlap` on the way back in, and since the page-setup fix all three
+      // change the printed atlas.
+      const data = buildProjectExport(proj, locs);
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -99,14 +90,14 @@ export function ProjectListPage({ onOpen }: ProjectListPageProps) {
     if (!file) return;
     setError(null);
     try {
-      const data = JSON.parse(await file.text()) as {
-        project?: { name?: string; scalePresetId?: string; extent?: [number, number, number, number] | null };
-        locations?: Array<{ name: string; lng: number; lat: number; notes?: string | null; scalePresetId?: string | null; pinShape?: string | null; pinColor?: string | null; zoomLevels?: string[] | null }>;
-      };
-      const p = data.project ?? {};
-      const proj = await api.projects.create(p.name ?? "Imported Atlas", p.scalePresetId ?? DEFAULT_SCALE_PRESET_ID);
-      if (p.extent) await api.projects.setExtent(proj.id, p.extent);
-      for (const l of data.locations ?? []) {
+      const parsed = parseProjectImport(JSON.parse(await file.text()));
+      let proj = await api.projects.create(parsed.name, parsed.scalePresetId);
+      // POST /projects takes only name + scale, so the page setup the file carried
+      // is restored with a follow-up PUT. Skipped entirely when the file predates
+      // page-setup export: importing an absent overlap as 0 would be a silent edit.
+      if (parsed.pageSetup) proj = await api.projects.patch(proj, parsed.pageSetup);
+      if (parsed.extent) proj = await api.projects.setExtent(proj.id, parsed.extent);
+      for (const l of parsed.locations) {
         const created = await api.locations.create(proj.id, l.name, l.lng, l.lat, l.notes ?? undefined, l.scalePresetId ?? undefined);
         // create() takes no pin or ladder, so restore those with a follow-up PUT.
         // PUT replaces the whole record, so resend everything create() already set
