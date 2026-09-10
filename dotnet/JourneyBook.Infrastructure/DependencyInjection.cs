@@ -45,6 +45,17 @@ public static class DependencyInjection
         services.AddScoped<ITileSourceService, TileSourceService>();
         services.AddScoped<IGeneratedPdfService, GeneratedPdfService>();
 
+        // Retention was a number nothing acted on: PruneExpiredAsync had exactly one
+        // caller, the manual POST /api/generated-pdfs/prune. GeneratedPdf:RetentionDays
+        // stamped an ExpiresAt that was never read, so expired rows and their PDFs on
+        // the shared volume accumulated for ever — and ADR 0006's "stranded for its
+        // whole retention window" quietly meant "stranded". Set
+        // GeneratedPdf:PruneIntervalHours to 0 to go back to manual-only.
+        var pruneIntervalHours =
+            double.TryParse(configuration["GeneratedPdf:PruneIntervalHours"], out var pih) ? pih : 6;
+        services.AddSingleton(new GeneratedPdfRetentionOptions(TimeSpan.FromHours(pruneIntervalHours)));
+        services.AddHostedService<GeneratedPdfRetentionService>();
+
         // --- Tile proxy (Stage 3) -------------------------------------------
         var cacheDir = configuration["TileCache:CacheDir"] is { Length: > 0 } dir ? dir : "data/cache";
         services.AddSingleton(new TileCache(cacheDir));

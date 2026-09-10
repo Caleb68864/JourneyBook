@@ -8,6 +8,7 @@ import {
 } from "@journeybook/atlas-core";
 import type { BBox, LngLat, MapTier } from "@journeybook/atlas-core";
 import { estimatePages } from "../lib/page-estimate";
+import { describePdfHistoryEntry } from "../lib/pdf-history";
 import { api, type Location, type Project, type GeneratedPdf } from "../api/client";
 import { MapPreview } from "../components/MapPreview";
 import { ScalePicker } from "../components/ScalePicker";
@@ -691,16 +692,31 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
                 <p className="font-mono text-[10px] text-bark-500">No PDFs generated yet.</p>
               ) : (
                 <ul className="divide-y divide-bark-200 border border-bark-300">
-                  {pdfHistory.slice(0, 8).map((pdf) => (
-                    <li key={pdf.id} className="flex items-center justify-between gap-2 px-3 py-1.5">
-                      <span className="min-w-0 font-mono text-[10px] text-bark-600">
-                        {new Date(pdf.createdAt).toLocaleString()} · {pdf.status}
-                      </span>
-                      {pdf.status === "Completed" ? (
-                        <a href={api.generatedPdfs.contentUrl(pdf.id)} target="_blank" rel="noopener noreferrer" className="shrink-0 font-mono text-[10px] uppercase tracking-widest text-forest-700 hover:text-forest-600">Open</a>
-                      ) : null}
-                    </li>
-                  ))}
+                  {pdfHistory.slice(0, 8).map((pdf) => {
+                    // Status text and the failure's diagnostic come from a tested
+                    // pure function — `errorMessage` reached the wire and was
+                    // rendered nowhere, so a failed render was the single word
+                    // "Failed" and a row stranded by a restart said "Pending" for
+                    // ever. See lib/pdf-history.ts.
+                    const entry = describePdfHistoryEntry(pdf);
+                    return (
+                      <li key={pdf.id} className="flex flex-col gap-0.5 px-3 py-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className={`min-w-0 font-mono text-[10px] ${entry.failed ? "text-campfire-600" : "text-bark-600"}`}>
+                            {new Date(pdf.createdAt).toLocaleString()} · {entry.label}
+                          </span>
+                          {entry.downloadable ? (
+                            <a href={api.generatedPdfs.contentUrl(pdf.id)} target="_blank" rel="noopener noreferrer" className="shrink-0 font-mono text-[10px] uppercase tracking-widest text-forest-700 hover:text-forest-600">Open</a>
+                          ) : null}
+                        </div>
+                        {entry.detail && (
+                          <span className="break-words font-mono text-[10px] text-campfire-600">
+                            {entry.detail}
+                          </span>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </section>

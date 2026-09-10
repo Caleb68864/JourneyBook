@@ -105,9 +105,19 @@ export async function waitForRender(
     // Check the deadline AFTER reading the status, so a render that finished during
     // the last sleep is reported as finished rather than as a timeout.
     if (now() - startedAt >= timeoutMs) {
+      const seconds = Math.round(timeoutMs / 1000);
+      // The two cases are genuinely different and the record already tells us which
+      // one we are in. This used to say "The render is still running — check this
+      // project's PDF history for it" for both, and for a stranded `Pending` row
+      // BOTH halves are false: the render never started (the queue is in-process and
+      // does not survive a restart), and the history has nothing to find.
       throw new Error(
-        `Still ${record.status.toLowerCase()} after ${Math.round(timeoutMs / 1000)}s. ` +
-          `The render is still running — check this project's PDF history for it.`,
+        record.status === "Pending"
+          ? `Still queued after ${seconds}s — this render never started. ` +
+            `The service may have restarted; queued renders do not survive that. ` +
+            `Generate the atlas again.`
+          : `Still rendering after ${seconds}s. The render is still running — ` +
+            `check this project's PDF history for it.`,
       );
     }
 
