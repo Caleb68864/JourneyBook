@@ -189,3 +189,32 @@ export function validateAtlas(
 export function effectiveDpi(panelWidthPx: number, printableWidthInches: number): number {
   return panelWidthPx / printableWidthInches;
 }
+
+/**
+ * The print resolution this product aims at, in DPI.
+ *
+ * 300 DPI is the figure the roadmap has always named for a printed navigation
+ * sheet — below it, contour lines and 6-point label text on a USGS topo panel
+ * visibly soften.
+ */
+export const PRINT_DPI_TARGET = 300;
+
+/**
+ * Panel width in pixels that asks for `dpi` across a printed map box of
+ * `mapBoxWidthInches`. The inverse of {@link effectiveDpi}.
+ *
+ * This exists because the default was a bare `1000`, and 1000 px over the
+ * 5.7639 in Letter-portrait map box is a request for **173 DPI** — nothing
+ * anywhere asked for 300. What the delivered panel then measured was an
+ * accident of where each scale preset's page happened to fall relative to a
+ * Web-Mercator zoom boundary, because `renderMapPanel` crops at native tile
+ * resolution and never resamples: the target is a floor, and the delivered
+ * width is 1x-2x it. So 1:24,000 landed 1.95x past a boundary and printed at
+ * 338 DPI, while 1:25,000 — a 4% change in scale — dropped to 176.
+ *
+ * Ask for a number instead of guessing one. `ceil` because a fractional pixel
+ * is not a pixel, and the target is a floor.
+ */
+export function panelWidthPxForDpi(mapBoxWidthInches: number, dpi: number = PRINT_DPI_TARGET): number {
+  return Math.ceil(dpi * mapBoxWidthInches);
+}

@@ -265,10 +265,12 @@ source_urls:
 > - **The default zoom has headroom.** At 1:24,000 a 1000 px panel selects z16
 >   and USGS Topo's ceiling is z16; `--panel-px 2000` asked for z17 and every
 >   tile 404'd, so asking for a sharper print produced no print. Now clamped and
->   warned. **Not fixed, and a real product limit: 1000 px over 5.76 in is ~173
+>   warned. ~~Not fixed, and a real product limit: 1000 px over 5.76 in is ~173
 >   DPI, and the 300 DPI target at this scale needs z17, which this source does
->   not have.** Reaching it needs a deeper basemap, not a bigger number — worth
->   scheduling against Stage 7.
+>   not have. Reaching it needs a deeper basemap, not a bigger number — worth
+>   scheduling against Stage 7.~~ **This was wrong in its number, wrong in its
+>   diagnosis and backwards in its remedy. Corrected 2026-09-10 — see
+>   "Print resolution" below.**
 > - **Project references** added where two workspaces imported packages they did
 >   not reference (a clean `tsc -b apps/web` failed with 15 errors), with
 >   `harness/checks/project-references.sh` in CI so it cannot silently return.
@@ -468,6 +470,81 @@ source_urls:
 > honoured at all (halving its effect in the engine, or zeroing it on the worker wire,
 > left both suites entirely green); it is now measured as shared ground per adjacent
 > page pair, in `grid.test.ts` and `HttpRenderWorkerClientTests`.
+
+> ### Print resolution — the earlier claim was backwards (2026-09-10)
+>
+> The bullet above used to read: *"1000 px over 5.76 in is ~173 DPI, and the 300 DPI
+> target at this scale needs z17, which this source does not have. Reaching it needs
+> a deeper basemap, not a bigger number — worth scheduling against Stage 7."*
+>
+> **It needs a bigger number and no deeper basemap.** That line was driving a Stage 7
+> scheduling decision and was wrong three ways. Measured against the real engine
+> (`buildLocationPage`, `mapBoxInches`, `zoomForBBox`, `lngLatToGlobalPixel`), one
+> Letter-portrait page at 41°N:
+>
+> | preset | zoom | delivered px | DPI |
+> |---|---|---|---|
+> | `usgs-7-5-min` (1:24,000) | z16 | 1947 | **338** |
+> | `1-25000` | z15 | 1014 | **176** |
+> | `usgs-15-min` (1:62,500) | z14 | 1268 | **220** |
+> | `1-50000` | z14 | 1014 | **176** |
+> | `1-100000` | z13 | 1015 | **176** |
+>
+> 1. **~173 DPI was the *request*, not the delivery.** `renderMapPanel` crops at
+>    native tile resolution and never resamples, so `--panel-px` is a **floor** and
+>    the delivered panel is 1×–2× it.
+> 2. **300 DPI is already met at 1:24,000 (338), and missed at every other preset.**
+>    Not a uniform limit — a 2× swing across the scale menu.
+> 3. **None of that is a property of this product.** It is an artefact of where each
+>    preset's page falls relative to a Web-Mercator zoom boundary. 1:24,000 passes
+>    only because its page lands 1.95× past one; **1:25,000 — a 4% change in scale —
+>    falls off a 1.92× cliff to 176 DPI.** The default of 1000 px over a 5.7639 in
+>    map box asks for **173 DPI**. Nothing anywhere asked for 300.
+>
+> **The remedy is one number.** `panelWidthPxForDpi(mapBox, 300)` = **1730 px**. At
+> that target every preset clears 300 DPI, and **every one still lands inside USGS
+> Topo's z16 ceiling** — nothing is clamped, so no deeper basemap is involved:
+>
+> | preset | zoom | px | DPI |
+> |---|---|---|---|
+> | `usgs-7-5-min` | z16 | 1947 | 338 ✓ |
+> | `1-25000` | z16 | 2028 | 352 ✓ |
+> | `usgs-15-min` | z15 | 2536 | 440 ✓ |
+> | `1-50000` | z15 | 2029 | 352 ✓ |
+> | `1-100000` | z14 | 2030 | 352 ✓ |
+>
+> #### Measured cost of raising the default — the owner's decision, not made here
+>
+> Measured through the real `renderMapPanel` against a local tile server (every
+> fetch, composite, crop and JPEG encode on the production path; only USGS network
+> latency is absent, and that term is proportional to tile count, which is exact):
+>
+> | preset | tiles | render ms | panel bytes |
+> |---|---|---|---|
+> | `usgs-7-5-min` | 99 → 99 (**1.00×**) | 4079 → 4003 (0.98×) | **unchanged** |
+> | `1-25000` | 35 → 108 (3.09×) | 1158 → 4343 (3.75×) | 3.97× |
+> | `usgs-15-min` | 48 → 154 (3.21×) | 1728 → 6668 (3.86×) | 3.97× |
+> | `1-50000` | 30 → 99 (3.30×) | 1174 → 4917 (4.19×) | 3.98× |
+> | `1-100000` | 35 → 108 (3.09×) | 1151 → 5350 (4.65×) | 3.98× |
+>
+> - **At 1:24,000 — the default scale, and the land-nav scale — it is free.** Same
+>   z16, same 99 tiles, same bytes, same wall clock. It is already at the ceiling.
+> - At the other four it is **~3.1–3.3× the tiles and ~4× the panel bytes**, which is
+>   the term that matters: `panel.ts` records that a 34-page basemap atlas is ~18 MB
+>   at JPEG q90, and 4× is ~72 MB — past "too big to mail", the constraint that chose
+>   JPEG in the first place. (Absolute byte figures above are inflated: the fixture
+>   tiles are incompressible noise. The **ratio** is pixel-area and is real.)
+> - Tile count is also load against USGS through the proxy, and a coarse-scale atlas
+>   of a given area has fewer pages — so the per-atlas total does not move by 3×.
+>
+> **Nothing was changed.** The default is still 1000. What changed is that the number
+> is now derivable rather than magic (`panelWidthPxForDpi`, `PRINT_DPI_TARGET`), and
+> the resolution is a **tested property per preset** rather than an accident:
+> `tilemath.test.ts` pins today's delivered DPI for all five presets by value, asserts
+> that 1730 clears 300 at every one of them unclamped, and asserts the floor/1×–2×
+> mechanism that produces the swing. Before this, the DPI guard covered 1:24,000 only
+> — the single preset that passes — so a change to any other preset's print
+> resolution was invisible to the suite.
 
 ## Phase 1: Print Geometry
 Build the Docker-hosted React/Vite/shadcn/Tailwind web app skeleton, define the outdoor field-guide visual system, accept bounding boxes, create page grid, generate overview and detail pages, and validate Letter-size PDF output from the preferred client-side React PDF path.
