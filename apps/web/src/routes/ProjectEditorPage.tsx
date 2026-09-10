@@ -565,7 +565,7 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
             <section className="border-b border-bark-300 pb-5">
               <LandmarkImportControl
                 projectId={projectId}
-                hasExtent={project.extent !== null}
+                extent={project.extent}
               />
             </section>
 
