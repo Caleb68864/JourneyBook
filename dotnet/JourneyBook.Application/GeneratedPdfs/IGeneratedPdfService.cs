@@ -39,4 +39,31 @@ public interface IGeneratedPdfService
     /// each path-confined on-disk artifact, and return the number of records removed.
     /// </summary>
     Task<int> PruneExpiredAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Mark every record still at <c>Pending</c> or <c>Rendering</c> as <c>Failed</c>,
+    /// with <paramref name="reason"/> as its <c>ErrorMessage</c>, and return how many
+    /// were changed.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is startup reconciliation, and it is sound only because the render queue is
+    /// <b>in-process</b> (a <c>Channel</c> inside this host, ADR 0005): at the moment
+    /// the host starts, nothing is rendering, so a row claiming to be
+    /// <c>Pending</c> or <c>Rendering</c> is by definition wreckage from a previous
+    /// process rather than work in flight. Running a second API instance against the
+    /// same database would break that premise — it would fail the other instance's
+    /// live renders — and would need a lease or an owner column first.
+    /// </para>
+    /// <para>
+    /// The shutdown path (<c>RenderJobProcessor.FailQueuedJobsAsync</c>) already covers
+    /// an orderly <c>SIGTERM</c>. It cannot cover a <c>SIGKILL</c>, an OOM kill, a
+    /// container crash or power loss, and retention cannot either: <c>PruneExpiredAsync</c>
+    /// only removes rows past their 30-day <c>ExpiresAt</c>, and a row stranded ten
+    /// seconds ago is not expired. Without this, such a row sat at <c>Pending</c> for
+    /// the full retention window while the client polled it 900 times and then told the
+    /// user the render was still running.
+    /// </para>
+    /// </remarks>
+    Task<int> FailStrandedAsync(string reason, CancellationToken ct = default);
 }

@@ -3,7 +3,9 @@ using System.Net.Http.Json;
 using System.Text.Json.Nodes;
 using JourneyBook.Application.GeneratedPdfs;
 using JourneyBook.Application.Projects;
+using JourneyBook.Domain;
 using JourneyBook.Infrastructure.Persistence;
+using JourneyBook.Infrastructure.Rendering;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -138,6 +140,78 @@ public class GeneratedPdfsApiTests(PostgisApiFactory factory) : IClassFixture<Po
     {
         var get = await _client.GetAsync($"/api/generated-pdfs/{Guid.NewGuid()}");
         Assert.Equal(HttpStatusCode.NotFound, get.StatusCode);
+    }
+
+    /// <summary>
+    /// Startup reconciliation, against the real database: the query, not the caller.
+    /// </summary>
+    /// <remarks>
+    /// The strand was fixed only for a graceful shutdown. After a <c>SIGKILL</c>, an
+    /// OOM kill, a container crash or power loss there is no shutdown path at all, and
+    /// retention cannot stand in for one: <c>PruneExpiredAsync</c> selects on
+    /// <c>ExpiresAt &lt; now</c>, and a row a crash stranded ten seconds ago carries a
+    /// 30-day <c>ExpiresAt</c> and is not expired. Every row below has a **future**
+    /// expiry for exactly that reason — prune would not touch one of them.
+    /// </remarks>
+    [Fact]
+    public async Task Fail_stranded_moves_pending_and_rendering_rows_and_leaves_finished_ones()
+    {
+        var projectId = await CreateProjectAsync("Crash Wreckage");
+
+        async Task<Guid> RowAsync(string? status)
+        {
+            var post = await _client.PostAsJsonAsync($"/api/projects/{projectId}/generated-pdfs",
+                new CreateGeneratedPdfRequest());
+            var row = await post.Content.ReadFromJsonAsync<GeneratedPdfResponse>();
+            Assert.NotNull(row);
+            if (status is not null)
+            {
+                var put = await _client.PutAsJsonAsync($"/api/generated-pdfs/{row!.Id}/status",
+                    new UpdateGeneratedPdfStatusRequest(status, "data/generated/atlas.pdf"));
+                Assert.Equal(HttpStatusCode.OK, put.StatusCode);
+            }
+            return row!.Id;
+        }
+
+        var pending = await RowAsync(null);            // never started
+        var rendering = await RowAsync("Rendering");   // died mid-render
+        var completed = await RowAsync("Completed");   // finished before the crash
+
+        // The fixture reached the subject: these are the states the sweep must
+        // distinguish, and they really are in the database in those states.
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<JourneyBookDbContext>();
+            Assert.Equal(PdfStatus.Pending, (await db.GeneratedPdfs.FirstAsync(g => g.Id == pending)).Status);
+            Assert.Equal(PdfStatus.Rendering, (await db.GeneratedPdfs.FirstAsync(g => g.Id == rendering)).Status);
+            // Not expired — prune would leave every one of these alone.
+            Assert.True(
+                await db.GeneratedPdfs.Where(g => g.Id == pending).AllAsync(g => g.ExpiresAt > DateTimeOffset.UtcNow),
+                "a crash-stranded row is not an expired row; that is the whole point");
+        }
+
+        int swept;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var pdfs = scope.ServiceProvider.GetRequiredService<IGeneratedPdfService>();
+            swept = await pdfs.FailStrandedAsync(RenderJobProcessor.StrandedByRestartMessage);
+        }
+        Assert.True(swept >= 2, $"sweep reconciled {swept} row(s); expected at least the two above");
+
+        var strandedRow = await _client.GetFromJsonAsync<GeneratedPdfResponse>($"/api/generated-pdfs/{pending}");
+        Assert.Equal("Failed", strandedRow!.Status);
+        Assert.Equal(RenderJobProcessor.StrandedByRestartMessage, strandedRow.ErrorMessage);
+
+        var midRender = await _client.GetFromJsonAsync<GeneratedPdfResponse>($"/api/generated-pdfs/{rendering}");
+        Assert.Equal("Failed", midRender!.Status);
+        // A half-written file is not a download.
+        Assert.Null(midRender.FilePath);
+
+        // A finished render is not wreckage.
+        var done = await _client.GetFromJsonAsync<GeneratedPdfResponse>($"/api/generated-pdfs/{completed}");
+        Assert.Equal("Completed", done!.Status);
+        Assert.Equal("data/generated/atlas.pdf", done.FilePath);
+        Assert.Null(done.ErrorMessage);
     }
 
     [Fact]

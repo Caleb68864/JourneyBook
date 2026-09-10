@@ -112,6 +112,28 @@ public class GeneratedPdfService : IGeneratedPdfService
         return expired.Count;
     }
 
+    /// <inheritdoc />
+    public async Task<int> FailStrandedAsync(string reason, CancellationToken ct = default)
+    {
+        var stranded = await _db.GeneratedPdfs
+            .Where(g => g.Status == PdfStatus.Pending || g.Status == PdfStatus.Rendering)
+            .ToListAsync(ct);
+
+        if (stranded.Count == 0) return 0;
+
+        foreach (var pdf in stranded)
+        {
+            pdf.Status = PdfStatus.Failed;
+            pdf.ErrorMessage = reason;
+            // No artifact to keep: a Pending row never had one, and a Rendering row's
+            // file is a partial write the worker never finished or announced.
+            pdf.FilePath = null;
+        }
+
+        await _db.SaveChangesAsync(ct);
+        return stranded.Count;
+    }
+
     // --- helpers ----------------------------------------------------------
 
     /// <summary>
