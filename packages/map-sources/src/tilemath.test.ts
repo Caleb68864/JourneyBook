@@ -7,7 +7,10 @@ import {
   buildLocationPage,
   effectiveDpi,
   panelWidthPxForDpi,
+  panelWidthPxFor,
   PRINT_DPI_TARGET,
+  type PageSpec,
+  type ScalePreset,
 } from "@journeybook/atlas-core";
 import {
   TILE_SIZE,
@@ -283,5 +286,214 @@ describe("web mercator tile math", () => {
     );
     expect(centre[0]).toBeCloseTo(0.5, 2);
     expect(centre[1]).toBeCloseTo(0.5, 2);
+  });
+});
+
+/**
+ * Delivered print resolution once each preset asks for its OWN panel width.
+ *
+ * The suite above pins what the flat 1000 px default delivered. This block pins
+ * what the per-preset widths deliver, and — the part nothing in this repo had
+ * ever measured — how much of that is a property of the product versus an
+ * artefact of the one point everything was measured at.
+ *
+ * Two hidden variables were being held constant by the fixture:
+ *
+ *  - **Latitude.** Web Mercator ground resolution scales with cos(lat), so a page
+ *    of fixed ground size spans a different number of tile pixels at a different
+ *    latitude and `zoomForBBox` can pick a different zoom for the same preset at
+ *    the same target width. Delivered DPI is only ever guaranteed to fall in
+ *    `[target/box, 2 x target/box)`; WHERE in that band is an accident. Every
+ *    "1:24,000 prints at 338 DPI" statement in this repo is a statement about
+ *    41 degrees N. Its real band at 1000 px across the USGS Topo latitude range
+ *    is **174-346 DPI**.
+ *  - **Orientation.** Landscape has an 8.2639 in map box instead of 5.7639 in, so
+ *    a flat pixel count is a weaker DPI request there. That is why the preset's
+ *    number goes through `panelWidthPxFor` rather than being used raw.
+ */
+describe("delivered print resolution at each preset's own panel width", () => {
+  const widthPxAt = (bbox: BBox, zoom: number): number => {
+    const midLat = (bbox[1] + bbox[3]) / 2;
+    return (
+      lngLatToGlobalPixel(bbox[2], midLat, zoom).x - lngLatToGlobalPixel(bbox[0], midLat, zoom).x
+    );
+  };
+
+  /** USGS Topo's deepest zoom — the ceiling every one of these renders lives inside. */
+  const USGS_TOPO_MAX_ZOOM = 16;
+  const LETTER_LANDSCAPE: PageSpec = { ...LETTER_PORTRAIT, orientation: "landscape" };
+
+  /**
+   * The USGS Topo coverage band, in degrees north: Puerto Rico / Hawaii at the
+   * low end, northern Alaska at the high end. Sampling outside it would pin
+   * numbers for pages this basemap has no tiles for.
+   */
+  const US_LAT_MIN = 18;
+  const US_LAT_MAX = 72;
+
+  function deliveredAt(scale: ScalePreset, page: PageSpec, lat: number, targetOverride?: number) {
+    const boxW = mapBoxInches(page).widthIn;
+    const bbox = buildLocationPage({ lng: -98, lat }, scale, page, "L1").bbox;
+    // Default: what the render pipeline actually asks for. An override lets a
+    // case measure a width the product does NOT use — e.g. the flat-width
+    // counterfactual below — without pretending the preset carries it.
+    const target = targetOverride ?? panelWidthPxFor(scale, page);
+    const wanted = zoomForBBox(bbox, target);
+    const zoom = Math.min(wanted, USGS_TOPO_MAX_ZOOM);
+    return {
+      target,
+      zoom,
+      clamped: wanted > USGS_TOPO_MAX_ZOOM,
+      dpi: effectiveDpi(widthPxAt(bbox, zoom), boxW),
+    };
+  }
+
+  /** Min/max delivered DPI across the coverage band, and whether anything clamped. */
+  function band(scale: ScalePreset, page: PageSpec, targetOverride?: number) {
+    let min = Infinity;
+    let max = -Infinity;
+    let clampedAnywhere = false;
+    let samples = 0;
+    for (let lat = US_LAT_MIN; lat <= US_LAT_MAX; lat += 0.25) {
+      const got = deliveredAt(scale, page, lat, targetOverride);
+      min = Math.min(min, got.dpi);
+      max = Math.max(max, got.dpi);
+      clampedAnywhere ||= got.clamped;
+      samples++;
+    }
+    return { min, max, clampedAnywhere, samples };
+  }
+
+  it("[CONTROL] the latitude sweep actually sweeps", () => {
+    // Every band assertion below is vacuously true over an empty sweep, and an
+    // empty sweep is one typo away (a `<` for a `<=`, a step of 0). 217 samples
+    // at 0.25 deg over 18-72 deg.
+    const swept = band(SCALE_PRESETS[0]!, LETTER_PORTRAIT);
+    expect(swept.samples).toBe(217);
+    expect(swept.max).toBeGreaterThan(swept.min);
+  });
+
+  /**
+   * The decision, pinned by value at the point everything else in this repo is
+   * measured at (41 deg N, Letter portrait): four presets raised, one left alone.
+   */
+  it("[BEHAVIORAL] pins each preset's width, zoom and delivered DPI at 41N portrait", () => {
+    const expected: Record<string, { target: number; zoom: number; dpi: number }> = {
+      "usgs-7-5-min": { target: 1000, zoom: 16, dpi: 338 },
+      "1-25000": { target: 1730, zoom: 16, dpi: 352 },
+      "usgs-15-min": { target: 1730, zoom: 15, dpi: 440 },
+      "1-50000": { target: 1730, zoom: 15, dpi: 352 },
+      "1-100000": { target: 1730, zoom: 14, dpi: 352 },
+    };
+    for (const scale of SCALE_PRESETS) {
+      const got = deliveredAt(scale, LETTER_PORTRAIT, 41);
+      const want = expected[scale.id]!;
+      expect(got.target, `${scale.id} target width`).toBe(want.target);
+      expect(got.zoom, `${scale.id} zoom`).toBe(want.zoom);
+      expect(Math.round(got.dpi), `${scale.id} DPI`).toBe(want.dpi);
+    }
+  });
+
+  it("1:24,000 still renders exactly as it did — same width, same zoom, same DPI", () => {
+    // Half two of the owner's decision, asserted on its own so a regression that
+    // quietly widens the headline preset names itself.
+    const got = deliveredAt(SCALE_PRESETS[0]!, LETTER_PORTRAIT, 41);
+    expect(SCALE_PRESETS[0]!.id).toBe("usgs-7-5-min");
+    expect(got.target).toBe(1000);
+    expect(got.zoom).toBe(16);
+    expect(Math.round(got.dpi)).toBe(338);
+  });
+
+  /**
+   * Half one, as a PROPERTY rather than a single point: the three coarse presets
+   * clear 300 DPI at every latitude USGS Topo covers, in BOTH orientations.
+   * 1:25,000 is excluded here and pinned separately below — it is one of the two
+   * presets the z16 ceiling stops short.
+   */
+  it("the raised presets that can clear 300 DPI do so across the whole coverage band", () => {
+    for (const page of [LETTER_PORTRAIT, LETTER_LANDSCAPE]) {
+      for (const id of ["usgs-15-min", "1-50000", "1-100000"]) {
+        const scale = SCALE_PRESETS.find((s) => s.id === id)!;
+        const got = band(scale, page);
+        expect(
+          got.min,
+          `${id} ${page.orientation}: worst delivered ${got.min.toFixed(0)} DPI`,
+        ).toBeGreaterThanOrEqual(PRINT_DPI_TARGET);
+      }
+    }
+  });
+
+  /**
+   * The limit, recorded rather than wished away.
+   *
+   * `1-25000` was raised to the full 300 DPI request and STILL cannot reach 300
+   * DPI in the southern half of the USGS Topo coverage, because the source has no
+   * z17: at 18 deg N the page needs one zoom deeper than exists and is clamped to
+   * 279 DPI. That is a basemap limit, not a width choice — the previous pass's
+   * "1730 clears 300 DPI at every preset, nothing is clamped" was true only at
+   * 41 deg N.
+   *
+   * Pinned as a negative on purpose: if USGS ever ships z17, this fails and
+   * someone re-reads the paragraph instead of inheriting the caveat forever.
+   */
+  it("[BEHAVIORAL] pins the preset the z16 ceiling stops short even after the raise", () => {
+    const scale = SCALE_PRESETS.find((s) => s.id === "1-25000")!;
+    const got = band(scale, LETTER_PORTRAIT);
+    expect(Math.round(got.min), "1-25000 worst delivered DPI").toBe(279);
+    expect(got.min, "1-25000 unexpectedly clears the target everywhere").toBeLessThan(
+      PRINT_DPI_TARGET,
+    );
+    expect(got.clampedAnywhere, "1-25000 should be clamped by the z16 ceiling somewhere").toBe(true);
+  });
+
+  /**
+   * What the `usgs-7-5-min` exception actually costs in reachable quality:
+   * **nothing**. Raising it to the full 300 DPI request would still leave it
+   * short across the southern half of the coverage — 268 DPI at 18 deg N,
+   * clamped by the same missing z17 — so the decision to leave it at 1000 px is
+   * not trading resolution the product could otherwise have had. It trades the
+   * 41 deg N band (174-346 -> 268-597) for ~3x the tiles at latitudes where 1000
+   * px currently lands a zoom shallower.
+   *
+   * This is measured through the same engine as everything else, not asserted
+   * from the decision that produced it.
+   */
+  it("[BEHAVIORAL] raising 1:24,000 to the 300 DPI request would still not clear 300 DPI", () => {
+    const scale = SCALE_PRESETS.find((s) => s.id === "usgs-7-5-min")!;
+    const raisedWidth = panelWidthPxForDpi(mapBoxInches(LETTER_PORTRAIT).widthIn, PRINT_DPI_TARGET);
+    const got = band(scale, LETTER_PORTRAIT, raisedWidth);
+    expect(Math.round(got.min), "1:24,000 worst delivered DPI at 1730 px").toBe(268);
+    expect(got.min).toBeLessThan(PRINT_DPI_TARGET);
+    expect(got.clampedAnywhere).toBe(true);
+  });
+
+  /**
+   * The correction to the headline number. "1:24,000 prints at 338 DPI" is one
+   * latitude; the product's actual range at the default width is 174-346.
+   */
+  it("[BEHAVIORAL] pins 1:24,000's real DPI band at the default width, not its 41N value", () => {
+    const got = band(SCALE_PRESETS[0]!, LETTER_PORTRAIT);
+    expect(Math.round(got.min)).toBe(174);
+    expect(Math.round(got.max)).toBe(346);
+    // And 338 is inside that band rather than being it.
+    expect(338).toBeGreaterThan(Math.round(got.min));
+    expect(338).toBeLessThan(Math.round(got.max));
+  });
+
+  /**
+   * Why the preset's number is rescaled instead of used raw. A flat 1730 px on a
+   * landscape sheet is a 30% weaker DPI request, and clears 300 at no preset at
+   * all — the exact silent-portrait-only pin this block exists to prevent.
+   */
+  it("a flat panel width would clear 300 DPI at no preset in landscape", () => {
+    const flat = panelWidthPxForDpi(mapBoxInches(LETTER_PORTRAIT).widthIn, PRINT_DPI_TARGET);
+    for (const scale of SCALE_PRESETS) {
+      // Measured over the coverage band, not at one latitude: at 41 deg N a flat
+      // 1730 px does clear 300 DPI for 1:24,000, which is precisely the kind of
+      // single-point evidence this block exists to stop being mistaken for a
+      // property.
+      const got = band(scale, LETTER_LANDSCAPE, flat);
+      expect(got.min, `${scale.id} at a flat ${flat}px landscape`).toBeLessThan(PRINT_DPI_TARGET);
+    }
   });
 });
