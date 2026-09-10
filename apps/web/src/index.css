@@ -24,20 +24,32 @@
   --color-moss-500: #6f8b66;
   --color-moss-300: #a9bda0;
 
-  /* Bark brown — borders, rules, map furniture */
+  /* Bark brown — borders, rules, map furniture.
+     500/300/200 were used 41 times across the app and defined nowhere: Tailwind v4
+     emits a utility only for a token in this block, so `border border-bark-300`
+     produced NO rule and every panel fell back to the preflight border colour.
+     The ramp below continues the existing 700→600→400 step arithmetically. */
   --color-bark-700: #4a361f;
   --color-bark-600: #6b4f36;
+  --color-bark-500: #836548;
   --color-bark-400: #9c7c5a;
+  --color-bark-300: #b5926c;
+  --color-bark-200: #cea87e;
 
   /* Parchment / cream — page + panel surfaces */
   --color-parchment-300: #e4d8bd;
   --color-parchment-200: #ede4cf;
+  --color-parchment-100: #f3ecdd;
   --color-cream-100: #f7f2e7;
   --color-cream-50: #fbf8f0;
 
-  /* Accents — sparing: campfire orange (routes/active), trail-marker yellow */
+  /* Accents — sparing: campfire orange (routes/active), trail-marker yellow.
+     campfire-700 is the over-limit alarm colour; it was rendering as ordinary
+     body text. campfire-50 is the tint behind the pending-box confirm bar. */
+  --color-campfire-700: #ab480f;
   --color-campfire-600: #c25e1d;
   --color-campfire-500: #d9742b;
+  --color-campfire-50: #fdf0e6;
   --color-trail-500: #e6b422;
 
   /* Charcoal — serious map text / print clarity */

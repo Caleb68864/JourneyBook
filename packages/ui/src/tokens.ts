@@ -20,19 +20,25 @@ export const palette = {
   bark: {
     700: "#4a361f",
     600: "#6b4f36",
+    500: "#836548",
     400: "#9c7c5a",
+    300: "#b5926c",
+    200: "#cea87e",
   },
   parchment: {
     300: "#e4d8bd",
     200: "#ede4cf",
+    100: "#f3ecdd",
   },
   cream: {
     100: "#f7f2e7",
     50: "#fbf8f0",
   },
   campfire: {
+    700: "#ab480f",
     600: "#c25e1d",
     500: "#d9742b",
+    50: "#fdf0e6",
   },
   trail: {
     500: "#e6b422",
