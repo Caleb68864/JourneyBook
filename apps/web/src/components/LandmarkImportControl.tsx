@@ -1,36 +1,42 @@
 import { useState } from "react";
+import type { BBox } from "@journeybook/atlas-core";
 import { api } from "../api/client";
 
 interface LandmarkImportControlProps {
   projectId: string;
-  /** Whether the project has an extent set — import requires a bounding box. */
-  hasExtent: boolean;
+  /**
+   * The project's saved extent. Import needs one and SENDS one: the endpoint
+   * reads the bbox off the request body and never looks at the project's own
+   * extent, so a boolean "has an extent" was not enough to make the call.
+   */
+  extent: BBox | null;
   /** Called after a successful import so the parent can refresh the map/list. */
   onImported?: (count: number) => void;
 }
 
 /**
- * "Import Landmarks" action: queries the landmark import endpoint for the
- * project's extent (OSM via Overpass on the backend) and reports how many
- * curated landmarks were persisted. Mirrors the CSV-import affordance on
- * `LocationList`, but landmarks are fetched server-side from the extent — there
- * is no file to upload.
+ * "Import Landmarks" action: posts the project's extent to the landmark import
+ * endpoint (OSM via Overpass on the backend) and reports how many curated
+ * landmarks were persisted. Mirrors the CSV-import affordance on `LocationList`,
+ * but landmarks are fetched server-side — there is no file to upload.
  */
 export function LandmarkImportControl({
   projectId,
-  hasExtent,
+  extent,
   onImported,
 }: LandmarkImportControlProps) {
+  const hasExtent = extent !== null;
   const [importing, setImporting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function handleImport() {
+    if (!extent) return;
     setImporting(true);
     setMessage(null);
     setError(null);
     try {
-      const result = await api.landmarks.import(projectId);
+      const result = await api.landmarks.import(projectId, extent);
       const count = result.imported;
       setMessage(`Imported ${count} landmark${count === 1 ? "" : "s"}.`);
       onImported?.(count);
@@ -62,8 +68,11 @@ export function LandmarkImportControl({
           Set a bounding box before importing landmarks.
         </p>
       )}
-      {message && <p className="font-mono text-[11px] text-forest-700">{message}</p>}
-      {error && <p className="font-mono text-[11px] text-campfire-600">{error}</p>}
+      {/* The import is a server round trip with no other feedback. */}
+      <div aria-live="polite">
+        {message && <p className="font-mono text-[11px] text-forest-700">{message}</p>}
+        {error && <p className="font-mono text-[11px] text-campfire-600">{error}</p>}
+      </div>
     </div>
   );
 }

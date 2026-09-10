@@ -351,9 +351,14 @@ export async function renderMapPanel(
   // 2000` asks for z17 and every single tile 404s, so a request for a sharper
   // print produced no print at all. Clamping renders the deepest map the source
   // can give and reports it, which is a softer page rather than a missing one.
-  // (1000 px over 5.76 in is ~173 DPI; the roadmap's 300 DPI target needs z17,
-  // which this source does not have at this scale. That is a source limitation,
-  // and it is now visible instead of arriving as a wall of tile failures.)
+  // On the DPI, corrected 2026-09-10: this used to read "1000 px over 5.76 in is
+  // ~173 DPI; the roadmap's 300 DPI target needs z17". That treated
+  // `targetWidthPx` as the delivered width. It is not — nothing resamples; the
+  // crop below is at native tile resolution, so the panel is as wide as the bbox
+  // is at `zoom`, which is >= the target and up to 2x it. At z16 the page above
+  // is ~1947 px over 5.76 in = ~338 DPI, so the 300 DPI target IS met at z16 and
+  // z17 is not needed for it. `tilemath.test.ts` pins both numbers.
+  // What z17 would buy is headroom, and USGS Topo has none at this scale.
   const wantedZoom = zoomForBBox(bbox, targetWidthPx);
   const ceiling = options?.maxZoom ?? basemap.maxZoom;
   const zoom = ceiling === undefined ? wantedZoom : Math.min(wantedZoom, ceiling);

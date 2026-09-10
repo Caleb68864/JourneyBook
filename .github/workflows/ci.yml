@@ -71,6 +71,15 @@ jobs:
       # `tsc -b` across the project references; must precede the tests, which
       # resolve cross-package imports through each package's dist.
       - run: pnpm -r build
+      # The golden fixture, regenerated from the engine and diffed. This runs the
+      # real `buildPageGrid` against `data/fixtures/sample-atlas.json`'s recorded
+      # parameters, which is the byte-for-byte half of the claim
+      # `packages/atlas-core/src/fixture.test.ts` makes about itself. It had been
+      # referenced by no package script, no CI step and no harness check — it ran
+      # when a human remembered — while being the only thing in the repo that
+      # binds the fixture to the engine at all. Needs the build above.
+      - name: The golden fixture still matches what the engine produces
+        run: pnpm check:fixture
       # Covers test files as well as src — see typecheck-covers-tests.sh.
       - run: pnpm -r typecheck
       - name: Test files are inside the typecheck program

@@ -52,6 +52,7 @@ export function GeocodeSearch({ viewbox, onPick }: GeocodeSearchProps) {
         <input
           type="text"
           placeholder="Search an address or place…"
+          aria-label="Search an address or place"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           className="flex-1 border border-bark-400 bg-cream-50 px-3 py-1.5 font-mono text-sm text-charcoal-900 placeholder:text-bark-400 focus:outline-none focus:ring-1 focus:ring-forest-700"

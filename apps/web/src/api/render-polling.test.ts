@@ -142,3 +142,48 @@ describe("isTerminal", () => {
     expect(isTerminal("Rendering")).toBe(false);
   });
 });
+
+/**
+ * A row can be stranded at `Pending` for ever: the render queue is in-process, so
+ * an API restart with work outstanding leaves records nothing will ever pick up.
+ * The timeout message said "The render is still running — check this project's PDF
+ * history for it." Both halves are false in that case: the render is not still
+ * running (the queue died with the process) and the history has nothing to find.
+ *
+ * The distinction is available for free — the record's own status. `Rendering`
+ * means the API had the job in flight; `Pending` means it never started.
+ */
+describe("waitForRender timeout diagnostics", () => {
+  it("[BEHAVIORAL] does not claim a never-started render is still running", async () => {
+    const fetchStatus = scripted([record("Pending")]);
+    let t = 0;
+    const now = () => (t += 60_000);
+
+    const error: Error = await waitForRender("pdf-1", {
+      fetchStatus,
+      sleep: noSleep,
+      now,
+      timeoutMs: 10_000,
+    }).then(
+      () => {
+        throw new Error("waitForRender resolved a Pending record");
+      },
+      (e: unknown) => e as Error,
+    );
+
+    expect(error.message).toMatch(/queued/i);
+    expect(error.message).not.toMatch(/still running/i);
+    // It must say what to do instead of pointing at a history that has nothing.
+    expect(error.message).toMatch(/again/i);
+  });
+
+  it("still says a Rendering record may be in flight", async () => {
+    const fetchStatus = scripted([record("Rendering")]);
+    let t = 0;
+    const now = () => (t += 60_000);
+
+    await expect(
+      waitForRender("pdf-1", { fetchStatus, sleep: noSleep, now, timeoutMs: 10_000 }),
+    ).rejects.toThrow(/still running/);
+  });
+});

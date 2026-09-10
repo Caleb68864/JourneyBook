@@ -355,7 +355,7 @@ source_urls:
 > | Change | map box | 20 km pages | what it costs |
 > |---|---|---|---|
 > | baseline | 415 × 549 | **30** | — |
-> | `edgeLabelColumn` 54 → 38 | 451 × 549 | **30** (no-op) | nothing — `CONTINUE` (36.6 pt) still fits whole |
+> | `edgeLabelColumn` 54 → 38 | 447 × 549 | **30** (no-op) | nothing — `CONTINUE` (36.6 pt) still fits whole |
 > | `edgeLabelColumn` 54 → 36 | 451 × 549 | **30** (no-op) | `CONTIN-UE` hyphenates to three lines |
 > | `edgeLabelColumn` 54 → 27 | 469 × 549 | **30** (no-op, misses by 3.4 pt) | four-line labels |
 > | `edgeLabelColumn` 54 → 18 | 487 × 549 | **25** | **overflows** — `AA200` is 21 pt; needs the label reworded |
@@ -374,11 +374,64 @@ source_urls:
 > The second is unrenderable without rewording `CONTINUE WEST · A1`.
 > `MAX_ATLAS_PAGES` coverage barely moves under any of it: 3111 km² → 4268 km²
 > even with everything trimmed. **Nothing was changed**; the map box is still
-> 415 × 549 pt. Two free follow-ups if wanted: `edgeLabelColumn 54 → 38` renders
-> identically and buys +8.7% map area (and does drop a 40 km box 108 → 99), and
-> `overlap` is a far bigger lever than any of this — 5% overlap costs +17% pages.
+> 415 × 549 pt. Two follow-ups if wanted: `edgeLabelColumn 54 → 38` buys **+7.71%**
+> map area (and does drop a 40 km box 108 → 99), and `overlap` is a far bigger
+> lever than any of this.
 >
 > Suites after this pass: **239 TS** (was 223) and **95 .NET** non-Docker (was 79).
+
+> ### Corrections to the two follow-up figures above (2026-09-10)
+>
+> Both numbers reported for the follow-ups were wrong. Re-measured against the real
+> engine; the corrections are in the table and the paragraph above, and the workings
+> are here so the owner can see what changed and why.
+>
+> **1. `edgeLabelColumn` 54 → 38 is 447 × 549 pt and +7.71%, not 451 × 549 and +8.7%.**
+> The width is `415 + 2 × (54 − X)`, which the table's own 27 and 18 rows obey (469,
+> 487). For X = 38 that is 447; for X = 36 it is 451. The table listed **451 for both
+> rows, which cannot both be true** — and 451 / 415 = 1.0867, so the "+8.7%" was the
+> 54 → **36** figure, the option the same table says hyphenates `CONTIN-UE` onto three
+> lines. The safe option was being sold with the unsafe option's number. Measured:
+> baseline 415.00 × 549.00 (area 227,835 pt²), at 38 → 447.00 × 549.00 (245,403 pt²),
+> **+7.71%**. The rest of that row stands: 40 km 108 → 99 and the 20 km headline case
+> a no-op are both confirmed against `buildPageGrid`.
+>
+> **"Renders identically" was true only of the label, and has been dropped.** The
+> atlas does not render identically: the map box grows 32 pt, every page bbox moves,
+> and the change fails **11 atlas-core tests plus one render-cli PDF-measurement test
+> plus `regenerate-sample-atlas.mjs --check`**. It requires re-approving the golden
+> fixture. It is cheap, not free — "free follow-up" understated it.
+>
+> **2. "5% overlap costs +17% pages" is one extent's `ceil()` artefact, not a rate.**
+> It is right for the 20 km headline box (30 → 35 = +16.7%) and wrong as a general
+> figure. Square extents around 41°N / 98°W at 1:24,000, every size from 5 to 60 km:
+>
+> | size | 0% | 5% | delta |
+> |---|---|---|---|
+> | 7 km | 4 | 6 | **+50.0%** |
+> | 15 km | 20 | 20 | 0.0% |
+> | **20 km (the headline case)** | **30** | **35** | **+16.7%** |
+> | 26 km | 48 | 48 | 0.0% |
+> | 40 km | 108 | 130 | +20.4% |
+> | 50 km | 165 | 192 | +16.4% |
+> | **aggregate, 5–60 km** | 5006 | 5523 | **+10.3%** |
+> | theory, `(1/0.95)² − 1` | | | +10.8% |
+>
+> **19 of the 56 sizes cost exactly 0%**, because both counts are `ceil()`'d. The
+> honest headline is *"about +10% on average, anywhere from 0% to +50% depending on
+> where the extent lands relative to a page boundary."*
+>
+> **The two levers interact and cannot be decided independently.** At
+> `edgeLabelColumn` 38 the 20 km box's 5% overlap becomes **free** (30 → 30, instead
+> of 30 → 35), while the 40 km box goes 99 → 120.
+>
+> **Framing for the decision:** `overlap` defaults to 0 and there is no UI control for
+> it, so every project reachable through the web app has overlap 0 today. This is not
+> "overlap costs pages" — it is "turning on a safety feature that is currently off
+> costs pages". Until 2026-09-10 nothing in either suite verified that overlap was
+> honoured at all (halving its effect in the engine, or zeroing it on the worker wire,
+> left both suites entirely green); it is now measured as shared ground per adjacent
+> page pair, in `grid.test.ts` and `HttpRenderWorkerClientTests`.
 
 ## Phase 1: Print Geometry
 Build the Docker-hosted React/Vite/shadcn/Tailwind web app skeleton, define the outdoor field-guide visual system, accept bounding boxes, create page grid, generate overview and detail pages, and validate Letter-size PDF output from the preferred client-side React PDF path.

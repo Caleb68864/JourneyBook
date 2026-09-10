@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { DEFAULT_SCALE_PRESET_ID } from "@journeybook/atlas-core";
 import { api, type Project } from "../api/client";
+import { buildProjectExport, parseProjectImport } from "../lib/project-transfer";
 
 interface ProjectListPageProps {
   onOpen: (projectId: string) => void;
@@ -66,21 +67,11 @@ export function ProjectListPage({ onOpen }: ProjectListPageProps) {
     setError(null);
     try {
       const locs = await api.locations.list(proj.id);
-      const data = {
-        version: 1,
-        project: {
-          name: proj.name,
-          scalePresetId: proj.scalePresetId,
-          orientation: proj.orientation,
-          overlap: proj.overlap,
-          extent: proj.extent,
-        },
-        locations: locs.map((l) => ({
-          name: l.name, lng: l.lng, lat: l.lat, notes: l.notes,
-          scalePresetId: l.scalePresetId, pinShape: l.pinShape, pinColor: l.pinColor,
-          zoomLevels: l.zoomLevels,
-        })),
-      };
+      // Shape and parsing live in lib/project-transfer.ts so the round trip is
+      // testable: this used to drop `margins` on the way out and `orientation` +
+      // `overlap` on the way back in, and since the page-setup fix all three
+      // change the printed atlas.
+      const data = buildProjectExport(proj, locs);
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -99,14 +90,14 @@ export function ProjectListPage({ onOpen }: ProjectListPageProps) {
     if (!file) return;
     setError(null);
     try {
-      const data = JSON.parse(await file.text()) as {
-        project?: { name?: string; scalePresetId?: string; extent?: [number, number, number, number] | null };
-        locations?: Array<{ name: string; lng: number; lat: number; notes?: string | null; scalePresetId?: string | null; pinShape?: string | null; pinColor?: string | null; zoomLevels?: string[] | null }>;
-      };
-      const p = data.project ?? {};
-      const proj = await api.projects.create(p.name ?? "Imported Atlas", p.scalePresetId ?? DEFAULT_SCALE_PRESET_ID);
-      if (p.extent) await api.projects.setExtent(proj.id, p.extent);
-      for (const l of data.locations ?? []) {
+      const parsed = parseProjectImport(JSON.parse(await file.text()));
+      let proj = await api.projects.create(parsed.name, parsed.scalePresetId);
+      // POST /projects takes only name + scale, so the page setup the file carried
+      // is restored with a follow-up PUT. Skipped entirely when the file predates
+      // page-setup export: importing an absent overlap as 0 would be a silent edit.
+      if (parsed.pageSetup) proj = await api.projects.patch(proj, parsed.pageSetup);
+      if (parsed.extent) proj = await api.projects.setExtent(proj.id, parsed.extent);
+      for (const l of parsed.locations) {
         const created = await api.locations.create(proj.id, l.name, l.lng, l.lat, l.notes ?? undefined, l.scalePresetId ?? undefined);
         // create() takes no pin or ladder, so restore those with a follow-up PUT.
         // PUT replaces the whole record, so resend everything create() already set
@@ -132,9 +123,13 @@ export function ProjectListPage({ onOpen }: ProjectListPageProps) {
         <div className="mx-auto flex max-w-4xl items-center justify-between">
           <span className="font-display text-xl text-forest-700">Journey Book</span>
           <div className="flex items-center gap-3">
-            <label className="cursor-pointer border border-bark-400 px-3 py-2 font-mono text-xs uppercase tracking-widest text-bark-600 hover:bg-parchment-300">
+            {/* sr-only, not hidden: `hidden` is display:none, so the input was not
+                focusable, and a <label> is never in the tab order — project import
+                could not be reached at all without a mouse. focus-within puts the
+                ring on the label, which is what the user actually sees. */}
+            <label className="cursor-pointer border border-bark-400 px-3 py-2 font-mono text-xs uppercase tracking-widest text-bark-600 hover:bg-parchment-300 focus-within:ring-2 focus-within:ring-forest-700">
               Import
-              <input type="file" accept=".json,application/json" onChange={(e) => void handleImport(e)} className="hidden" />
+              <input type="file" accept=".json,application/json" onChange={(e) => void handleImport(e)} className="sr-only" />
             </label>
             <button
               type="button"
@@ -155,10 +150,11 @@ export function ProjectListPage({ onOpen }: ProjectListPageProps) {
             className="mb-6 flex items-end gap-3 border border-bark-300 bg-cream-100 p-4"
           >
             <div className="flex flex-1 flex-col gap-1">
-              <label className="font-mono text-[11px] uppercase tracking-widest text-bark-600">
+              <label htmlFor="new-atlas-name" className="font-mono text-[11px] uppercase tracking-widest text-bark-600">
                 Atlas Name
               </label>
               <input
+                id="new-atlas-name"
                 type="text"
                 autoFocus
                 value={newName}
@@ -184,9 +180,11 @@ export function ProjectListPage({ onOpen }: ProjectListPageProps) {
           </form>
         )}
 
-        {error && (
-          <p className="mb-4 font-mono text-sm text-campfire-600">{error}</p>
-        )}
+        <div aria-live="polite">
+          {error && (
+            <p className="mb-4 font-mono text-sm text-campfire-600">{error}</p>
+          )}
+        </div>
 
         {loading ? (
           <p className="font-mono text-sm text-bark-500">Loading…</p>

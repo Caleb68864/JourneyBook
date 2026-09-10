@@ -1,3 +1,4 @@
+import { useId } from "react";
 import type { MapTier } from "@journeybook/atlas-core";
 
 /**
@@ -22,12 +23,16 @@ interface TierPickerProps {
 }
 
 export function TierPicker({ value, onChange, disabled }: TierPickerProps) {
+  // See ScalePicker: the label was a sibling with no htmlFor, so the control had
+  // no accessible name.
+  const id = useId();
   return (
     <div className="flex flex-col gap-1">
-      <label className="font-mono text-[11px] uppercase tracking-widest text-bark-600">
+      <label htmlFor={id} className="font-mono text-[11px] uppercase tracking-widest text-bark-600">
         Map Tier
       </label>
       <select
+        id={id}
         value={value}
         onChange={(e) => onChange(Number(e.target.value) as MapTier)}
         disabled={disabled}

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -83,6 +84,13 @@ public class HttpRenderWorkerClientTests
         Assert.True(root.TryGetProperty("margins", out var margins));
         Assert.Equal(0.5, margins.GetProperty("left").GetDouble());
         Assert.Equal("portrait", root.GetProperty("orientation").GetString());
+
+        // So must overlap. These tests SUPPLIED 0.05 and never looked at it, so
+        // hardcoding `Overlap: 0` on the wire left 95 of 95 .NET tests green —
+        // the margins bug's exact shape on the very next field of the same
+        // payload, with one difference: the margins tests at least asserted
+        // absence (visibly wrong), while overlap was simply never read.
+        Assert.Equal(0.05, root.GetProperty("overlap").GetDouble());
 
         Assert.Equal("atlas-x.pdf", result.OutputPath);
         Assert.Equal(1, result.PageCount);
@@ -332,5 +340,114 @@ public class HttpRenderWorkerClientTests
             Extent: null, Locations: [], OutputFileName: "atlas-empty.pdf");
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => client.RenderAsync(req));
+    }
+
+    /// <summary>
+    /// Overlap is the width of the strip of ground two adjacent pages both carry —
+    /// the thing that stops a feature falling into a seam and a pinhole opening
+    /// where four pages meet. It reaches the engine only through this field, in
+    /// both payload branches, and nothing used to read it back.
+    /// </summary>
+    [Theory]
+    [InlineData(0.0)]
+    [InlineData(0.05)]
+    [InlineData(0.25)]
+    public async Task Overlap_reaches_the_worker_unchanged_in_both_payload_branches(double overlap)
+    {
+        var (bboxClient, bboxHandler) = Build();
+        await bboxClient.RenderAsync(new RenderWorkerRequest(
+            ScalePresetId: "usgs-7-5-min", Tier: 2, Orientation: "Portrait", Overlap: overlap,
+            Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
+            Extent: new RenderBBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Locations: [], OutputFileName: "atlas-overlap-bbox.pdf"));
+
+        using (var doc = JsonDocument.Parse(bboxHandler.CapturedBody!))
+        {
+            Assert.Equal(overlap, doc.RootElement.GetProperty("overlap").GetDouble());
+        }
+
+        // The location branch builds its payload separately — a fix applied to one
+        // branch only is a fix applied to half the product (see the margins/gutter
+        // test above, which exists for the same reason).
+        var (locationClient, locationHandler) = Build();
+        await locationClient.RenderAsync(new RenderWorkerRequest(
+            ScalePresetId: "usgs-7-5-min", Tier: 2, Orientation: "Portrait", Overlap: overlap,
+            Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
+            Extent: null,
+            Locations: [new RenderLocationDto(-96.70, 40.81, "Home")],
+            OutputFileName: "atlas-overlap-loc.pdf",
+            Cover: true));
+
+        using (var doc = JsonDocument.Parse(locationHandler.CapturedBody!))
+        {
+            Assert.Equal(overlap, doc.RootElement.GetProperty("overlap").GetDouble());
+        }
+    }
+
+    // ── The client's own timeout ─────────────────────────────────────────────
+
+    /// <summary>Never answers, so the only thing that can end the call is the timeout.</summary>
+    private sealed class NeverAnsweringHandler : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            await Task.Delay(Timeout.Infinite, cancellationToken);
+            throw new UnreachableException();
+        }
+    }
+
+    [Fact]
+    public async Task A_worker_that_never_answers_reports_a_timeout_not_a_cancellation()
+    {
+        using var http = new HttpClient(new NeverAnsweringHandler())
+        {
+            BaseAddress = new Uri("http://render-worker:8090"),
+            Timeout = TimeSpan.FromMilliseconds(250),
+        };
+        var client = new HttpRenderWorkerClient(http);
+
+        var req = new RenderWorkerRequest(
+            ScalePresetId: "usgs-7-5-min", Tier: 1, Orientation: "Portrait", Overlap: 0,
+            Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
+            Extent: new RenderBBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Locations: [], OutputFileName: "atlas-slow.pdf");
+
+        // HttpClient signals its OWN timeout as TaskCanceledException — an
+        // OperationCanceledException. Left as-is it travels all the way to
+        // RenderJobRunner's catch, which reports every OperationCanceledException as
+        // "the service shut down or the job was aborted". Nothing shut down and
+        // nobody aborted: the API gave up on the worker. Name it here, where the
+        // deadline actually lives and the number is known.
+        var ex = await Assert.ThrowsAsync<TimeoutException>(() => client.RenderAsync(req));
+
+        Assert.Contains("timed out", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("RenderWorker:TimeoutSeconds", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("0.25", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_caller_cancelling_is_still_a_cancellation_not_a_timeout()
+    {
+        using var http = new HttpClient(new NeverAnsweringHandler())
+        {
+            BaseAddress = new Uri("http://render-worker:8090"),
+            Timeout = TimeSpan.FromMinutes(15),
+        };
+        var client = new HttpRenderWorkerClient(http);
+        using var cts = new CancellationTokenSource();
+
+        var req = new RenderWorkerRequest(
+            ScalePresetId: "usgs-7-5-min", Tier: 1, Orientation: "Portrait", Overlap: 0,
+            Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
+            Extent: new RenderBBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Locations: [], OutputFileName: "atlas-cancelled.pdf");
+
+        var call = client.RenderAsync(req, cts.Token);
+        await cts.CancelAsync();
+
+        // Host shutdown must keep its own diagnosis: only a deadline the caller did
+        // not ask for is a timeout.
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => call);
     }
 }

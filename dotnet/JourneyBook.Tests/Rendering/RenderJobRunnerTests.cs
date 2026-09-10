@@ -24,9 +24,17 @@ public class RenderJobRunnerTests
     {
         public List<UpdateGeneratedPdfStatusRequest> Updates { get; } = [];
 
+        /// <summary>Make the Nth status write (0-based) throw, e.g. a row deleted underneath us.</summary>
+        public int? FailOnUpdate { get; set; }
+
         public Task<GeneratedPdfResponse?> UpdateStatusAsync(
             Guid id, UpdateGeneratedPdfStatusRequest request, CancellationToken ct = default)
         {
+            if (FailOnUpdate == Updates.Count)
+            {
+                Updates.Add(request);
+                throw new InvalidOperationException("Row vanished between accept and dequeue.");
+            }
             Updates.Add(request);
             return Task.FromResult<GeneratedPdfResponse?>(null);
         }
@@ -161,5 +169,50 @@ public class RenderJobRunnerTests
         // for the rest of its retention window.
         Assert.Equal("Failed", pdfs.Updates[^1].Status);
         Assert.Contains("cancelled", pdfs.Updates[^1].ErrorMessage, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// <c>RenderJobProcessor</c>'s comment says "RunAsync marks the record Failed on
+    /// any throw, so a job that blows up must not also take the loop down" — and calls
+    /// its own catch "the belt to that braces". But the FIRST status write sat outside
+    /// the try, so a throw from it (row deleted between accept and dequeue, a DB blip)
+    /// escaped uncaught, was swallowed by the processor's belt, and left the row at
+    /// <c>Pending</c> for ever. The comment was wrong about the exact case it was
+    /// written for.
+    /// </summary>
+    [Fact]
+    public async Task A_failure_writing_Rendering_still_leaves_the_record_Failed()
+    {
+        var pdfs = new RecordingPdfService { FailOnUpdate = 0 };
+        var worker = new StubWorkerClient(req => new RenderWorkerResult(req.OutputFileName, 1, null));
+
+        await RunnerFor(pdfs, worker).RunAsync(SampleJob());
+
+        // Not rethrown, and not left Pending.
+        Assert.Equal("Failed", pdfs.Updates[^1].Status);
+        Assert.Contains("Row vanished", pdfs.Updates[^1].ErrorMessage);
+        // The worker must not have been called: we never got the job into Rendering.
+        Assert.False(worker.WasCalled);
+    }
+
+    [Fact]
+    public async Task Reports_our_own_deadline_as_a_timeout_not_as_a_shutdown()
+    {
+        var pdfs = new RecordingPdfService();
+        // What HttpClient.Timeout throws: a TaskCanceledException wrapping a
+        // TimeoutException, with nobody's cancellation token cancelled.
+        var worker = new StubWorkerClient(_ => throw new TaskCanceledException(
+            "The request was canceled due to the configured HttpClient.Timeout of 120 seconds elapsing.",
+            new TimeoutException()));
+
+        // Note the *uncancelled* token: the host is healthy, the job was not aborted.
+        await RunnerFor(pdfs, worker).RunAsync(SampleJob(), CancellationToken.None);
+
+        Assert.Equal("Failed", pdfs.Updates[^1].Status);
+        var message = pdfs.Updates[^1].ErrorMessage!;
+        Assert.Contains("timed out", message, StringComparison.OrdinalIgnoreCase);
+        // "the service shut down or the job was aborted" is the sentence the user got
+        // for the API's own two-minute cap. Neither half of it was true.
+        Assert.DoesNotContain("shut down", message, StringComparison.OrdinalIgnoreCase);
     }
 }

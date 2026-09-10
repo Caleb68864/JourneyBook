@@ -2,13 +2,13 @@ import { useCallback, useEffect, useState } from "react";
 import {
   DEFAULT_MAP_TIER,
   DEFAULT_SCALE_PRESET_ID,
-  LETTER_PORTRAIT,
   MAX_ATLAS_PAGES,
   SCALE_PRESETS,
-  buildPageGrid,
   enclosingBBox,
 } from "@journeybook/atlas-core";
 import type { BBox, LngLat, MapTier } from "@journeybook/atlas-core";
+import { estimatePages } from "../lib/page-estimate";
+import { describePdfHistoryEntry } from "../lib/pdf-history";
 import { api, type Location, type Project, type GeneratedPdf } from "../api/client";
 import { MapPreview } from "../components/MapPreview";
 import { ScalePicker } from "../components/ScalePicker";
@@ -354,22 +354,19 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
   const hasGeometry = project.extent !== null || locations.length > 0;
 
   // Page count for a bbox at the project's scale — comes straight from the engine
-  // (buildPageGrid), not reimplemented here (ADR 0004). Used to warn/block before a
+  // (pageGridSize), not reimplemented here (ADR 0004). Used to warn/block before a
   // too-large extent is confirmed or rendered (the render caps at MAX_ATLAS_PAGES).
-  const countPages = (bbox: BBox | null): number | null => {
-    if (!bbox || !scale) return null;
-    try {
-      return buildPageGrid({
-        bbox, scale, page: LETTER_PORTRAIT, overlap: project.overlap ?? 0, tier: DEFAULT_MAP_TIER,
-      }).pages.length;
-    } catch {
-      return null;
-    }
-  };
-  const pendingPageCount = countPages(pendingBbox);
-  const pendingOverLimit = pendingPageCount !== null && pendingPageCount > MAX_ATLAS_PAGES;
-  const savedPageCount = countPages(project.extent);
-  const savedOverLimit = savedPageCount !== null && savedPageCount > MAX_ATLAS_PAGES;
+  //
+  // This used to call `buildPageGrid` and catch — which threw away the answer in
+  // exactly the over-limit case the warning is for, making every flag below
+  // provably false. `estimatePages` measures without building and without
+  // throwing; `page-estimate.test.ts` pins that.
+  const pendingEstimate = estimatePages(pendingBbox, scale, project.overlap ?? 0);
+  const savedEstimate = estimatePages(project.extent, scale, project.overlap ?? 0);
+  const pendingPageCount = pendingEstimate.pages;
+  const pendingOverLimit = pendingEstimate.overLimit;
+  const savedPageCount = savedEstimate.pages;
+  const savedOverLimit = savedEstimate.overLimit;
 
   const drawActive = drawMode !== "none";
   const drawCursor = drawMode === "bbox-first"
@@ -399,8 +396,12 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
         >
           Rename
         </button>
-        {saving && <span className="font-mono text-[11px] text-bark-500">Saving…</span>}
-        {error && <span className="font-mono text-[11px] text-campfire-600">{error}</span>}
+        {/* Saving… and the header error both appear and vanish asynchronously and
+            were announced to nobody. `contents` keeps the header's flex layout. */}
+        <span aria-live="polite" className="contents">
+          {saving && <span className="font-mono text-[11px] text-bark-500">Saving…</span>}
+          {error && <span className="font-mono text-[11px] text-campfire-600">{error}</span>}
+        </span>
       </header>
 
       <div className="mx-auto flex max-w-7xl flex-col gap-0 lg:flex-row">
@@ -507,6 +508,9 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
                   {pendingPageCount !== null && (
                     <p className={`font-mono text-[10px] ${pendingOverLimit ? "font-bold text-campfire-700" : "text-bark-600"}`}>
                       {pendingOverLimit ? "⚠ " : ""}This box ≈ {pendingPageCount} page{pendingPageCount === 1 ? "" : "s"}
+                      {pendingEstimate.columns !== null
+                        ? ` (${pendingEstimate.columns} × ${pendingEstimate.rows})`
+                        : ""}
                       {pendingOverLimit
                         ? ` — over the ${MAX_ATLAS_PAGES}-page limit. Draw a smaller box or pick a coarser scale.`
                         : "."}
@@ -566,7 +570,7 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
             <section className="border-b border-bark-300 pb-5">
               <LandmarkImportControl
                 projectId={projectId}
-                hasExtent={project.extent !== null}
+                extent={project.extent}
               />
             </section>
 
@@ -692,16 +696,31 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
                 <p className="font-mono text-[10px] text-bark-500">No PDFs generated yet.</p>
               ) : (
                 <ul className="divide-y divide-bark-200 border border-bark-300">
-                  {pdfHistory.slice(0, 8).map((pdf) => (
-                    <li key={pdf.id} className="flex items-center justify-between gap-2 px-3 py-1.5">
-                      <span className="min-w-0 font-mono text-[10px] text-bark-600">
-                        {new Date(pdf.createdAt).toLocaleString()} · {pdf.status}
-                      </span>
-                      {pdf.status === "Completed" ? (
-                        <a href={api.generatedPdfs.contentUrl(pdf.id)} target="_blank" rel="noopener noreferrer" className="shrink-0 font-mono text-[10px] uppercase tracking-widest text-forest-700 hover:text-forest-600">Open</a>
-                      ) : null}
-                    </li>
-                  ))}
+                  {pdfHistory.slice(0, 8).map((pdf) => {
+                    // Status text and the failure's diagnostic come from a tested
+                    // pure function — `errorMessage` reached the wire and was
+                    // rendered nowhere, so a failed render was the single word
+                    // "Failed" and a row stranded by a restart said "Pending" for
+                    // ever. See lib/pdf-history.ts.
+                    const entry = describePdfHistoryEntry(pdf);
+                    return (
+                      <li key={pdf.id} className="flex flex-col gap-0.5 px-3 py-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className={`min-w-0 font-mono text-[10px] ${entry.failed ? "text-campfire-600" : "text-bark-600"}`}>
+                            {new Date(pdf.createdAt).toLocaleString()} · {entry.label}
+                          </span>
+                          {entry.downloadable ? (
+                            <a href={api.generatedPdfs.contentUrl(pdf.id)} target="_blank" rel="noopener noreferrer" className="shrink-0 font-mono text-[10px] uppercase tracking-widest text-forest-700 hover:text-forest-600">Open</a>
+                          ) : null}
+                        </div>
+                        {entry.detail && (
+                          <span className="break-words font-mono text-[10px] text-campfire-600">
+                            {entry.detail}
+                          </span>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </section>

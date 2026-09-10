@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { SCALE_PRESETS, type BBox, type LngLat } from "./index.js";
 import { LETTER_PORTRAIT, groundFootprintMeters } from "./page.js";
 import { createProjector, geodesicDistanceMeters } from "./projection.js";
-import { pageLabel, buildLocationPage, buildPageGrid } from "./grid.js";
+import { pageLabel, buildLocationPage, buildPageGrid, pageGridSize } from "./grid.js";
 
 const usgs = SCALE_PRESETS.find((p) => p.id === "usgs-7-5-min")!; // 1:24,000
 
@@ -108,11 +108,178 @@ describe("buildPageGrid", () => {
     }
   });
 
+  /**
+   * The invariant an atlas exists for: walk east across a row, or south down a
+   * column, and the ground never stops. Until this test the ONLY abutment
+   * assertions in the repo were on the frozen 2x2 fixture, so a grid step 2% too
+   * large — a 70 m strip of Nebraska on no page at all, between every adjacent
+   * pair — cost the suite one incidental page-count assertion and nothing else.
+   *
+   * Seams are measured in metres of ground, not degrees: neighbouring pages are
+   * each built about their own centre, so a shared edge carries a small
+   * geodesic-vs-planar residual. A few metres is that residual; anything larger
+   * is a hole (or a duplicated strip), and the sign says which.
+   */
+  it("[BEHAVIORAL] leaves no ground uncovered between adjacent pages at overlap 0", () => {
+    const grid = buildPageGrid({
+      bbox: bboxAround(center, 3.4, 2.6),
+      scale: usgs,
+      page: LETTER_PORTRAIT,
+      overlap: 0,
+    });
+    expect(grid.pages.length).toBeGreaterThan(6); // enough interior seams to matter
+
+    const by = new Map(grid.pages.map((p) => [p.id, p]));
+    const SEAM_TOLERANCE_M = 5;
+    let eastSeams = 0;
+    let southSeams = 0;
+
+    for (const page of grid.pages) {
+      const [west, south, east, north] = page.bbox;
+      const midLat = (south + north) / 2;
+      const midLng = (west + east) / 2;
+
+      const eastNeighbor = page.neighbors.east ? by.get(page.neighbors.east) : undefined;
+      if (eastNeighbor) {
+        // Signed: positive = this page's east edge sits west of its neighbour's
+        // west edge, i.e. a strip of ground belonging to neither.
+        const gap = geodesicDistanceMeters(
+          { lng: east, lat: midLat },
+          { lng: eastNeighbor.bbox[0], lat: midLat },
+        );
+        expect(gap, `${page.id} -> ${eastNeighbor.id} east seam`).toBeLessThan(SEAM_TOLERANCE_M);
+        eastSeams++;
+      }
+
+      const southNeighbor = page.neighbors.south ? by.get(page.neighbors.south) : undefined;
+      if (southNeighbor) {
+        const gap = geodesicDistanceMeters(
+          { lng: midLng, lat: south },
+          { lng: midLng, lat: southNeighbor.bbox[3] },
+        );
+        expect(gap, `${page.id} -> ${southNeighbor.id} south seam`).toBeLessThan(SEAM_TOLERANCE_M);
+        southSeams++;
+      }
+    }
+
+    // A grid whose neighbour links were all undefined would satisfy every
+    // assertion above by checking nothing.
+    expect(eastSeams).toBeGreaterThan(0);
+    expect(southSeams).toBeGreaterThan(0);
+  });
+
   it("adds more pages when overlap is increased", () => {
     const bbox = bboxAround(center, 2, 1);
     const none = buildPageGrid({ bbox, scale: usgs, page: LETTER_PORTRAIT, overlap: 0 });
     const heavy = buildPageGrid({ bbox, scale: usgs, page: LETTER_PORTRAIT, overlap: 0.5 });
     expect(heavy.pages.length).toBeGreaterThan(none.pages.length);
+  });
+
+  /**
+   * The test above is satisfied by ANY monotone function of overlap, and for a
+   * long time it was the only thing in either language that looked at the
+   * parameter: honouring overlap at half its stated value left 239 of 239 TS
+   * tests green, and hardcoding it to 0 on the worker wire left 95 of 95 .NET
+   * tests green. That is the shape of the margins bug, on the next field of the
+   * same payload.
+   *
+   * Overlap is not a page-count knob; it is the width of the strip of ground two
+   * adjacent pages both carry, so that a feature at a seam is readable on at
+   * least one of them and there is no pinhole where four pages meet. Measure that
+   * strip, on the ground, against the fraction that was asked for.
+   */
+  it("[BEHAVIORAL] carries the exact overlap fraction as shared ground, not just 'more pages'", () => {
+    const fp = groundFootprintMeters(usgs, LETTER_PORTRAIT);
+    // The geodesic-vs-planar residual on a shared edge is a few metres; the
+    // difference this test exists to catch is a whole fraction of a page —
+    // 176 m of shared ground at overlap 0.05, against 88 m if it is honoured at
+    // half its stated value.
+    const TOLERANCE_M = 5;
+
+    for (const overlap of [0, 0.05, 0.15, 0.3]) {
+      const grid = buildPageGrid({
+        bbox: bboxAround(center, 2.6, 2.2),
+        scale: usgs,
+        page: LETTER_PORTRAIT,
+        overlap,
+      });
+      const by = new Map(grid.pages.map((p) => [p.id, p]));
+
+      const wantEast = overlap * fp.widthMeters;
+      const wantSouth = overlap * fp.heightMeters;
+      let pairs = 0;
+
+      for (const page of grid.pages) {
+        const [west, south, east, north] = page.bbox;
+        const midLat = (south + north) / 2;
+        const midLng = (west + east) / 2;
+
+        const eastNeighbor = page.neighbors.east ? by.get(page.neighbors.east) : undefined;
+        if (eastNeighbor) {
+          const shared = geodesicDistanceMeters(
+            { lng: eastNeighbor.bbox[0], lat: midLat },
+            { lng: east, lat: midLat },
+          );
+          expect(
+            Math.abs(shared - wantEast),
+            `${page.id}->${eastNeighbor.id}: ${shared.toFixed(1)}m shared, wanted ${wantEast.toFixed(1)}m at overlap ${overlap}`,
+          ).toBeLessThan(TOLERANCE_M);
+          pairs++;
+        }
+
+        const southNeighbor = page.neighbors.south ? by.get(page.neighbors.south) : undefined;
+        if (southNeighbor) {
+          const shared = geodesicDistanceMeters(
+            { lng: midLng, lat: south },
+            { lng: midLng, lat: southNeighbor.bbox[3] },
+          );
+          expect(
+            Math.abs(shared - wantSouth),
+            `${page.id}->${southNeighbor.id}: ${shared.toFixed(1)}m shared, wanted ${wantSouth.toFixed(1)}m at overlap ${overlap}`,
+          ).toBeLessThan(TOLERANCE_M);
+          pairs++;
+        }
+      }
+
+      expect(pairs, `overlap ${overlap} produced no adjacent pairs to measure`).toBeGreaterThan(4);
+    }
+  });
+
+  /**
+   * `buildPageGrid` throws exactly when the grid would exceed the cap, which is
+   * right for a render and useless for a warning: a UI asking "how big is this
+   * box?" gets an exception precisely when the answer matters. The web editor's
+   * over-limit guard was built on `buildPageGrid(...).pages.length > cap` and was
+   * therefore provably unreachable. `pageGridSize` is the answer-shaped half.
+   */
+  it("[BEHAVIORAL] pageGridSize answers for an extent buildPageGrid refuses to build", () => {
+    const huge: BBox = [-125, 24, -66, 49]; // the continental US at 1:24,000
+    const options = { bbox: huge, scale: usgs, page: LETTER_PORTRAIT };
+
+    expect(() => buildPageGrid(options)).toThrow(/exceeding the 200-page limit/);
+
+    const size = pageGridSize(options);
+    expect(size.pages).toBe(1086537);
+    expect(size.columns * size.rows).toBe(size.pages);
+    expect(size.overLimit).toBe(true);
+  });
+
+  it("pageGridSize agrees with the grid it describes, whenever one can be built", () => {
+    for (const [w, h, overlap] of [
+      [1, 1, 0],
+      [2.2, 1.2, 0],
+      [3, 2, 0.05],
+      [2, 1, 0.5],
+    ] as const) {
+      const options = { bbox: bboxAround(center, w, h), scale: usgs, page: LETTER_PORTRAIT, overlap };
+      const size = pageGridSize(options);
+      const grid = buildPageGrid(options);
+
+      // Same number, from the same computation — the guard and the estimate
+      // cannot drift into disagreeing about how many pages a box is.
+      expect(size.pages, `${w}x${h} @ ${overlap}`).toBe(grid.pages.length);
+      expect(size.overLimit).toBe(false);
+    }
   });
 
   it("[BEHAVIORAL] rejects an oversized extent before materialising any page", () => {

@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import type { AtlasContract } from "./index.js";
+import { SCALE_PRESETS, type AtlasContract } from "./index.js";
+import { buildPageGrid } from "./grid.js";
 import { LETTER_PORTRAIT, mapBoxInches } from "./page.js";
 import { geodesicDistanceMeters } from "./projection.js";
 import { validateAtlas, type PrintedMapBox } from "./validation.js";
@@ -18,12 +19,35 @@ import { validateAtlas, type PrintedMapBox } from "./validation.js";
  * So the numbers are pinned. `scripts/regenerate-sample-atlas.mjs` rebuilds the
  * file from its recorded parameters (bbox [-98.03, 40.97, -97.97, 41.03] at
  * 1:24,000, tier 2, Letter portrait) and reproduces it byte for byte; `--check`
- * fails if it would not. If the engine changes, both this test and that check
- * fail together, and the fixture is deliberately re-approved rather than
- * silently regenerated.
+ * fails if it would not.
+ *
+ * That claim used to be made here and NOT be true of this file. Everything below
+ * except "covers, on the ground, exactly what 1:24,000 covers" compared a frozen
+ * constant with a frozen file — two artefacts agreeing with each other, neither
+ * of which is the engine. A grid step 2% too large (every adjacent pair leaving a
+ * 2%-of-a-page strip of ground on no page at all) changed neither, so all five
+ * tests passed while `--check` failed, and `--check` ran in no package script, no
+ * CI job and no harness check: it ran when a human remembered.
+ *
+ * `is exactly what the engine produces today` below is the missing binding: it
+ * regenerates from the recorded parameters, in-process, and diffs. It is the same
+ * comparison `--check` makes, so the two now fail together for real — and the CI
+ * `ts` job runs `--check` as well, because the byte-for-byte half of the claim
+ * (key order, formatting) is the script's to keep.
  */
 
 const FIXTURE = fileURLToPath(new URL("../../../data/fixtures/sample-atlas.json", import.meta.url));
+
+/**
+ * The whole definition of the fixture, and a deliberate second copy of the
+ * parameters in `scripts/regenerate-sample-atlas.mjs`. Both regenerate and
+ * compare against the SAME committed file, so a change to either copy alone
+ * shows up immediately as a failure here or a non-zero `--check`; there is no
+ * state in which the two disagree quietly.
+ */
+const FIXTURE_EXTENT: [number, number, number, number] = [-98.03, 40.97, -97.97, 41.03];
+const FIXTURE_SCALE_ID = "usgs-7-5-min";
+const FIXTURE_TIER = 2;
 
 /**
  * Every page bbox, to ten decimal places (about 10 µm of latitude). This is the
@@ -55,6 +79,27 @@ describe("golden fixture", () => {
       expect(page.orientation).toBe("portrait");
       expect(page.tier).toBe(2);
     }
+  });
+
+  it("[BEHAVIORAL] is exactly what the engine produces today for its recorded parameters", () => {
+    // The only test in this file that runs the grid engine. Everything else here
+    // reads the committed JSON; if the engine's output moves, this is what says so.
+    const scale = SCALE_PRESETS.find((p) => p.id === FIXTURE_SCALE_ID);
+    expect(scale, `unknown scale preset "${FIXTURE_SCALE_ID}"`).toBeDefined();
+
+    const regenerated = buildPageGrid({
+      bbox: FIXTURE_EXTENT,
+      scale: scale!,
+      page: LETTER_PORTRAIT,
+      tier: FIXTURE_TIER,
+    });
+
+    // Whole-contract equality, not a spot check: scale, margins, ids, orientations,
+    // tiers, neighbour links and every bbox at once. A regenerated atlas that
+    // differs anywhere fails here, and the fixture is then re-approved on purpose
+    // (see the header of scripts/regenerate-sample-atlas.mjs) rather than
+    // regenerated on reflex.
+    expect(regenerated).toEqual(loadFixture());
   });
 
   it("has exactly the page bboxes it was generated with", () => {

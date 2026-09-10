@@ -45,6 +45,13 @@ const DEFAULT_INTERVAL_MS = 1000;
  * 15 minutes. A 200-page atlas at the MAX_ATLAS_PAGES cap is 200 sequential basemap
  * fetches; this is a bound on the client's patience, not on the render, which keeps
  * going and can still be downloaded from the project's PDF history afterwards.
+ *
+ * PAIRED WITH THE SERVER. `RenderWorker:TimeoutSeconds` bounds how long the API will
+ * wait on the worker, and it must not be shorter than this number — when it was (120s
+ * against this 15 minutes), every render over two minutes was killed by the API while
+ * the browser was still waiting, and the user was told the service had shut down.
+ * `DependencyInjectionTests.Render_worker_timeout_defaults_to_at_least_the_clients_own_patience`
+ * fails if the pair drifts apart again.
  */
 const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000;
 
@@ -98,9 +105,19 @@ export async function waitForRender(
     // Check the deadline AFTER reading the status, so a render that finished during
     // the last sleep is reported as finished rather than as a timeout.
     if (now() - startedAt >= timeoutMs) {
+      const seconds = Math.round(timeoutMs / 1000);
+      // The two cases are genuinely different and the record already tells us which
+      // one we are in. This used to say "The render is still running — check this
+      // project's PDF history for it" for both, and for a stranded `Pending` row
+      // BOTH halves are false: the render never started (the queue is in-process and
+      // does not survive a restart), and the history has nothing to find.
       throw new Error(
-        `Still ${record.status.toLowerCase()} after ${Math.round(timeoutMs / 1000)}s. ` +
-          `The render is still running — check this project's PDF history for it.`,
+        record.status === "Pending"
+          ? `Still queued after ${seconds}s — this render never started. ` +
+            `The service may have restarted; queued renders do not survive that. ` +
+            `Generate the atlas again.`
+          : `Still rendering after ${seconds}s. The render is still running — ` +
+            `check this project's PDF history for it.`,
       );
     }
 

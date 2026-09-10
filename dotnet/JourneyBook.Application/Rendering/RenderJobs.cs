@@ -28,6 +28,20 @@ public interface IRenderJobQueue
     /// is cancelled (host shutdown).
     /// </summary>
     IAsyncEnumerable<RenderJob> DequeueAllAsync(CancellationToken ct);
+
+    /// <summary>
+    /// Close the queue to new work and take everything still in it, without waiting.
+    /// </summary>
+    /// <remarks>
+    /// For shutdown only. The queue is in-process, so a job still sitting in it when
+    /// the host stops is never coming back — nothing resumes it and nothing else can
+    /// see it. Discarding those silently (which is what happened, because
+    /// <see cref="DequeueAllAsync"/> simply throws <c>OperationCanceledException</c>)
+    /// left their records at <c>Pending</c> for ever, with a client politely polling
+    /// each one for fifteen minutes. Marking them <c>Failed</c> is not a nicety: it
+    /// is the only signal those rows will ever get.
+    /// </remarks>
+    IReadOnlyList<RenderJob> DrainPending();
 }
 
 /// <summary>

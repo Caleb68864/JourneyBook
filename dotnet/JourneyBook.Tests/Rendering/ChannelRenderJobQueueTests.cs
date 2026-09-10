@@ -1,3 +1,4 @@
+using System.Threading.Channels;
 using JourneyBook.Application.Rendering;
 using JourneyBook.Infrastructure.Rendering;
 
@@ -66,6 +67,33 @@ public class ChannelRenderJobQueueTests
         await queue.EnqueueAsync(JobNamed("late.pdf"));
 
         Assert.Equal("late.pdf", await drain);
+    }
+
+    [Fact]
+    public async Task DrainPending_hands_back_everything_still_queued_in_order()
+    {
+        var queue = new ChannelRenderJobQueue();
+        await queue.EnqueueAsync(JobNamed("first.pdf"));
+        await queue.EnqueueAsync(JobNamed("second.pdf"));
+
+        var stranded = queue.DrainPending();
+
+        Assert.Equal(["first.pdf", "second.pdf"], stranded.Select(j => j.WorkerRequest.OutputFileName));
+        // Idempotent: a second drain finds nothing left to strand.
+        Assert.Empty(queue.DrainPending());
+    }
+
+    [Fact]
+    public async Task DrainPending_closes_the_queue_so_nothing_slips_in_behind_it()
+    {
+        var queue = new ChannelRenderJobQueue();
+        queue.DrainPending();
+
+        // A request racing shutdown must not be able to enqueue a job that would then
+        // never run and never be marked Failed. Refusing it surfaces as a failed
+        // accept, which is truthful.
+        await Assert.ThrowsAsync<ChannelClosedException>(
+            async () => await queue.EnqueueAsync(JobNamed("too-late.pdf")));
     }
 
     [Fact]

@@ -10,6 +10,7 @@ Mechanical check scripts for JourneyBook. Each returns exit 0 (pass) / 1 (fail) 
 | test.sh | TS test suites pass | `pnpm -r test` |
 | lint.sh | TS typecheck (no eslint yet) | `pnpm -r typecheck` |
 | secrets.sh | no local `.env` can reach a Docker build context | reads `.dockerignore` |
+| golden-fixture.sh | the engine still reproduces `data/fixtures/sample-atlas.json` | `node scripts/regenerate-sample-atlas.mjs --check` (needs `pnpm -r build` first) |
 
 Backend tests (`dotnet test JourneyBook.slnx`) use Testcontainers PostGIS and require a running Docker daemon — run them separately, not in `test.sh`.
 

@@ -329,10 +329,22 @@ export const api = {
   landmarks: {
     list: (projectId: string) =>
       request<Landmark[]>("GET", `/projects/${projectId}/landmarks`),
-    // Fetches OSM landmarks for the project extent via Overpass, ranks + persists
-    // them, and returns the imported count (0 on Overpass failure/timeout).
-    import: (projectId: string) =>
-      request<ImportLandmarksResult>("POST", `/projects/${projectId}/landmarks/import`),
+    /**
+     * Fetch OSM landmarks over `bbox` via Overpass, rank + persist them, and
+     * return the imported count (0 on Overpass failure/timeout).
+     *
+     * The bbox is REQUIRED and is the caller's to supply. This used to post with
+     * no body at all, on the belief (stated in the comment it replaces) that the
+     * server fetched "for the project extent" — it does not: `LandmarkService`
+     * reads `request.Bbox` and never looks at the project's extent. And a body of
+     * `undefined` means `request()` sends no `Content-Type`, so the endpoint's
+     * non-nullable `ImportLandmarksRequest` parameter answered 415 or 400 and the
+     * import could not succeed from the web app at all.
+     */
+    import: (projectId: string, bbox: BBox) =>
+      request<ImportLandmarksResult>("POST", `/projects/${projectId}/landmarks/import`, {
+        bbox: { west: bbox[0], south: bbox[1], east: bbox[2], north: bbox[3] },
+      }),
   },
 
   generatedPdfs: {

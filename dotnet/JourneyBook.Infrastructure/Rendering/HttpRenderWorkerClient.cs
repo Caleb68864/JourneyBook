@@ -200,7 +200,29 @@ public class HttpRenderWorkerClient(HttpClient http) : IRenderWorkerClient
     {
         var payload = ToWirePayload(request);
 
-        using var response = await http.PostAsJsonAsync("/render", payload, s_writeOptions, ct);
+        HttpResponseMessage response;
+        try
+        {
+            response = await http.PostAsJsonAsync("/render", payload, s_writeOptions, ct);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            // HttpClient signals its OWN deadline as a TaskCanceledException, which is
+            // an OperationCanceledException — indistinguishable, one catch further up,
+            // from host shutdown. RenderJobRunner therefore told the user "the service
+            // shut down or the job was aborted" when in fact nothing shut down and
+            // nobody aborted: the API gave up on a healthy render.
+            //
+            // The caller's token is not cancelled here, so this can only be our own
+            // deadline. Name it, and say which knob moves it — this is the one place
+            // that knows the number.
+            throw new TimeoutException(
+                $"Render timed out: the render worker did not answer within {http.Timeout.TotalSeconds:0.##}s, " +
+                "so the API stopped waiting. The render may still be running inside the worker. " +
+                "Raise RenderWorker:TimeoutSeconds (RenderWorker__TimeoutSeconds) if large atlases legitimately take longer.");
+        }
+
+        using var owned = response;
 
         if (!response.IsSuccessStatusCode)
         {

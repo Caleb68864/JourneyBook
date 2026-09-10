@@ -45,6 +45,17 @@ public static class DependencyInjection
         services.AddScoped<ITileSourceService, TileSourceService>();
         services.AddScoped<IGeneratedPdfService, GeneratedPdfService>();
 
+        // Retention was a number nothing acted on: PruneExpiredAsync had exactly one
+        // caller, the manual POST /api/generated-pdfs/prune. GeneratedPdf:RetentionDays
+        // stamped an ExpiresAt that was never read, so expired rows and their PDFs on
+        // the shared volume accumulated for ever — and ADR 0006's "stranded for its
+        // whole retention window" quietly meant "stranded". Set
+        // GeneratedPdf:PruneIntervalHours to 0 to go back to manual-only.
+        var pruneIntervalHours =
+            double.TryParse(configuration["GeneratedPdf:PruneIntervalHours"], out var pih) ? pih : 6;
+        services.AddSingleton(new GeneratedPdfRetentionOptions(TimeSpan.FromHours(pruneIntervalHours)));
+        services.AddHostedService<GeneratedPdfRetentionService>();
+
         // --- Tile proxy (Stage 3) -------------------------------------------
         var cacheDir = configuration["TileCache:CacheDir"] is { Length: > 0 } dir ? dir : "data/cache";
         services.AddSingleton(new TileCache(cacheDir));
@@ -76,7 +87,15 @@ public static class DependencyInjection
 
         // --- Render worker (Stage 3) ----------------------------------------
         var workerBaseUrl = configuration["RenderWorker:BaseUrl"] is { Length: > 0 } u ? u : "http://render-worker:8090";
-        var workerTimeout = int.TryParse(configuration["RenderWorker:TimeoutSeconds"], out var wt) ? wt : 120;
+        // 900s = 15 minutes, deliberately equal to the web client's own deadline
+        // (`DEFAULT_TIMEOUT_MS` in apps/web/src/api/render-polling.ts). This was 120,
+        // set in no config file, while the 202 raised the browser's patience to 15
+        // minutes: every render needing more than two minutes of worker time was
+        // killed here, by us, and reported to the user as a cancellation.
+        // DependencyInjectionTests pins the two numbers together; move both or
+        // neither. A 200-page atlas at MAX_ATLAS_PAGES is 200 sequential basemap
+        // fetches, which is what sets the floor.
+        var workerTimeout = int.TryParse(configuration["RenderWorker:TimeoutSeconds"], out var wt) ? wt : 900;
 
         services.AddHttpClient<IRenderWorkerClient, HttpRenderWorkerClient>(http =>
         {

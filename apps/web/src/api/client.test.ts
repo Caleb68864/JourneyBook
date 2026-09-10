@@ -100,3 +100,48 @@ describe("project normalization", () => {
     expect(updated.margins).toEqual(PROJECT.margins);
   });
 });
+
+/**
+ * "Import Landmarks" posted to `/projects/{id}/landmarks/import` with no body at
+ * all. `request()` sends no `Content-Type` when `body === undefined`, and the
+ * endpoint binds a non-nullable `ImportLandmarksRequest` — a required JSON body —
+ * so the call answered 415 (no JSON content type) or 400 (empty body) and
+ * `LandmarkImportControl` rendered the raw wire string. It could never succeed
+ * from the web app. The Api integration tests passed because they post
+ * `new ImportLandmarksRequest(Extent)`: a body the web app never sent.
+ *
+ * Knock-on: "Include Landmarks" (default on) was a no-op for every project
+ * reachable through the UI, because no such project could have landmarks.
+ */
+describe("api.landmarks.import", () => {
+  function stubImport() {
+    const fetchMock = vi.fn(
+      async (_url: string, _init?: RequestInit) =>
+        new Response(JSON.stringify({ imported: 0, landmarks: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  it("[BEHAVIORAL] sends the extent as a JSON body the endpoint can bind", async () => {
+    const fetchMock = stubImport();
+    await api.landmarks.import("p1", [-98, 41, -97, 42]);
+
+    expect(String(fetchMock.mock.calls[0]![0])).toBe("/api/projects/p1/landmarks/import");
+    const init = fetchMock.mock.calls[0]![1]!;
+    expect(init.method).toBe("POST");
+
+    // Without a JSON content type a minimal-API complex parameter answers 415,
+    // whatever the body is.
+    expect(new Headers(init.headers).get("Content-Type")).toBe("application/json");
+
+    // ImportLandmarksRequest(RenderBBoxDto Bbox) — the server reads request.Bbox
+    // and never looks at the project's own extent, so the caller must send one.
+    expect(JSON.parse(String(init.body))).toEqual({
+      bbox: { west: -98, south: 41, east: -97, north: 42 },
+    });
+  });
+});
