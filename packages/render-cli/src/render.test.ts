@@ -541,13 +541,15 @@ describe("renderAtlas with a basemap", () => {
     return zooms;
   };
 
-  async function renderAndCaptureZooms(input: Record<string, unknown>): Promise<Set<number>> {
+  type ZoomProbeInput = Omit<Parameters<typeof renderAtlas>[0], "outputPath">;
+
+  async function renderAndCaptureZooms(input: ZoomProbeInput): Promise<Set<number>> {
     const fetchMock = vi.fn(async () => new Response(new Uint8Array(TILE_PNG), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     const dir = mkdtempSync(join(tmpdir(), "jb-render-perpreset-"));
     try {
       await renderAtlas({
-        ...(input as Parameters<typeof renderAtlas>[0]),
+        ...input,
         outputPath: join(dir, "out.pdf"),
         // A proxy base gives tile URLs a predictable {z}/{x}/{y} tail to read the
         // zoom off, instead of parsing the USGS ArcGIS template.
