@@ -176,6 +176,76 @@ describe("buildPageGrid", () => {
   });
 
   /**
+   * The test above is satisfied by ANY monotone function of overlap, and for a
+   * long time it was the only thing in either language that looked at the
+   * parameter: honouring overlap at half its stated value left 239 of 239 TS
+   * tests green, and hardcoding it to 0 on the worker wire left 95 of 95 .NET
+   * tests green. That is the shape of the margins bug, on the next field of the
+   * same payload.
+   *
+   * Overlap is not a page-count knob; it is the width of the strip of ground two
+   * adjacent pages both carry, so that a feature at a seam is readable on at
+   * least one of them and there is no pinhole where four pages meet. Measure that
+   * strip, on the ground, against the fraction that was asked for.
+   */
+  it("[BEHAVIORAL] carries the exact overlap fraction as shared ground, not just 'more pages'", () => {
+    const fp = groundFootprintMeters(usgs, LETTER_PORTRAIT);
+    // The geodesic-vs-planar residual on a shared edge is a few metres; the
+    // difference this test exists to catch is a whole fraction of a page —
+    // 176 m of shared ground at overlap 0.05, against 88 m if it is honoured at
+    // half its stated value.
+    const TOLERANCE_M = 5;
+
+    for (const overlap of [0, 0.05, 0.15, 0.3]) {
+      const grid = buildPageGrid({
+        bbox: bboxAround(center, 2.6, 2.2),
+        scale: usgs,
+        page: LETTER_PORTRAIT,
+        overlap,
+      });
+      const by = new Map(grid.pages.map((p) => [p.id, p]));
+
+      const wantEast = overlap * fp.widthMeters;
+      const wantSouth = overlap * fp.heightMeters;
+      let pairs = 0;
+
+      for (const page of grid.pages) {
+        const [west, south, east, north] = page.bbox;
+        const midLat = (south + north) / 2;
+        const midLng = (west + east) / 2;
+
+        const eastNeighbor = page.neighbors.east ? by.get(page.neighbors.east) : undefined;
+        if (eastNeighbor) {
+          const shared = geodesicDistanceMeters(
+            { lng: eastNeighbor.bbox[0], lat: midLat },
+            { lng: east, lat: midLat },
+          );
+          expect(
+            Math.abs(shared - wantEast),
+            `${page.id}->${eastNeighbor.id}: ${shared.toFixed(1)}m shared, wanted ${wantEast.toFixed(1)}m at overlap ${overlap}`,
+          ).toBeLessThan(TOLERANCE_M);
+          pairs++;
+        }
+
+        const southNeighbor = page.neighbors.south ? by.get(page.neighbors.south) : undefined;
+        if (southNeighbor) {
+          const shared = geodesicDistanceMeters(
+            { lng: midLng, lat: south },
+            { lng: midLng, lat: southNeighbor.bbox[3] },
+          );
+          expect(
+            Math.abs(shared - wantSouth),
+            `${page.id}->${southNeighbor.id}: ${shared.toFixed(1)}m shared, wanted ${wantSouth.toFixed(1)}m at overlap ${overlap}`,
+          ).toBeLessThan(TOLERANCE_M);
+          pairs++;
+        }
+      }
+
+      expect(pairs, `overlap ${overlap} produced no adjacent pairs to measure`).toBeGreaterThan(4);
+    }
+  });
+
+  /**
    * `buildPageGrid` throws exactly when the grid would exceed the cap, which is
    * right for a render and useless for a warning: a UI asking "how big is this
    * box?" gets an exception precisely when the answer matters. The web editor's
