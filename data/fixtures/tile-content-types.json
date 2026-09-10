@@ -1,0 +1,34 @@
+{
+  "$comment": [
+    "Content-Type -> cache file extension, and the extension back to the Content-Type a",
+    "cache HIT is served with. Read by BOTH implementations of the shared tile cache:",
+    "packages/map-sources/src/tilecache.ts (the headless CLI) and",
+    "dotnet/JourneyBook.Infrastructure/Tiles/TileService.cs (the API proxy).",
+    "",
+    "They write into the same directory layout ({source}/{z}/{x}/{y}.{ext}) on purpose, so",
+    "the mapping is not free to differ: a tile the CLI files as .png is later read back by",
+    "the C# proxy and served with the Content-Type this table gives for 'png'. The TS side",
+    "used to pass a hardcoded 'png' at the store site regardless of what came back, so every",
+    "JPEG the CLI cached was served to a browser as image/png.",
+    "",
+    "Unknown / absent content types fall back to png, matching what the C# switch does with",
+    "its default arm — a wrong extension is recoverable, refusing to cache is not."
+  ],
+  "extensionForContentType": {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/webp": "webp",
+    "application/x-protobuf": "pbf",
+    "application/vnd.mapbox-vector-tile": "pbf",
+    "text/html": "png",
+    "": "png"
+  },
+  "contentTypeForExtension": {
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "webp": "image/webp",
+    "pbf": "application/x-protobuf",
+    "bin": "image/png"
+  }
+}

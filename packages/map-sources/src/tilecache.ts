@@ -9,6 +9,57 @@
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 
+/**
+ * Cache file extension for a tile's `Content-Type`.
+ *
+ * The C# proxy (`TileService.ExtFor`) and this module write into the SAME
+ * directory layout — `{source}/{z}/{x}/{y}.{ext}` — and each reads back what the
+ * other stored, so the extension is a shared contract, not a local choice. The
+ * store site in `panel.ts` used to pass a literal `"png"` for every tile it had
+ * just fetched, so a JPEG cached by the headless CLI was filed as `.png` and the
+ * proxy then served those bytes as `image/png` (`ContentTypeFor("png")`).
+ *
+ * `data/fixtures/tile-content-types.json` is the table both languages are tested
+ * against; this function must not be edited without it.
+ *
+ * A content type with parameters (`image/jpeg; charset=binary`) is normalised to
+ * its media type first — the C# switch matches the bare string and would fall to
+ * its `png` default there. That is a superset, not a divergence: every bare type
+ * maps identically, and the parameterised form is one the C# path gets wrong.
+ */
+export function tileExtensionForContentType(contentType: string | null | undefined): string {
+  const media = (contentType ?? "").split(";")[0]!.trim().toLowerCase();
+  switch (media) {
+    case "application/x-protobuf":
+    case "application/vnd.mapbox-vector-tile":
+      return "pbf";
+    case "image/jpeg":
+      return "jpg";
+    case "image/webp":
+      return "webp";
+    default:
+      // Unknown or absent: png, matching the C# default arm. Guessing wrong is
+      // recoverable (the bytes are intact and re-fetchable); refusing to cache
+      // a tile because its source omitted a header is not.
+      return "png";
+  }
+}
+
+/** Inverse of {@link tileExtensionForContentType}; mirrors `TileService.ContentTypeFor`. */
+export function contentTypeForTileExtension(ext: string): string {
+  switch (ext.toLowerCase()) {
+    case "pbf":
+      return "application/x-protobuf";
+    case "jpg":
+    case "jpeg":
+      return "image/jpeg";
+    case "webp":
+      return "image/webp";
+    default:
+      return "image/png";
+  }
+}
+
 function resolveTileDir(cacheDir: string, source: string, z: number, x: number): string | null {
   const root = path.resolve(cacheDir);
   const dir = path.resolve(root, source, String(z), String(x));
