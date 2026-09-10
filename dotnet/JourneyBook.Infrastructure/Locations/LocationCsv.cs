@@ -48,7 +48,10 @@ public static class LocationCsv
             throw new LocationValidationException("CSV is empty — expected a header row and at least one location.");
 
         var header = ParseLine(lines[0]).Select(h => h.Trim().ToLowerInvariant()).ToList();
-        int nameIdx = IndexOfAny(header, "name");
+        // `label` because the web app's own project export writes that column and
+        // the headless CLI has always accepted it; without it a file exported from
+        // this product failed to import back into it.
+        int nameIdx = IndexOfAny(header, "name", "label");
         int lngIdx = IndexOfAny(header, "lng", "longitude", "lon");
         int latIdx = IndexOfAny(header, "lat", "latitude");
         int notesIdx = IndexOfAny(header, "notes", "note");
@@ -112,11 +115,27 @@ public static class LocationCsv
     private static bool TryParseCoord(string s, out double value) =>
         double.TryParse(s.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out value);
 
+    /// <summary>
+    /// The column for the first of <paramref name="names"/> that the header has.
+    /// </summary>
+    /// <remarks>
+    /// Priority is by ALIAS ORDER, not by column order, which matters only when a
+    /// header carries two aliases for one field — and that is exactly when it
+    /// matters most. This used to scan the header and take the first column whose
+    /// name was in the set, while the headless CLI took the first alias present;
+    /// so on a header of <c>name,lon,lng,lat</c> the importer read <c>lon</c> and
+    /// the CLI read <c>lng</c>, both succeeded, and the same file produced two
+    /// different locations with nothing reported anywhere. Alias order is the
+    /// documented rule because it is a property of this parser, not of whatever
+    /// order a spreadsheet happened to write the columns in.
+    /// </remarks>
     private static int IndexOfAny(List<string> header, params string[] names)
     {
-        for (int i = 0; i < header.Count; i++)
-            if (names.Contains(header[i]))
-                return i;
+        foreach (var name in names)
+        {
+            int idx = header.IndexOf(name);
+            if (idx >= 0) return idx;
+        }
         return -1;
     }
 

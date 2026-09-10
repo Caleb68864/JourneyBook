@@ -45,18 +45,75 @@ export interface ScalePreset {
   label: string;
   /** map scale denominator: 1 : ratio (e.g. 24000) */
   ratio: number;
+  /**
+   * Basemap panel width this preset asks for, in pixels, measured across the
+   * **Letter-portrait** map box (5.7639 in). `panelWidthPxFor` rescales it to
+   * whatever map box a page actually has, so the request survives landscape and
+   * a binder gutter instead of being a portrait-only number.
+   *
+   * Why per preset. `renderMapPanel` crops at native tile resolution and never
+   * resamples, so the requested width is a **floor**: it selects a Web-Mercator
+   * zoom, and the delivered panel is 1x-2x the request. Delivered DPI is
+   * therefore an accident of where a preset's page falls relative to a zoom
+   * boundary, and at the old flat default of 1000 px it swung by a factor of two
+   * across the menu. Every preset here is given the width that reaches
+   * {@link PRINT_DPI_TARGET} for its own page rather than one global number.
+   *
+   * Read {@link DEFAULT_PANEL_WIDTH_PX} on `usgs-7-5-min` as a deliberate
+   * exception, not an oversight — see the constant.
+   *
+   * NOT persisted. The database's `ScalePresets` table carries `id`, `label` and
+   * `ratio` only; this is an engine concern the API never sends and never reads,
+   * which is why `ScalePresetParityTests` compares those three columns and not
+   * this one.
+   */
+  panelWidthPx: number;
 }
+
+/**
+ * The historic flat panel width, and still what `usgs-7-5-min` asks for.
+ *
+ * 1000 px over the 5.7639 in Letter-portrait map box is a request for **173
+ * DPI**. It stays on the headline preset by an explicit owner decision: at
+ * 41 degrees N a 1:24,000 page lands 1.95x past a zoom boundary and delivers
+ * 338 DPI for free, so raising it there would cost tiles and bytes for nothing.
+ *
+ * That is a statement about 41 degrees N and nowhere else. Measured across the
+ * USGS Topo latitude band (18-72 degrees N), this preset's delivered resolution
+ * at 1000 px runs **174-346 DPI** — the 338 figure is one point on that band,
+ * not a property. `tilemath.test.ts` pins the band so the exception is a
+ * decision someone can re-open with numbers rather than a fact of the product.
+ */
+export const DEFAULT_PANEL_WIDTH_PX = 1000;
+
+/**
+ * Panel width asking for {@link PRINT_DPI_TARGET} across the Letter-portrait map
+ * box: `panelWidthPxForDpi(mapBoxInches(LETTER_PORTRAIT).widthIn, 300)`.
+ *
+ * Pinned as a literal here, and asserted equal to that call in
+ * `packages/atlas-core/src/scale-presets.test.ts`, because `model.ts` is the leaf
+ * every engine module imports from and cannot import the module that computes it
+ * without an init cycle.
+ */
+export const PRINT_TARGET_PANEL_WIDTH_PX = 1730;
 
 /**
  * Named presets. Choosing a scale fixes the ground footprint of every page,
  * so all saved-location pages cover the same amount of surrounding terrain.
+ *
+ * `id`/`label`/`ratio` are duplicated in the database seed
+ * (`ScalePresetConfiguration.HasData`), because the API validates project and
+ * location writes against the table rather than against this list. The two are
+ * held together by `ScalePresetParityTests` in the .NET suite, which reads THIS
+ * file; adding a preset in one place without the other now fails the build
+ * instead of producing a project the API accepts and the engine rejects.
  */
 export const SCALE_PRESETS: readonly ScalePreset[] = [
-  { id: "usgs-7-5-min", label: "7.5-minute (1:24,000)", ratio: 24000 },
-  { id: "1-25000", label: "1:25,000", ratio: 25000 },
-  { id: "usgs-15-min", label: "15-minute (1:62,500)", ratio: 62500 },
-  { id: "1-50000", label: "1:50,000", ratio: 50000 },
-  { id: "1-100000", label: "1:100,000", ratio: 100000 },
+  { id: "usgs-7-5-min", label: "7.5-minute (1:24,000)", ratio: 24000, panelWidthPx: DEFAULT_PANEL_WIDTH_PX },
+  { id: "1-25000", label: "1:25,000", ratio: 25000, panelWidthPx: PRINT_TARGET_PANEL_WIDTH_PX },
+  { id: "usgs-15-min", label: "15-minute (1:62,500)", ratio: 62500, panelWidthPx: PRINT_TARGET_PANEL_WIDTH_PX },
+  { id: "1-50000", label: "1:50,000", ratio: 50000, panelWidthPx: PRINT_TARGET_PANEL_WIDTH_PX },
+  { id: "1-100000", label: "1:100,000", ratio: 100000, panelWidthPx: PRINT_TARGET_PANEL_WIDTH_PX },
 ] as const;
 
 export const DEFAULT_SCALE_PRESET_ID = "usgs-7-5-min";

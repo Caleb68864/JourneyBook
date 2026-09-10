@@ -3,7 +3,8 @@
   "scale": {
     "id": "usgs-7-5-min",
     "label": "7.5-minute (1:24,000)",
-    "ratio": 24000
+    "ratio": 24000,
+    "panelWidthPx": 1000
   },
   "margins": {
     "top": 0.5,

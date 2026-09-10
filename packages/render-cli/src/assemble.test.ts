@@ -132,3 +132,86 @@ describe("assembleContract — zoom ladders and cover extents", () => {
     }
   });
 });
+
+/**
+ * The id space of a real, assembled contract — the level at which the grid /
+ * location / corridor namespaces actually meet.
+ *
+ * `grid.test.ts` proves `pageLabel` never emits an `L` or `R`, which is where the
+ * fix lives. Nothing asserted the consequence: that an atlas built from an extent
+ * AND saved locations AND a route comes out with a sound primary key. That is the
+ * property every consumer depends on — the render pipeline keys panels, USNG
+ * grids, route overlays and landmarks by page id, and `AtlasDocument` keys
+ * `pageNumbers` and the TOC by it — and a Record silently keeps the last write,
+ * so a collision is invisible until a page prints the wrong map.
+ *
+ * The extent below is deliberately deep enough to reach the rows that used to
+ * collide: base-26 row letters made row 11 "L" and row 17 "R", so a 12-row grid
+ * emitted a page literally called "L1".
+ */
+describe("assembleContract — the three id namespaces share one flat space", () => {
+  /** A north-south extent tall enough to need at least 18 rows at 1:24,000. */
+  const TALL_EXTENT: [number, number, number, number] = [-98.02, 40.4, -97.98, 41.4];
+
+  function idsOf(contract: { pages: { id: string }[] }): string[] {
+    return contract.pages.map((p) => p.id);
+  }
+
+  it("[CONTROL] the extent really is deep enough to reach the rows that used to collide", () => {
+    // Without this the assertions below are satisfied by a two-row grid, which
+    // never had the defect. Row 11 and row 17 are the ones base-26 turned into
+    // "L" and "R".
+    const { contract } = assembleContract({
+      mode: "bbox",
+      bbox: TALL_EXTENT,
+      scalePresetId: "usgs-7-5-min",
+      tier: 1,
+      outputPath: "unused.pdf",
+    });
+    const rows = new Set(idsOf(contract).map((id) => id.replace(/\d+$/, "")));
+    expect(rows.size).toBeGreaterThanOrEqual(18);
+  });
+
+  it("gives every page of a grid + locations + route atlas a distinct id", () => {
+    const { contract } = assembleContract({
+      mode: "bbox",
+      bbox: TALL_EXTENT,
+      scalePresetId: "usgs-7-5-min",
+      tier: 1,
+      locations: [
+        { center: { lng: -98.0, lat: 40.6 }, label: "Start" },
+        { center: { lng: -98.0, lat: 41.2 }, label: "Finish" },
+      ],
+      route: true,
+      outputPath: "unused.pdf",
+    });
+
+    const ids = idsOf(contract);
+    expect(ids.length).toBeGreaterThan(20);
+    expect(new Set(ids).size, `duplicate ids in ${ids.join(", ")}`).toBe(ids.length);
+
+    // And the contract's own validator agrees, which is what the render path and
+    // the CLI's `validate` command actually consult.
+    const report = validateAtlas(contract);
+    const unique = report.checks.find((c) => c.name === "unique-page-ids");
+    if (!unique) throw new Error('validateAtlas reported no "unique-page-ids" check');
+    expect(unique.pass, unique.detail).toBe(true);
+  });
+
+  it("keeps grid ids out of the L# and R# namespaces the renderer dispatches on", () => {
+    // `render.ts` selects corridor pages with `page.id.startsWith("R")` and
+    // `AtlasDocument` stamps a centre pin on `page.id.startsWith("L")`. A grid
+    // page landing in either namespace gets furniture that describes a different
+    // page — a route drawn over it, or a location pin through its middle.
+    const { contract } = assembleContract({
+      mode: "bbox",
+      bbox: TALL_EXTENT,
+      scalePresetId: "usgs-7-5-min",
+      tier: 1,
+      outputPath: "unused.pdf",
+    });
+    for (const id of idsOf(contract)) {
+      expect(/^[LR]/.test(id), `grid page "${id}" is in a reserved namespace`).toBe(false);
+    }
+  });
+});

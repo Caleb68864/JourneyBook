@@ -1,8 +1,10 @@
 import { stderr } from "node:process";
 import {
   SCALE_PRESETS,
+  DEFAULT_PANEL_WIDTH_PX,
   LETTER_PORTRAIT,
   MAX_ATLAS_PAGES,
+  panelWidthPxFor,
   buildPageGrid,
   buildLocationPage,
   buildRouteAtlas,
@@ -141,9 +143,15 @@ export interface RenderAtlasInput {
   coverPadFraction?: number;
   /**
    * Target width in pixels for each basemap panel; the tile zoom is chosen to
-   * meet it, so this sets the print resolution. Default 1000 (~176 DPI across a
-   * 7.5in printable width, since the panel is cropped at the tiles' native
-   * resolution rather than resampled down).
+   * meet it, so this sets the print resolution. It is a **floor**: the panel is
+   * cropped at the tiles' native resolution rather than resampled down, so the
+   * delivered panel is 1x-2x this.
+   *
+   * Optional, and an override. With it unset, each page asks for the width its
+   * own scale preset declares ({@link ScalePreset.panelWidthPx}, rescaled to the
+   * page's map box) — so a mixed-scale atlas renders each page at the resolution
+   * that scale needs. Set it and every page uses this instead, which is what
+   * `--panel-px` is for.
    */
   panelWidthPx?: number;
   /** Panel encoding: "jpeg" (default, ~6x smaller) or "png" (lossless). */
@@ -512,7 +520,17 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
     ...(input.panelFormat ? { format: input.panelFormat } : {}),
     ...(input.panelQuality !== undefined ? { quality: input.panelQuality } : {}),
   };
-  const panelWidthPx = input.panelWidthPx ?? 1000;
+  // The panel width is now a property of the SCALE, not one global number, and
+  // it is resolved per page because an atlas can mix scales (a zoom ladder puts
+  // 1:100,000 and 1:24,000 in the same book). An explicit --panel-px still wins
+  // for every page: the caller asked for a specific resolution.
+  const pageSpec = pageSpecOf(input);
+  const panelWidthFor = (page: AtlasPage): number =>
+    input.panelWidthPx ?? panelWidthPxFor(page.scale ?? contract.scale, pageSpec);
+  // The overview is an index, not a sheet anyone navigates from: it shows the
+  // whole trip at a scale no preset describes, so it keeps the historic default
+  // rather than paying a print-resolution bill for a thumbnail of the atlas.
+  const overviewWidthPx = input.panelWidthPx ?? DEFAULT_PANEL_WIDTH_PX;
 
   let panels: Record<string, string> | undefined;
   // Credit lines for the tiles actually fetched, in first-seen order. Collected
@@ -524,8 +542,9 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
   if (input.basemap) {
     panels = {};
     for (const page of contract.pages) {
+      const pageWidthPx = panelWidthFor(page);
       try {
-        const panel = await renderMapPanel(page.bbox, panelWidthPx, undefined, panelOptions);
+        const panel = await renderMapPanel(page.bbox, pageWidthPx, undefined, panelOptions);
         panels[page.id] = `data:${panel.mimeType};base64,${panel.bytes.toString("base64")}`;
         if (panel.attribution && !attributions.includes(panel.attribution)) {
           attributions.push(panel.attribution);
@@ -538,7 +557,7 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
         if (panel.zoomClamped) {
           stderr.write(
             `  WARNING: page ${page.id} rendered at z${panel.zoom}, the source's deepest zoom — ` +
-              `--panel-px ${panelWidthPx} asked for more resolution than this basemap has\n`,
+              `a ${pageWidthPx} px panel asked for more resolution than this basemap has\n`,
           );
         }
         // A hole under renderMapPanel's threshold is accepted (it is usually a
@@ -639,7 +658,7 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
     });
     if (input.basemap) {
       try {
-        const panel = await renderMapPanel(overview.bbox, panelWidthPx, undefined, panelOptions);
+        const panel = await renderMapPanel(overview.bbox, overviewWidthPx, undefined, panelOptions);
         overviewPanel = `data:${panel.mimeType};base64,${panel.bytes.toString("base64")}`;
         stderr.write(`  overview panel (z${panel.zoom})\n`);
       } catch (err) {

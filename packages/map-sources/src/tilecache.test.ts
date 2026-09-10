@@ -2,7 +2,14 @@ import { describe, it, expect, afterEach } from "vitest";
 import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { getCachedTile, storeCachedTile } from "./tilecache.js";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import {
+  getCachedTile,
+  storeCachedTile,
+  tileExtensionForContentType,
+  contentTypeForTileExtension,
+} from "./tilecache.js";
 
 const roots: string[] = [];
 async function tmpRoot(): Promise<string> {
@@ -68,5 +75,52 @@ describe("tilecache", () => {
 
     await expect(fs.access(probe)).rejects.toBeTruthy();
     expect(await getCachedTile(root, "../jb-node-escape-dir", 0, 0, 0)).toBeNull();
+  });
+});
+
+/**
+ * The extension table is a CROSS-LANGUAGE contract, so it is tested against a
+ * fixture rather than against a copy of itself.
+ *
+ * `packages/map-sources/src/tilecache.ts` and
+ * `dotnet/JourneyBook.Infrastructure/Tiles/TileService.cs` write into one
+ * directory layout and each reads back what the other stored. Asserting the TS
+ * switch against a TS literal in this file would prove only that the switch is
+ * the switch. `data/fixtures/tile-content-types.json` is read by this suite and
+ * by `TileMediaTypeParityTests` in the .NET suite, so a change to either mapping
+ * fails in both places.
+ */
+describe("tile media types (shared with the C# proxy cache)", () => {
+  const fixturePath = fileURLToPath(
+    new URL("../../../data/fixtures/tile-content-types.json", import.meta.url),
+  );
+  const fixture = JSON.parse(readFileSync(fixturePath, "utf8")) as {
+    extensionForContentType: Record<string, string>;
+    contentTypeForExtension: Record<string, string>;
+  };
+
+  it("[CONTROL] the fixture was found and is not empty", () => {
+    // Without this, every loop below is vacuously green if the path is wrong —
+    // which is exactly how a parity test comes to test nothing.
+    expect(Object.keys(fixture.extensionForContentType).length).toBeGreaterThanOrEqual(5);
+    expect(Object.keys(fixture.contentTypeForExtension).length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("maps every content type in the shared fixture to the same extension", () => {
+    for (const [contentType, ext] of Object.entries(fixture.extensionForContentType)) {
+      expect(tileExtensionForContentType(contentType), `content type "${contentType}"`).toBe(ext);
+    }
+  });
+
+  it("maps every extension in the shared fixture back to the same content type", () => {
+    for (const [ext, contentType] of Object.entries(fixture.contentTypeForExtension)) {
+      expect(contentTypeForTileExtension(ext), `extension "${ext}"`).toBe(contentType);
+    }
+  });
+
+  it("normalises a parameterised content type the bare switch would miss", () => {
+    expect(tileExtensionForContentType("image/jpeg; charset=binary")).toBe("jpg");
+    expect(tileExtensionForContentType("IMAGE/JPEG")).toBe("jpg");
+    expect(tileExtensionForContentType(null)).toBe("png");
   });
 });

@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { SCALE_PRESETS, type BBox, type LngLat } from "./index.js";
+import { SCALE_PRESETS, type AtlasContract, type AtlasPage, type BBox, type LngLat } from "./index.js";
 import { LETTER_PORTRAIT, groundFootprintMeters, mapBoxInches } from "./page.js";
 import { createProjector } from "./projection.js";
-import { buildPageGrid } from "./grid.js";
+import { buildPageGrid, buildLocationPage } from "./grid.js";
 import { validateAtlas, effectiveDpi } from "./validation.js";
 
 const usgs = SCALE_PRESETS.find((p) => p.id === "usgs-7-5-min")!;
@@ -130,5 +130,70 @@ describe("validateAtlas printed-scale-fidelity", () => {
 describe("effectiveDpi", () => {
   it("is panel pixels divided by printable inches", () => {
     expect(effectiveDpi(1125, 7.5)).toBeCloseTo(150, 6);
+  });
+});
+
+/**
+ * Page ids are the atlas's primary key. Grid (`A1`), location (`L1`, `L1a`) and
+ * corridor (`R1`) pages share one flat id space inside a single contract, and
+ * every consumer keys off it: the render pipeline's panel/grid/route/landmark
+ * `Record<string, ...>` maps, `pageNumbers` and the TOC in `AtlasDocument`, and
+ * `byId` in this validator.
+ *
+ * None of those announce a collision — a Map or a Record just keeps the last
+ * write. The validator's own `neighbor-reciprocity` would then pass or fail
+ * against the wrong page, reporting a neighbour problem for what is really a
+ * broken key, which is why this is a check of its own rather than a clause of
+ * that one.
+ */
+describe("unique-page-ids", () => {
+  const scale = SCALE_PRESETS[0]!;
+
+  function contractOf(pages: AtlasPage[]): AtlasContract {
+    return { version: 1, scale, margins: LETTER_PORTRAIT.margins, pages };
+  }
+
+  function page(id: string): AtlasPage {
+    return buildLocationPage({ lng: -98, lat: 41 }, scale, LETTER_PORTRAIT, id);
+  }
+
+  function check(report: ReturnType<typeof validateAtlas>, name: string) {
+    const found = report.checks.find((c) => c.name === name);
+    // Refuse rather than read `undefined?.pass` as a falsy failure: a renamed or
+    // removed check would otherwise look exactly like a failing one.
+    if (!found) throw new Error(`validateAtlas reported no "${name}" check`);
+    return found;
+  }
+
+  it("[CONTROL] accepts a contract whose ids are all distinct", () => {
+    // The must-be-ACCEPTED half. A uniqueness check that refuses everything
+    // passes every negative case in this file.
+    const report = validateAtlas(contractOf([page("A1"), page("A2"), page("L1"), page("R1")]));
+    expect(check(report, "unique-page-ids").pass).toBe(true);
+    expect(check(report, "unique-page-ids").detail).toContain("4 page id(s)");
+  });
+
+  it("fails, and names the id, when two pages share one", () => {
+    const report = validateAtlas(contractOf([page("A1"), page("L1"), page("L1")]));
+    const got = check(report, "unique-page-ids");
+    expect(got.pass).toBe(false);
+    expect(got.detail).toContain("L1");
+    expect(report.pass).toBe(false);
+  });
+
+  it("reports the broken key as itself, not as a neighbour problem", () => {
+    // The concrete shape of the original defect: a 12-row grid used to emit a
+    // page literally called "L1", colliding with the first location page. The
+    // symptom a reader met was a neighbour reference resolving to the wrong
+    // page; this asserts the diagnosis now names the actual cause.
+    const grid = page("A1");
+    grid.neighbors = { south: "L1" };
+    const collided = page("L1");
+    collided.neighbors = { north: "A1" };
+    const shadow = page("L1");
+
+    const report = validateAtlas(contractOf([grid, collided, shadow]));
+    expect(check(report, "unique-page-ids").pass).toBe(false);
+    expect(check(report, "unique-page-ids").detail).toContain("duplicate page id(s): L1");
   });
 });

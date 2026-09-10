@@ -1,0 +1,129 @@
+{
+  "$comment": [
+    "Shared conformance cases for the location-import CSV, run through BOTH parsers:",
+    "packages/render-cli/src/locations.ts (parseLocationsCsv, the headless CLI) and",
+    "dotnet/JourneyBook.Infrastructure/Locations/LocationCsv.cs (Parse, the web importer).",
+    "",
+    "Both docblocks claim 'one file works in both'. Nothing checked it, and it was false in",
+    "four ways. This file is the check. A case's `expect` is what BOTH sides must do; a case",
+    "with `divergence` records a difference that is deliberate and still present, so it is",
+    "loud instead of silent.",
+    "",
+    "Error messages are compared by substring, because the two sides prefix them differently",
+    "('Locations CSV failed...' vs 'CSV import failed...'). Row fields are compared on the",
+    "columns both parsers actually produce."
+  ],
+  "cases": [
+    {
+      "id": "minimal",
+      "why": "The baseline both sides must accept identically.",
+      "csv": "name,lng,lat\nTrailhead,-96.7,40.8\n",
+      "expect": "accept",
+      "rows": [{ "name": "Trailhead", "lng": -96.7, "lat": 40.8 }]
+    },
+    {
+      "id": "all-columns",
+      "why": "Every optional column at once, including a zoom ladder and quoted notes with a comma.",
+      "csv": "name,lng,lat,notes,scale,pin,color,zoom\nCamp,-96.7,40.8,\"park here, then walk\",1-50000,circle,#ff0000,1-100000|1-50000\n",
+      "expect": "accept",
+      "rows": [
+        {
+          "name": "Camp",
+          "lng": -96.7,
+          "lat": 40.8,
+          "notes": "park here, then walk",
+          "scalePresetId": "1-50000",
+          "pinShape": "circle",
+          "pinColor": "#ff0000",
+          "zoomLevels": ["1-100000", "1-50000"]
+        }
+      ]
+    },
+    {
+      "id": "alias-columns",
+      "why": "longitude/latitude/note/scaleId/shape/colour/levels aliases.",
+      "csv": "name,longitude,latitude,note,scaleid,shape,colour,levels\nSpring,-96.7,40.8,water,1-50000,square,#00ff00,1-50000;usgs-7-5-min\n",
+      "expect": "accept",
+      "rows": [
+        {
+          "name": "Spring",
+          "lng": -96.7,
+          "lat": 40.8,
+          "notes": "water",
+          "scalePresetId": "1-50000",
+          "pinShape": "square",
+          "pinColor": "#00ff00",
+          "zoomLevels": ["1-50000", "usgs-7-5-min"]
+        }
+      ]
+    },
+    {
+      "id": "label-alias-for-name",
+      "why": "The web app exports a `label` column. The CLI accepted it and the importer did not, so a file that imported in one failed in the other.",
+      "csv": "label,lng,lat\nTrailhead,-96.7,40.8\n",
+      "expect": "accept",
+      "rows": [{ "name": "Trailhead", "lng": -96.7, "lat": 40.8 }]
+    },
+    {
+      "id": "empty-coordinate-cell",
+      "why": "The bug this fixture found. JavaScript's Number('') is 0 and Number.isFinite(0) is true, so a row with no longitude was accepted at lng 0 — a land-nav page silently centred on the prime meridian. C# rejected it correctly.",
+      "csv": "name,lng,lat\nTrailhead,,40.8\n",
+      "expect": "reject",
+      "rejectContains": "lng must be a number"
+    },
+    {
+      "id": "whitespace-coordinate-cell",
+      "why": "Same defect, less visible in a diff.",
+      "csv": "name,lng,lat\nTrailhead,   ,40.8\n",
+      "expect": "reject",
+      "rejectContains": "lng must be a number"
+    },
+    {
+      "id": "hex-coordinate",
+      "why": "Number('0x10') is 16 in JavaScript; double.TryParse with NumberStyles.Float refuses it. A coordinate column is decimal degrees, not a numeric literal.",
+      "csv": "name,lng,lat\nTrailhead,0x10,40.8\n",
+      "expect": "reject",
+      "rejectContains": "lng must be a number"
+    },
+    {
+      "id": "out-of-range-lat",
+      "why": "Range check, which both sides always had.",
+      "csv": "name,lng,lat\nTrailhead,-96.7,91\n",
+      "expect": "reject",
+      "rejectContains": "lat must be a number in [-90, 90]"
+    },
+    {
+      "id": "missing-required-column",
+      "why": "Header validation.",
+      "csv": "name,lng\nTrailhead,-96.7\n",
+      "expect": "reject",
+      "rejectContains": "missing required column"
+    },
+    {
+      "id": "header-only",
+      "why": "Both sides say the same thing here, near-verbatim.",
+      "csv": "name,lng,lat\n",
+      "expect": "reject",
+      "rejectContains": "header but no location rows"
+    },
+    {
+      "id": "duplicate-alias-columns",
+      "why": "A header carrying BOTH `lon` and `lng`. The two parsers used to pick different columns and both succeed — the worst kind of divergence, since neither reports anything. Resolved by alias order: the first name in the alias list wins, so `lng` beats `lon` on both sides.",
+      "csv": "name,lon,lng,lat\nTrailhead,1.5,-96.7,40.8\n",
+      "expect": "accept",
+      "rows": [{ "name": "Trailhead", "lng": -96.7, "lat": 40.8 }]
+    },
+    {
+      "id": "unknown-scale-preset",
+      "why": "Deliberate, documented divergence.",
+      "csv": "name,lng,lat,scale\nTrailhead,-96.7,40.8,no-such-scale\n",
+      "expect": "diverges",
+      "divergence": {
+        "typescript": "reject",
+        "typescriptRejectContains": "unknown scale preset",
+        "dotnet": "accept",
+        "note": "The CLI resolves scale ids against SCALE_PRESETS while parsing. The importer defers to LocationService, which checks the seeded ScalePresets table and returns 400 — a different message at a different point, but the same outcome, and ScalePresetParityTests now guarantees the two id sets are identical."
+      }
+    }
+  ]
+}

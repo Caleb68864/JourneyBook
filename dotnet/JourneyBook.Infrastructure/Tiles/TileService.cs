@@ -61,7 +61,18 @@ public sealed class TileService(
 
     private static string Etag(byte[] bytes) => "\"" + Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant() + "\"";
 
-    private static string ExtFor(string contentType) => contentType switch
+    /// <summary>
+    /// Cache file extension for a tile's <c>Content-Type</c>.
+    /// </summary>
+    /// <remarks>
+    /// Public because it is half of a CROSS-LANGUAGE contract, not an internal
+    /// detail. <c>packages/map-sources/src/tilecache.ts</c> implements the same
+    /// mapping, the two write into one <c>{source}/{z}/{x}/{y}.{ext}</c> layout,
+    /// and each reads back what the other stored — so the table is pinned by
+    /// <c>data/fixtures/tile-content-types.json</c>, which both suites read.
+    /// Do not edit either mapping without the fixture.
+    /// </remarks>
+    public static string ExtFor(string contentType) => contentType switch
     {
         "application/x-protobuf" or "application/vnd.mapbox-vector-tile" => "pbf",
         "image/jpeg" => "jpg",
@@ -69,7 +80,8 @@ public sealed class TileService(
         _ => "png",
     };
 
-    private static string ContentTypeFor(string ext) => ext switch
+    /// <summary>Inverse of <see cref="ExtFor"/>; see its remarks for why this is public.</summary>
+    public static string ContentTypeFor(string ext) => ext switch
     {
         "pbf" => "application/x-protobuf",
         "jpg" or "jpeg" => "image/jpeg",

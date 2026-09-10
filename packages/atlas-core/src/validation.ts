@@ -1,5 +1,5 @@
-import { POINTS_PER_INCH, type AtlasContract, type AtlasPage } from "./model.js";
-import { groundFootprintMeters, type PageSpec } from "./page.js";
+import { POINTS_PER_INCH, type AtlasContract, type AtlasPage, type ScalePreset } from "./model.js";
+import { LETTER_PORTRAIT, groundFootprintMeters, mapBoxInches, type PageSpec } from "./page.js";
 import { geodesicDistanceMeters } from "./projection.js";
 
 export interface CheckResult {
@@ -159,8 +159,38 @@ export function validateAtlas(
     });
   }
 
+  // Unique page ids. Checked BEFORE neighbour reciprocity, and separately from
+  // it, because a duplicate id does not announce itself: `byId` below is a Map,
+  // so a second page with the same id silently replaces the first, and every
+  // consumer keyed by page id does the same — the render pipeline's panel, grid,
+  // route and landmark `Record<string, …>` maps, and `pageNumbers`/the TOC in
+  // `AtlasDocument`. `neighbor-reciprocity` would then pass or fail against the
+  // WRONG page, reporting a neighbour problem for what is actually a broken
+  // primary key.
+  //
+  // The three id namespaces (grid `A1`, location `L1`/`L1a`, corridor `R1`) share
+  // one flat space in a single contract, and today they are kept disjoint by
+  // reserving `L` and `R` out of the grid row alphabet (see ROW_LETTERS in
+  // grid.ts). That reservation is enforced at the point ids are minted; this is
+  // the check that the CONTRACT came out sound, which holds for any future
+  // producer of ids rather than only for the one that got it wrong.
+  const seenIds = new Set<string>();
+  const duplicated = new Set<string>();
+  for (const page of contract.pages) {
+    if (seenIds.has(page.id)) duplicated.add(page.id);
+    seenIds.add(page.id);
+  }
+  checks.push({
+    name: "unique-page-ids",
+    pass: duplicated.size === 0,
+    detail:
+      duplicated.size === 0
+        ? `${seenIds.size} page id(s), all distinct`
+        : `duplicate page id(s): ${[...duplicated].sort().join(", ")}`,
+  });
+
   // Neighbour reciprocity: every reference resolves and points back.
-  const ids = new Set(contract.pages.map((p) => p.id));
+  const ids = seenIds;
   const byId = new Map(contract.pages.map((p) => [p.id, p]));
   let neighborPass = true;
   let neighborDetail = "all neighbour references reciprocal";
@@ -217,4 +247,36 @@ export const PRINT_DPI_TARGET = 300;
  */
 export function panelWidthPxForDpi(mapBoxWidthInches: number, dpi: number = PRINT_DPI_TARGET): number {
   return Math.ceil(dpi * mapBoxWidthInches);
+}
+
+/**
+ * The basemap panel width a page should be rendered at: the page's scale preset
+ * asks for a resolution, and this converts that request to the page's own map
+ * box.
+ *
+ * {@link ScalePreset.panelWidthPx} is stated across the Letter-**portrait** map
+ * box, which is the only geometry anything in this repo had ever measured. A
+ * landscape sheet has a 8.2639 in map box rather than 5.7639 in, and a binder
+ * gutter takes more off the binding edge, so a flat pixel count is a different
+ * DPI request on every page setup. Measured across the USGS Topo latitude band,
+ * a flat 1730 px in landscape delivers **209-419 DPI** and clears 300 at no
+ * preset at all, while the same request rescaled to the landscape box clears it
+ * at exactly the presets it clears in portrait. Scaling by the box is what makes
+ * the preset's number mean "this many dots per inch" instead of "this many
+ * pixels on the one sheet somebody measured".
+ *
+ * The ratio is exactly 1 for Letter portrait with default margins, so the common
+ * case is unchanged by construction.
+ */
+export function panelWidthPxFor(scale: ScalePreset, page: PageSpec): number {
+  const reference = mapBoxInches(LETTER_PORTRAIT).widthIn;
+  const actual = mapBoxInches(page).widthIn;
+  if (!(actual > 0) || !(reference > 0)) return scale.panelWidthPx;
+  // `round`, not `ceil`. The stored number is already a ceil of a DPI request
+  // (1730 = ceil(300 x 5.7639) asks for 300.14 DPI, not 300), so re-ceiling it
+  // compounds that rounding and lands a pixel above `panelWidthPxForDpi` for the
+  // same box — which makes "this is the same DPI ask on a different sheet" false
+  // by one pixel. A pixel cannot change which zoom `zoomForBBox` picks; zoom
+  // boundaries are a factor of two apart.
+  return Math.round(scale.panelWidthPx * (actual / reference));
 }

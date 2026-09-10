@@ -6,7 +6,7 @@ import {
   zoomForBBox,
   tileRangeForBBox,
 } from "./tilemath.js";
-import { getCachedTile, storeCachedTile } from "./tilecache.js";
+import { getCachedTile, storeCachedTile, tileExtensionForContentType } from "./tilecache.js";
 
 /** Parchment fill behind the mosaic, showing wherever a tile fetch failed. */
 const PANEL_BACKGROUND = { r: 244, g: 240, b: 230, alpha: 1 } as const;
@@ -217,6 +217,12 @@ interface FetchedTile {
    * a basemap's own URL template, which carries no such header.
    */
   attribution?: string;
+  /**
+   * The tile's own `Content-Type`, kept for one reason: it decides the extension
+   * the shared disk cache files these bytes under. The panel itself re-encodes
+   * everything through sharp, so it never reads this to decode.
+   */
+  contentType?: string;
 }
 
 async function fetchTile(
@@ -237,7 +243,12 @@ async function fetchTile(
       if (res.ok) {
         const bytes = Buffer.from(await res.arrayBuffer());
         const attribution = res.headers?.get?.("x-tile-attribution") ?? null;
-        return attribution ? { bytes, attribution } : { bytes };
+        const contentType = res.headers?.get?.("content-type") ?? null;
+        return {
+          bytes,
+          ...(attribution ? { attribution } : {}),
+          ...(contentType ? { contentType } : {}),
+        };
       }
       retryable = isRetryableStatus(res.status);
     } catch {
@@ -295,7 +306,19 @@ async function loadTile(
     options?.tileAttempts ?? DEFAULT_TILE_ATTEMPTS,
   );
   if (tile && options?.cacheDir) {
-    await storeCachedTile(options.cacheDir, cacheSource, z, x, y, "png", tile.bytes);
+    // The extension is derived, not assumed. This site used to pass a literal
+    // "png" for every tile: the C# proxy shares this cache directory, discovers
+    // whichever `{y}.*` exists and serves it with `ContentTypeFor(ext)`, so a
+    // JPEG cached here went back out to a browser as `image/png`.
+    await storeCachedTile(
+      options.cacheDir,
+      cacheSource,
+      z,
+      x,
+      y,
+      tileExtensionForContentType(tile.contentType),
+      tile.bytes,
+    );
   }
   return tile;
 }

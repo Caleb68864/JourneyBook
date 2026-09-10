@@ -521,4 +521,98 @@ describe("renderAtlas with a basemap", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  /**
+   * The panel width is now a property of the SCALE, and this is where that
+   * becomes true of a render rather than of a table.
+   *
+   * `tilemath.test.ts` pins what each preset's width delivers; nothing there
+   * touches `renderAtlas`, so a per-preset width defined and never wired in
+   * would leave that suite entirely green. These cases read the zoom off the
+   * tile URLs the render actually requested.
+   */
+  const zoomsRequested = (mock: { mock: { calls: unknown[][] } }): Set<number> => {
+    const zooms = new Set<number>();
+    for (const call of mock.mock.calls) {
+      const url = String(call[0]);
+      const m = /\/(\d+)\/(\d+)\/(\d+)$/.exec(url);
+      if (m) zooms.add(Number(m[1]));
+    }
+    return zooms;
+  };
+
+  type ZoomProbeInput = Omit<Parameters<typeof renderAtlas>[0], "outputPath">;
+
+  async function renderAndCaptureZooms(input: ZoomProbeInput): Promise<Set<number>> {
+    const fetchMock = vi.fn(async () => new Response(new Uint8Array(TILE_PNG), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const dir = mkdtempSync(join(tmpdir(), "jb-render-perpreset-"));
+    try {
+      await renderAtlas({
+        ...input,
+        outputPath: join(dir, "out.pdf"),
+        // A proxy base gives tile URLs a predictable {z}/{x}/{y} tail to read the
+        // zoom off, instead of parsing the USGS ArcGIS template.
+        tileBaseUrl: "http://127.0.0.1:1/tiles",
+        basemap: true,
+        overview: false,
+      });
+      return zoomsRequested(fetchMock);
+    } finally {
+      vi.unstubAllGlobals();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it("asks a 1:100,000 page for the zoom its own preset width needs", async () => {
+    // At the old flat 1000 px this preset landed on z13 and printed at 176 DPI.
+    // Its own width (1730) is what buys z14.
+    const zooms = await renderAndCaptureZooms({
+      mode: "location",
+      center: { lng: -98, lat: 41 },
+      scalePresetId: "1-100000",
+      tier: 1,
+    });
+    expect([...zooms]).toEqual([14]);
+  });
+
+  it("[CONTROL] leaves a 1:24,000 page on the zoom it always used", async () => {
+    // The must-be-UNCHANGED half of the decision, measured through the render
+    // rather than read off the preset table.
+    const zooms = await renderAndCaptureZooms({
+      mode: "location",
+      center: { lng: -98, lat: 41 },
+      scalePresetId: "usgs-7-5-min",
+      tier: 1,
+    });
+    expect([...zooms]).toEqual([16]);
+  });
+
+  it("resolves the width per page across a mixed-scale zoom ladder", async () => {
+    // One atlas, three scales, three different zooms — which is only possible if
+    // the width is resolved per page rather than once for the whole render.
+    const zooms = await renderAndCaptureZooms({
+      mode: "location",
+      center: { lng: -98, lat: 41 },
+      scalePresetId: "usgs-7-5-min",
+      tier: 1,
+      locations: [{ center: { lng: -98, lat: 41 } }],
+      zoomLevels: ["1-100000", "1-50000", "usgs-7-5-min"],
+      tableOfContents: false,
+    });
+    expect([...zooms].sort((a, b) => a - b)).toEqual([14, 15, 16]);
+  });
+
+  it("still lets an explicit panelWidthPx override every preset", async () => {
+    // The CLI's --panel-px is a caller asking for a specific resolution; a
+    // per-preset default that quietly won over it would be a regression.
+    const zooms = await renderAndCaptureZooms({
+      mode: "location",
+      center: { lng: -98, lat: 41 },
+      scalePresetId: "1-100000",
+      tier: 1,
+      panelWidthPx: 300,
+    });
+    expect([...zooms]).toEqual([12]);
+  });
 });

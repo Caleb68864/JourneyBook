@@ -5,6 +5,11 @@ import { renderRoute } from "./render-route.js";
 const parsedPort = Number.parseInt(process.env["PORT"] ?? "8090", 10);
 const PORT = Number.isInteger(parsedPort) && parsedPort > 0 && parsedPort < 65536 ? parsedPort : 8090;
 const GENERATED_DIR = process.env["GENERATED_DIR"] ?? "data/generated";
+// Where this process may write tile bytes — an operator setting, never a request
+// field. Unset means "render without a disk cache", which is what the deployed
+// topology does today: `docker-compose.yml` mounts no cache into the worker and
+// the C# proxy owns the shared cache.
+const TILE_CACHE_DIR = process.env["TILE_CACHE_DIR"];
 
 // Cap request bodies (render inputs are tiny) and bound request time so a stalled
 // upstream tile fetch can't pin a connection open forever.
@@ -18,7 +23,10 @@ app.get("/health", async (_req, _reply) => {
   return { status: "ok" };
 });
 
-await app.register(renderRoute, { generatedDir: GENERATED_DIR });
+await app.register(renderRoute, {
+  generatedDir: GENERATED_DIR,
+  ...(TILE_CACHE_DIR ? { cacheDir: TILE_CACHE_DIR } : {}),
+});
 
 async function start(): Promise<void> {
   try {

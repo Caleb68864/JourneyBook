@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, afterEach, beforeAll } from "vitest";
+import { promises as fsp } from "node:fs";
+import * as os from "node:os";
+import * as nodePath from "node:path";
 import sharp from "sharp";
 import { resolveTileUrl, renderMapPanel, USGS_TOPO, TILE_USER_AGENT } from "./panel.js";
 import { TILE_SIZE, lngLatToGlobalPixel, tileRangeForBBox } from "./tilemath.js";
@@ -454,5 +457,84 @@ describe("renderMapPanel crop registration", () => {
     expect(pixelAt(pb, 0, 10)).toEqual(pixelAt(pa, dx, 10));
     // And that is genuinely different ground from the first panel's left edge.
     expect(pixelAt(pb, 0, 10)).not.toEqual(pixelAt(pa, 0, 10));
+  });
+});
+
+/**
+ * What the disk cache is told a tile IS, at the one site that tells it.
+ *
+ * `loadTile` passed a literal `"png"` to `storeCachedTile` for every tile it had
+ * just fetched. The extension is not decoration: the C# proxy shares this cache
+ * directory, discovers whichever `{y}.*` exists, and serves it with
+ * `ContentTypeFor(ext)` — so a JPEG the CLI cached went back out as
+ * `image/png`, which is the one thing a Content-Type must never be.
+ *
+ * The PNG case below is the must-be-ACCEPTED control: the fix derives the
+ * extension instead of hardcoding it, and the common case must still land on
+ * `.png`. Without it, "the extension changed" and "the extension is right" are
+ * the same evidence.
+ */
+describe("tile cache extension at the store site", () => {
+  const cacheRoots: string[] = [];
+  afterEach(async () => {
+    for (const root of cacheRoots.splice(0)) {
+      await fsp.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  /** Serve every tile as `contentType`, with real PNG bytes so the panel still renders. */
+  function stubTilesAs(contentType: string): void {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(new Uint8Array(TILE_PNG), {
+            status: 200,
+            headers: { "content-type": contentType },
+          }),
+      ),
+    );
+  }
+
+  /** Every cached file's extension, deduped. Empty means the probe never reached the cache. */
+  async function cachedExtensions(root: string): Promise<string[]> {
+    const found = new Set<string>();
+    const walk = async (dir: string): Promise<void> => {
+      for (const entry of await fsp.readdir(dir, { withFileTypes: true })) {
+        const full = nodePath.join(dir, entry.name);
+        if (entry.isDirectory()) await walk(full);
+        else found.add(nodePath.extname(entry.name).replace(/^\./, ""));
+      }
+    };
+    await walk(root);
+    return [...found].sort();
+  }
+
+  async function cacheAfterRender(contentType: string): Promise<string[]> {
+    const root = await fsp.mkdtemp(nodePath.join(os.tmpdir(), "jb-panel-cache-"));
+    cacheRoots.push(root);
+    stubTilesAs(contentType);
+    await renderMapPanel(bbox as unknown as [number, number, number, number], 400, undefined, {
+      cacheDir: root,
+    });
+    const exts = await cachedExtensions(root);
+    // Refusal machinery: an empty cache means the render never stored a tile, in
+    // which case this probe has no opinion about extensions and must say so
+    // rather than report a passing comparison over nothing.
+    expect(exts.length, "the render cached no tiles at all — probe reached nothing").toBeGreaterThan(0);
+    return exts;
+  }
+
+  it("[CONTROL] files a PNG tile as .png", async () => {
+    expect(await cacheAfterRender("image/png")).toEqual(["png"]);
+  });
+
+  it("files a JPEG tile as .jpg, not .png", async () => {
+    expect(await cacheAfterRender("image/jpeg")).toEqual(["jpg"]);
+  });
+
+  it("files a tile whose source sent no content type as .png", async () => {
+    // The C# default arm. A source that omits the header must still be cached.
+    expect(await cacheAfterRender("")).toEqual(["png"]);
   });
 });
