@@ -6,7 +6,139 @@ import type { RenderAtlasInput } from "@journeybook/render-cli";
 
 interface RenderWorkerOptions extends FastifyPluginOptions {
   generatedDir: string;
+  /**
+   * Root of the shared disk tile cache, or undefined to render without one.
+   *
+   * Deliberately an OPTION, not a body field. The engine's `RenderAtlasInput`
+   * carries `cacheDir`, and this route used to spread the whole body into
+   * `renderAtlas`, so a caller could name any absolute path and
+   * `storeCachedTile` would `mkdir -p` it and fill it with tile bytes. Where a
+   * process writes on its own filesystem is the operator's decision; it is not
+   * a render parameter and it does not belong on the wire.
+   */
+  cacheDir?: string;
 }
+
+/**
+ * JSON Schema for `POST /render` — the engine's `RenderAtlasInput` as a wire
+ * contract, minus `cacheDir` (see {@link RenderWorkerOptions.cacheDir}).
+ *
+ * Why a schema at all, when `renderAtlas` already validates: the engine
+ * validates the fields it knows about, in the middle of a render, and the route
+ * then string-matches the resulting message to pick an HTTP status. A schema
+ * refuses a malformed body at the boundary, before a single tile is fetched,
+ * and — with the unknown-key check below — makes the set of accepted fields an
+ * explicit list instead of "whatever the engine's interface happens to have".
+ *
+ * The bounds mirror the engine's own (`validateInput` in `render.ts`) rather
+ * than inventing stricter ones: two components with two different definitions
+ * of a valid request is the failure this is meant to remove, not add.
+ */
+const centerSchema = {
+  type: "object",
+  required: ["lng", "lat"],
+  additionalProperties: false,
+  properties: {
+    lng: { type: "number", minimum: -180, maximum: 180 },
+    lat: { type: "number", minimum: -90, maximum: 90 },
+  },
+} as const;
+
+const renderBodySchema = {
+  type: "object",
+  required: ["mode", "scalePresetId", "tier", "outputPath"],
+  additionalProperties: false,
+  properties: {
+    mode: { type: "string", enum: ["bbox", "location"] },
+    bbox: { type: "array", minItems: 4, maxItems: 4, items: { type: "number" } },
+    center: centerSchema,
+    locations: {
+      type: "array",
+      items: {
+        type: "object",
+        required: ["center"],
+        additionalProperties: false,
+        properties: {
+          center: centerSchema,
+          label: { type: "string" },
+          scalePresetId: { type: "string", minLength: 1 },
+          pin: {
+            type: "object",
+            additionalProperties: false,
+            properties: { shape: { type: "string" }, color: { type: "string" } },
+          },
+          notes: { type: "string" },
+          zoomLevels: { type: "array", items: { type: "string", minLength: 1 } },
+        },
+      },
+    },
+    scalePresetId: { type: "string", minLength: 1 },
+    tier: { type: "integer", minimum: 1, maximum: 4 },
+    overlap: { type: "number", minimum: 0, exclusiveMaximum: 1 },
+    margins: {
+      type: "object",
+      required: ["top", "right", "bottom", "left"],
+      additionalProperties: false,
+      properties: {
+        top: { type: "number", minimum: 0 },
+        right: { type: "number", minimum: 0 },
+        bottom: { type: "number", minimum: 0 },
+        left: { type: "number", minimum: 0 },
+        gutter: { type: "number", minimum: 0 },
+      },
+    },
+    orientation: { type: "string", enum: ["portrait", "landscape"] },
+    title: { type: "string" },
+    basemap: { type: "boolean" },
+    // http(s) only, matching the engine's own SSRF guard. This is a scheme
+    // check, not a destination check: the worker can still be pointed at any
+    // http host reachable from its network, which is why it is deployed on a
+    // compose-internal `expose` rather than a published port.
+    tileBaseUrl: { type: "string", pattern: "^https?://" },
+    tileSourceId: { type: "string", minLength: 1 },
+    tileMaxZoom: { type: "integer", minimum: 0, maximum: 24 },
+    outputPath: { type: "string", minLength: 1 },
+    route: { type: "boolean" },
+    landmarks: {
+      type: "array",
+      items: {
+        type: "object",
+        required: ["lng", "lat", "name", "category", "score"],
+        additionalProperties: false,
+        properties: {
+          lng: { type: "number", minimum: -180, maximum: 180 },
+          lat: { type: "number", minimum: -90, maximum: 90 },
+          name: { type: "string" },
+          category: { type: "string" },
+          score: { type: "number" },
+        },
+      },
+    },
+    tableOfContents: { type: "boolean" },
+    overview: { type: "boolean" },
+    referenceGrid: { type: "boolean" },
+    notes: { type: "boolean" },
+    zoomLevels: { type: "array", items: { type: "string", minLength: 1 } },
+    cover: { type: "boolean" },
+    coverPadFraction: { type: "number", minimum: 0, maximum: 1 },
+    panelWidthPx: { type: "integer", minimum: 256, maximum: 8000 },
+    panelFormat: { type: "string", enum: ["jpeg", "png"] },
+    panelQuality: { type: "integer", minimum: 1, maximum: 100 },
+  },
+} as const;
+
+/**
+ * The accepted field names, read off the schema itself.
+ *
+ * Fastify's ajv runs with `removeAdditional: true`, so `additionalProperties:
+ * false` on the body would silently DELETE an unknown field rather than refuse
+ * it. Silent deletion is safe (`cacheDir` never reaches the engine either way)
+ * and useless to operate: an API sending a field the worker quietly drops looks
+ * exactly like an API sending nothing, which is the disagreement this is here to
+ * end. So the unknown keys are named back to the caller, from the same list the
+ * schema is built from — one definition of "accepted", not two.
+ */
+const ACCEPTED_FIELDS: ReadonlySet<string> = new Set(Object.keys(renderBodySchema.properties));
 
 function isUpstreamError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
@@ -38,13 +170,31 @@ function isInputError(err: unknown): boolean {
 
 export async function renderRoute(app: FastifyInstance, opts: RenderWorkerOptions): Promise<void> {
   const generatedDir = path.resolve(opts.generatedDir);
+  const cacheDir = opts.cacheDir ? path.resolve(opts.cacheDir) : undefined;
 
-  app.post("/render", async (req, reply) => {
+  app.addHook("preValidation", async (req, reply) => {
+    if (req.method !== "POST" || req.url.split("?")[0] !== "/render") return;
+    if (typeof req.body !== "object" || req.body === null || Array.isArray(req.body)) return;
+    const unknown = Object.keys(req.body).filter((key) => !ACCEPTED_FIELDS.has(key));
+    if (unknown.length > 0) {
+      return reply.status(400).send({
+        error: `Invalid render request: unsupported field(s) ${unknown.join(", ")}.`,
+      });
+    }
+  });
+
+  app.post("/render", { schema: { body: renderBodySchema }, attachValidation: true }, async (req, reply) => {
+    if (req.validationError) {
+      // One error shape for the route. Fastify's default validation reply is
+      // `{ statusCode, error: "Bad Request", message }`, whose `error` says
+      // nothing about what was wrong; every other 400 here is `{ error: <why> }`.
+      return reply
+        .status(400)
+        .send({ error: `Invalid render request: ${req.validationError.message}` });
+    }
+
     const body = req.body as Partial<RenderAtlasInput>;
 
-    if (!body.mode || !body.scalePresetId || body.tier === undefined || !body.outputPath) {
-      return reply.status(400).send({ error: "Missing required fields: mode, scalePresetId, tier, outputPath" });
-    }
     if (body.mode === "location" && !body.center) {
       return reply.status(400).send({ error: 'mode "location" requires center' });
     }
@@ -52,6 +202,12 @@ export async function renderRoute(app: FastifyInstance, opts: RenderWorkerOption
       return reply.status(400).send({ error: 'mode "bbox" requires bbox' });
     }
 
+    // The schema makes outputPath required and non-empty; this narrows the type
+    // without asserting, so a future schema edit that drops it fails here rather
+    // than resolving `undefined` against the generated directory.
+    if (typeof body.outputPath !== "string") {
+      return reply.status(400).send({ error: "Invalid render request: outputPath is required." });
+    }
     const requestedRelPath: string = body.outputPath;
 
     // Reject absolute paths and traversal attempts
@@ -72,7 +228,14 @@ export async function renderRoute(app: FastifyInstance, opts: RenderWorkerOption
     let outcome: "success" | "error" = "error";
 
     try {
-      const result = await renderAtlas({ ...(body as RenderAtlasInput), outputPath: fullOutputPath });
+      const result = await renderAtlas({
+        ...(body as RenderAtlasInput),
+        outputPath: fullOutputPath,
+        // Both of these overwrite whatever the body said, and neither is
+        // reachable from the wire (outputPath is confined above; cacheDir is
+        // refused by the schema). Set last so the spread cannot win.
+        ...(cacheDir ? { cacheDir } : {}),
+      });
       outcome = "success";
       const elapsedMs = Date.now() - start;
 
