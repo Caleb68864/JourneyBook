@@ -58,6 +58,28 @@ function nullIfEmpty(value: string | undefined): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
+/**
+ * A decimal-degrees coordinate cell, or null when the cell is not one.
+ *
+ * NOT `Number()`. `Number("")` is **0** and `Number.isFinite(0)` is true, so an
+ * empty longitude cell used to parse as a valid coordinate and the CLI placed
+ * that location on the prime meridian — a land-navigation page silently centred
+ * on the wrong continent, with no error anywhere. `Number("   ")` is 0 too, and
+ * `Number("0x10")` is 16. The C# importer, which reads the same file, refused
+ * all three (`double.TryParse` with `NumberStyles.Float`), so the same CSV
+ * imported one way in the web app and another in the CLI.
+ *
+ * The grammar accepted here is `NumberStyles.Float`'s: optional sign, digits
+ * with an optional decimal part, optional exponent, surrounding whitespace
+ * allowed. Hex, thousands separators, `Infinity` and `NaN` are not coordinates.
+ */
+export function parseCoordinateCell(raw: string | undefined): number | null {
+  const trimmed = (raw ?? "").trim();
+  if (!/^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$/.test(trimmed)) return null;
+  const value = Number(trimmed);
+  return Number.isFinite(value) ? value : null;
+}
+
 function assertScaleId(id: string, where: string): string {
   if (!SCALE_PRESETS.some((p) => p.id === id)) {
     throw new Error(
@@ -119,12 +141,12 @@ export function parseLocationsCsv(csv: string): RenderLocation[] {
     try {
       const name = get(nameIdx).trim();
       if (!name) throw new Error("name is required");
-      const lng = Number(get(lngIdx).trim());
-      const lat = Number(get(latIdx).trim());
-      if (!Number.isFinite(lng) || lng < -180 || lng > 180) {
+      const lng = parseCoordinateCell(get(lngIdx));
+      const lat = parseCoordinateCell(get(latIdx));
+      if (lng === null || lng < -180 || lng > 180) {
         throw new Error(`lng must be a number in [-180, 180] (got "${get(lngIdx)}")`);
       }
-      if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
+      if (lat === null || lat < -90 || lat > 90) {
         throw new Error(`lat must be a number in [-90, 90] (got "${get(latIdx)}")`);
       }
       const scaleId = nullIfEmpty(get(scaleIdx));
