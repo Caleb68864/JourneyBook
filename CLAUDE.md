@@ -8,7 +8,7 @@ JourneyBook generates printable, true-to-scale land-navigation atlases (PDF) fro
 
 - Build: `pnpm -r build && dotnet build JourneyBook.slnx --nologo`
 - Test (TS): `pnpm -r test` · Test (backend, needs Docker): `dotnet test JourneyBook.slnx`
-- No Docker? `dotnet test JourneyBook.slnx --filter "FullyQualifiedName!~Api"` — the same filter the `dotnet-unit` CI job runs.
+- No Docker? `dotnet test JourneyBook.slnx --filter "FullyQualifiedName!~JourneyBook.Tests.Api."` — the same filter the `dotnet-unit` CI job runs. Filter on the **namespace**: VSTest's `~` is a case-insensitive substring match, so the old `!~Api` also excluded `AdminApiKeyGateTests` (4 Docker-free tests), and would exclude anything named *rapid*, *capital* or *therapies*. `harness/checks/test-filter-partitions.sh` asserts the two CI jobs between them run every test.
 - Headless render: `node packages/render-cli/dist/cli.js render --location LNG,LAT --scale usgs-7-5-min --tier 2 --basemap --out atlas.pdf` (also `grid`, `validate`)
 - Web dev: `pnpm dev:web` · API: `dotnet run --project apps/api` (needs PostGIS on :5433)
 - Migration: `dotnet ef migrations add <Name> -p dotnet/JourneyBook.Infrastructure -s apps/api`
