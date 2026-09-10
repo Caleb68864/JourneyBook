@@ -417,9 +417,45 @@ source_urls:
 > | **aggregate, 5–60 km** | 5006 | 5523 | **+10.3%** |
 > | theory, `(1/0.95)² − 1` | | | +10.8% |
 >
-> **19 of the 56 sizes cost exactly 0%**, because both counts are `ceil()`'d. The
-> honest headline is *"about +10% on average, anywhere from 0% to +50% depending on
-> where the extent lands relative to a page boundary."*
+> **19 of the 56 sizes cost exactly 0%**, because both counts are `ceil()`'d.
+>
+> > #### The aggregate is not "the number" either (re-measured 2026-09-10)
+> >
+> > `+10.3%` was quoted above; a later pass measured `+10.5%`; a third measured
+> > `+11.1%`. **All three are correct, and none of them is the figure**, because
+> > the aggregate is an artefact of the sample set. Re-run against `pageGridSize`
+> > with square extents about 41°N / 98°W at 1:24,000:
+> >
+> > | sample set | sizes | aggregate | cost nothing | worst |
+> > |---|---|---|---|---|
+> > | 5–50 km, step 1 km | 46 | +11.1% | 18 (39%) | +50% |
+> > | 5–60 km, step 1 km | 56 | +11.2% | 18 (32%) | +50% |
+> > | 5–50 km, step 5 km | 10 | +13.4% | 5 (50%) | +20% |
+> > | 10–40 km, step 1 km | 31 | +10.8% | 14 (45%) | +31% |
+> > | 5–60 km, step 0.5 km | 111 | +10.9% | 37 (33%) | **+67%** |
+> >
+> > **Quote this as a range with its drivers, never as a rate:**
+> >
+> > - **Theory: `(1/0.95)² − 1` = +10.8%.** The only construction-independent
+> >   number here, and the value a dense sweep converges on (+10.8% to +11.2%).
+> > - **Typical: about +11%, and 0% to +50% for any individual extent.**
+> > - **Roughly a third of extents cost nothing at all** (32–45% across sample
+> >   sets) — both counts are `ceil()`'d, so an extent with slack in the last
+> >   column and row absorbs the overlap for free.
+> > - **The worst case gets worse the finer you sample**: +50% at 1 km steps,
+> >   **+67%** at 0.5 km. A coarse sweep does not find the knife edges, so a
+> >   reassuring "worst case" is a statement about the sampling, not the product.
+> > - **A coarse or small sample overstates the aggregate** (+13.4% from 10 sizes).
+> >
+> > **And no single extent's figure is stable, including the 20 km headline in the
+> > table above.** A 20 km box costs `30 → 35 = +16.7%` only if it is at least
+> > **20,030 m** of ground; an exactly-20,000 m box is `30 → 30 = +0.0%`. The
+> > divisor is `20000 / (3513.67 × 0.95) = 5.9916`, which is **0.14% below the 6
+> > that `ceil()` is deciding**. Two reasonable ways of writing down "a 20 km box"
+> > — a square in the page-centred projection versus one from a naive
+> > metres-per-degree conversion — land on opposite sides of it. If a decision
+> > rests on one extent's page count, measure *that* extent; do not carry a
+> > headline figure across.
 >
 > **The two levers interact and cannot be decided independently.** At
 > `edgeLabelColumn` 38 the 20 km box's 5% overlap becomes **free** (30 → 30, instead
