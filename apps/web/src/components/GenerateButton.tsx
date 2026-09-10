@@ -94,19 +94,31 @@ export function GenerateButton({ projectId, tier, route, cover, includeLandmarks
           </>
         )}
       </button>
-      {status === "done" && (
-        <p className="font-mono text-[11px] text-forest-700">
-          PDF opened in a new tab.{" "}
-          {pdfUrl && (
-            <a href={pdfUrl} target="_blank" rel="noopener noreferrer" className="underline hover:text-forest-600">
-              Open / download
-            </a>
-          )}
-        </p>
-      )}
-      {status === "error" && errorMsg && (
-        <p className="font-mono text-[11px] text-campfire-600">{errorMsg}</p>
-      )}
+      {/* A render takes minutes and changes state three or four times. Without a
+          live region every one of those changes — Queued…, Rendering…, done,
+          failed — is silent to assistive tech, and the button's own label change
+          is not announced either. `polite` so it waits for a pause; the whole
+          region is live so an empty→populated message counts as a change. */}
+      <div aria-live="polite" className="flex flex-col gap-1">
+        <span className="sr-only">
+          {status === "generating"
+            ? ((jobStatus && WAITING_LABEL[jobStatus]) ?? "Generating…")
+            : ""}
+        </span>
+        {status === "done" && (
+          <p className="font-mono text-[11px] text-forest-700">
+            PDF opened in a new tab.{" "}
+            {pdfUrl && (
+              <a href={pdfUrl} target="_blank" rel="noopener noreferrer" className="underline hover:text-forest-600">
+                Open / download
+              </a>
+            )}
+          </p>
+        )}
+        {status === "error" && errorMsg && (
+          <p className="font-mono text-[11px] text-campfire-600">{errorMsg}</p>
+        )}
+      </div>
     </div>
   );
 }

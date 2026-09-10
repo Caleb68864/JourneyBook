@@ -396,8 +396,12 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
         >
           Rename
         </button>
-        {saving && <span className="font-mono text-[11px] text-bark-500">Saving…</span>}
-        {error && <span className="font-mono text-[11px] text-campfire-600">{error}</span>}
+        {/* Saving… and the header error both appear and vanish asynchronously and
+            were announced to nobody. `contents` keeps the header's flex layout. */}
+        <span aria-live="polite" className="contents">
+          {saving && <span className="font-mono text-[11px] text-bark-500">Saving…</span>}
+          {error && <span className="font-mono text-[11px] text-campfire-600">{error}</span>}
+        </span>
       </header>
 
       <div className="mx-auto flex max-w-7xl flex-col gap-0 lg:flex-row">

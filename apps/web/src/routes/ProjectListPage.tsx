@@ -123,9 +123,13 @@ export function ProjectListPage({ onOpen }: ProjectListPageProps) {
         <div className="mx-auto flex max-w-4xl items-center justify-between">
           <span className="font-display text-xl text-forest-700">Journey Book</span>
           <div className="flex items-center gap-3">
-            <label className="cursor-pointer border border-bark-400 px-3 py-2 font-mono text-xs uppercase tracking-widest text-bark-600 hover:bg-parchment-300">
+            {/* sr-only, not hidden: `hidden` is display:none, so the input was not
+                focusable, and a <label> is never in the tab order — project import
+                could not be reached at all without a mouse. focus-within puts the
+                ring on the label, which is what the user actually sees. */}
+            <label className="cursor-pointer border border-bark-400 px-3 py-2 font-mono text-xs uppercase tracking-widest text-bark-600 hover:bg-parchment-300 focus-within:ring-2 focus-within:ring-forest-700">
               Import
-              <input type="file" accept=".json,application/json" onChange={(e) => void handleImport(e)} className="hidden" />
+              <input type="file" accept=".json,application/json" onChange={(e) => void handleImport(e)} className="sr-only" />
             </label>
             <button
               type="button"
@@ -146,10 +150,11 @@ export function ProjectListPage({ onOpen }: ProjectListPageProps) {
             className="mb-6 flex items-end gap-3 border border-bark-300 bg-cream-100 p-4"
           >
             <div className="flex flex-1 flex-col gap-1">
-              <label className="font-mono text-[11px] uppercase tracking-widest text-bark-600">
+              <label htmlFor="new-atlas-name" className="font-mono text-[11px] uppercase tracking-widest text-bark-600">
                 Atlas Name
               </label>
               <input
+                id="new-atlas-name"
                 type="text"
                 autoFocus
                 value={newName}
@@ -175,9 +180,11 @@ export function ProjectListPage({ onOpen }: ProjectListPageProps) {
           </form>
         )}
 
-        {error && (
-          <p className="mb-4 font-mono text-sm text-campfire-600">{error}</p>
-        )}
+        <div aria-live="polite">
+          {error && (
+            <p className="mb-4 font-mono text-sm text-campfire-600">{error}</p>
+          )}
+        </div>
 
         {loading ? (
           <p className="font-mono text-sm text-bark-500">Loading…</p>

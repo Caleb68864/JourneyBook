@@ -116,14 +116,17 @@ export function LocationList({
           Important Locations
         </span>
         <div className="flex items-center gap-3">
-          <label className="cursor-pointer font-mono text-[11px] uppercase tracking-widest text-forest-700 underline hover:text-forest-600">
+          {/* sr-only, not hidden: `hidden` is display:none, so the input was not
+              focusable, and a <label> is never in the tab order — CSV import could
+              not be reached at all without a mouse. */}
+          <label className="cursor-pointer font-mono text-[11px] uppercase tracking-widest text-forest-700 underline hover:text-forest-600 focus-within:ring-2 focus-within:ring-forest-700">
             {importing ? "Importing…" : "Import CSV"}
             <input
               type="file"
               accept=".csv,text/csv"
               onChange={(e) => void handleImportFile(e)}
               disabled={importing}
-              className="hidden"
+              className="sr-only"
             />
           </label>
           {onStartDrop && (
@@ -137,7 +140,11 @@ export function LocationList({
           )}
         </div>
       </div>
-      {importMsg && <p className="font-mono text-[11px] text-forest-700">{importMsg}</p>}
+      {/* "Imported N locations" arrives after an upload whose progress the user
+          cannot see; without a live region it is announced to nobody. */}
+      <div aria-live="polite">
+        {importMsg && <p className="font-mono text-[11px] text-forest-700">{importMsg}</p>}
+      </div>
 
       {locations.length > 0 && (
         <ul className="divide-y divide-bark-200 border border-bark-300">
@@ -225,6 +232,7 @@ export function LocationList({
         <input
           type="text"
           placeholder="Name (e.g. Grandma's House)"
+          aria-label="Location name"
           value={name}
           onChange={(e) => setName(e.target.value)}
           className="border border-bark-400 bg-cream-50 px-3 py-1.5 font-mono text-sm text-charcoal-900 placeholder:text-bark-400 focus:outline-none focus:ring-1 focus:ring-forest-700"
@@ -233,6 +241,7 @@ export function LocationList({
           <input
             type="text"
             placeholder="Longitude"
+            aria-label="Longitude"
             value={lng}
             onChange={(e) => setLng(e.target.value)}
             className="w-1/2 border border-bark-400 bg-cream-50 px-3 py-1.5 font-mono text-sm text-charcoal-900 placeholder:text-bark-400 focus:outline-none focus:ring-1 focus:ring-forest-700"
@@ -240,6 +249,7 @@ export function LocationList({
           <input
             type="text"
             placeholder="Latitude"
+            aria-label="Latitude"
             value={lat}
             onChange={(e) => setLat(e.target.value)}
             className="w-1/2 border border-bark-400 bg-cream-50 px-3 py-1.5 font-mono text-sm text-charcoal-900 placeholder:text-bark-400 focus:outline-none focus:ring-1 focus:ring-forest-700"

@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { SCALE_PRESETS } from "@journeybook/atlas-core";
 
 interface ScalePickerProps {
@@ -7,12 +8,19 @@ interface ScalePickerProps {
 }
 
 export function ScalePicker({ value, onChange, disabled }: ScalePickerProps) {
+  // The label was a plain sibling with no htmlFor, so a screen reader announced
+  // "combo box" with no indication of what it selects — and the e2e spec had to
+  // reach it by ordinal (`page.locator("select").nth(0)`), which is the same
+  // problem wearing a different hat. useId, not a literal, so a second instance
+  // on one page cannot collide.
+  const id = useId();
   return (
     <div className="flex flex-col gap-1">
-      <label className="font-mono text-[11px] uppercase tracking-widest text-bark-600">
+      <label htmlFor={id} className="font-mono text-[11px] uppercase tracking-widest text-bark-600">
         Map Scale
       </label>
       <select
+        id={id}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}

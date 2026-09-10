@@ -68,8 +68,11 @@ export function LandmarkImportControl({
           Set a bounding box before importing landmarks.
         </p>
       )}
-      {message && <p className="font-mono text-[11px] text-forest-700">{message}</p>}
-      {error && <p className="font-mono text-[11px] text-campfire-600">{error}</p>}
+      {/* The import is a server round trip with no other feedback. */}
+      <div aria-live="polite">
+        {message && <p className="font-mono text-[11px] text-forest-700">{message}</p>}
+        {error && <p className="font-mono text-[11px] text-campfire-600">{error}</p>}
+      </div>
     </div>
   );
 }
