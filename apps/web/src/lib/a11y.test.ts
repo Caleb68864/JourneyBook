@@ -75,6 +75,77 @@ function tagsNamed(text: string, name: string): string[] {
   return tags;
 }
 
+/**
+ * The class names a JSX tag applies, from **any** of the forms this codebase uses.
+ *
+ * The first version of this was `/className=["']([^"']*)["']/` — string literals
+ * only. Any JSX-expression form yielded no match, and therefore no offender:
+ * `` className={`hidden`} `` is the pre-fix defect with one brace changed, it
+ * renders the identical DOM, and it passed. `cn(...)` is already imported and
+ * used across `components/ui/*.tsx`, so the expression form is not contrived.
+ *
+ * A literal `"…"`/`'…'` value is returned as-is. An expression value is
+ * brace-matched and every string/template run inside it is collected — so
+ * `cn("hidden", open && "flex")` and `` `hidden ${extra}` `` both yield their
+ * literal parts, which is exactly the part Tailwind can act on.
+ */
+function classNamesOf(tag: string): string {
+  const m = /\bclassName\s*=\s*/.exec(tag);
+  if (!m) return "";
+  const at = m.index + m[0].length;
+  const first = tag[at];
+
+  if (first === '"' || first === "'") {
+    const end = tag.indexOf(first, at + 1);
+    return end < 0 ? "" : tag.slice(at + 1, end);
+  }
+  if (first !== "{") return "";
+
+  let depth = 0;
+  let quote: string | null = null;
+  let end = -1;
+  for (let i = at; i < tag.length; i++) {
+    const c = tag[i]!;
+    if (quote) {
+      if (c === quote) quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") quote = c;
+    else if (c === "{") depth++;
+    else if (c === "}" && --depth === 0) {
+      end = i;
+      break;
+    }
+  }
+  if (end < 0) return "";
+
+  return [...tag.slice(at + 1, end).matchAll(/"([^"]*)"|'([^']*)'|`([^`]*)`/g)]
+    .map((q) => q[1] ?? q[2] ?? q[3] ?? "")
+    .join(" ");
+}
+
+/**
+ * Does this tag take the control out of the tab order?
+ *
+ * `hidden` (the Tailwind utility or the bare HTML attribute) and an inline
+ * `display: none` are all `display: none`, and a `display: none` input is not
+ * focusable. `sr-only` is the correct form: off-screen, still focusable, still
+ * clickable through its label.
+ */
+function isDisplayNone(tag: string): string | null {
+  const classes = classNamesOf(tag);
+  // `-` is a word boundary to \b, so `\bhidden\b` also matches `overflow-hidden`,
+  // which is not display:none and must not be flagged.
+  if (/(?<![\w-])hidden(?![\w-])/.test(classes)) return `className: ${classes}`;
+  // The bare attribute — `<input … hidden />`. The leading \s keeps `aria-hidden`
+  // out, and the lookahead keeps `hidden-thing` and `hiddenFoo` out.
+  if (/\shidden(?=[\s/>]|=\{true\})/.test(tag.replace(/\bclassName\s*=/, "cn="))) {
+    return "the bare `hidden` attribute";
+  }
+  if (/display\s*:\s*["']?none/.test(tag)) return "an inline display:none";
+  return null;
+}
+
 describe("accessibility guards", () => {
   /**
    * `<input type="file" className="hidden">` inside a `<label>`. `hidden` is
@@ -91,13 +162,43 @@ describe("accessibility guards", () => {
     for (const file of FILES) {
       for (const tag of tagsNamed(readFileSync(file, "utf8"), "input")) {
         if (!/type=["']file["']/.test(tag)) continue;
-        const className = /className=["']([^"']*)["']/.exec(tag)?.[1] ?? "";
-        if (/\bhidden\b/.test(className)) offenders.push(`${rel(file)}: ${className}`);
+        const why = isDisplayNone(tag);
+        if (why) offenders.push(`${rel(file)}: ${why}`);
       }
     }
 
     expect(offenders, `file inputs that keyboard users cannot reach:\n  ${offenders.join("\n  ")}`)
       .toEqual([]);
+  });
+
+  /**
+   * The guard's own reader, tested directly. Without this it can quietly go back
+   * to matching string literals only — which is how `` className={`hidden`} ``,
+   * the pre-fix defect with one brace changed, passed.
+   */
+  it("[BEHAVIORAL] reads a class name in every form, not just a string literal", () => {
+    const hidden = [
+      `<input type="file" className="hidden" />`,
+      "<input type=\"file\" className={`hidden`} />",
+      `<input type="file" onChange={(e) => void go(e)} className={cn("hidden", x && "flex")} />`,
+      `<input type="file" className={open ? "block" : "hidden"} />`,
+      `<input type="file" hidden />`,
+      `<input type="file" style={{ display: "none" }} />`,
+    ];
+    for (const tag of hidden) {
+      expect(isDisplayNone(tag), `not flagged: ${tag}`).not.toBeNull();
+    }
+
+    const reachable = [
+      `<input type="file" className="sr-only" />`,
+      "<input type=\"file\" className={`sr-only ${extra}`} />",
+      `<input type="file" className={cn("sr-only", big && "text-lg")} />`,
+      `<input type="file" aria-hidden="true" className="sr-only" />`,
+      `<input type="file" className="overflow-hidden sr-only" />`,
+    ];
+    for (const tag of reachable) {
+      expect(isDisplayNone(tag), `wrongly flagged: ${tag}`).toBeNull();
+    }
   });
 
   it("finds the file inputs it is meant to be guarding", () => {
@@ -147,21 +248,62 @@ describe("accessibility guards", () => {
    * failure message, Saving…, the header error, the draw-mode banner, "Imported
    * N locations". The only `role="status"` was in a component that is never
    * rendered.
+   *
+   * The first version of this guard was a **five-file allowlist**, which is a
+   * list of the files that had already been fixed. `GeocodeSearch.tsx` held
+   * `searching`, `adding` and `error` state, rendered "No matches found.",
+   * "Adding…" and an error paragraph, contained not one live region — and was
+   * green, because it was not on the list. No mutation was needed to show it.
+   * A guard that has to be told which files to check cannot catch the next file.
+   *
+   * So the list is derived instead: any component that does async work and holds
+   * status-shaped state is announcing something to sighted users, and must
+   * announce it to everyone. `STATUS_STATE` is deliberately a vocabulary and not
+   * a path list — a new component with a `saving` flag is caught the day it is
+   * written.
    */
-  it("[BEHAVIORAL] components that report async status announce it", () => {
-    const mustAnnounce = [
+  const STATUS_STATE =
+    /\bconst \[\s*(error|saving|searching|adding|importing|loading|busy|pending|status|submitting|deleting|generating|uploading|progress|notice)([A-Z]\w*)?\s*,/g;
+  const LIVE_REGION = /aria-live=|role=["']status["']|role=["']alert["']/;
+
+  /** Files that report asynchronous status to the user, found rather than listed. */
+  function announcers(): { name: string; states: string[] }[] {
+    const out: { name: string; states: string[] }[] = [];
+    for (const file of FILES) {
+      const text = readFileSync(file, "utf8");
+      if (!/\basync\b|\bawait\b/.test(text)) continue;
+      const states = [...text.matchAll(STATUS_STATE)].map((m) => m[1]! + (m[2] ?? ""));
+      if (states.length) out.push({ name: rel(file), states: [...new Set(states)] });
+    }
+    return out;
+  }
+
+  it("[BEHAVIORAL] every component that reports async status announces it", () => {
+    const found = announcers();
+
+    // Guard the guard, twice over. A vocabulary that stops matching finds no
+    // files and passes for ever; and the five components the original fix
+    // covered must still be among the ones it finds, or the rule has narrowed
+    // to the point of proving nothing.
+    expect(found.length, "the async-status scan found no components at all").toBeGreaterThanOrEqual(5);
+    const names = found.map((f) => f.name);
+    for (const known of [
       "components/GenerateButton.tsx",
       "components/LocationList.tsx",
       "components/LandmarkImportControl.tsx",
+      "components/GeocodeSearch.tsx",
       "routes/ProjectEditorPage.tsx",
       "routes/ProjectListPage.tsx",
-    ];
+    ]) {
+      expect(names, `${known} reports async status and the scan no longer finds it`).toContain(known);
+    }
 
-    const silent = mustAnnounce.filter((name) => {
-      const file = FILES.find((f) => rel(f) === name);
-      expect(file, `${name} not found — update this list`).toBeDefined();
-      return !/aria-live=|role=["']status["']|role=["']alert["']/.test(readFileSync(file!, "utf8"));
-    });
+    const silent = found
+      .filter(({ name }) => {
+        const file = FILES.find((f) => rel(f) === name)!;
+        return !LIVE_REGION.test(readFileSync(file, "utf8"));
+      })
+      .map(({ name, states }) => `${name} (${states.join(", ")})`);
 
     expect(silent, `async status changes nothing announces:\n  ${silent.join("\n  ")}`).toEqual([]);
   });
