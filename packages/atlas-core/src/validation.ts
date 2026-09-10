@@ -159,8 +159,38 @@ export function validateAtlas(
     });
   }
 
+  // Unique page ids. Checked BEFORE neighbour reciprocity, and separately from
+  // it, because a duplicate id does not announce itself: `byId` below is a Map,
+  // so a second page with the same id silently replaces the first, and every
+  // consumer keyed by page id does the same — the render pipeline's panel, grid,
+  // route and landmark `Record<string, …>` maps, and `pageNumbers`/the TOC in
+  // `AtlasDocument`. `neighbor-reciprocity` would then pass or fail against the
+  // WRONG page, reporting a neighbour problem for what is actually a broken
+  // primary key.
+  //
+  // The three id namespaces (grid `A1`, location `L1`/`L1a`, corridor `R1`) share
+  // one flat space in a single contract, and today they are kept disjoint by
+  // reserving `L` and `R` out of the grid row alphabet (see ROW_LETTERS in
+  // grid.ts). That reservation is enforced at the point ids are minted; this is
+  // the check that the CONTRACT came out sound, which holds for any future
+  // producer of ids rather than only for the one that got it wrong.
+  const seenIds = new Set<string>();
+  const duplicated = new Set<string>();
+  for (const page of contract.pages) {
+    if (seenIds.has(page.id)) duplicated.add(page.id);
+    seenIds.add(page.id);
+  }
+  checks.push({
+    name: "unique-page-ids",
+    pass: duplicated.size === 0,
+    detail:
+      duplicated.size === 0
+        ? `${seenIds.size} page id(s), all distinct`
+        : `duplicate page id(s): ${[...duplicated].sort().join(", ")}`,
+  });
+
   // Neighbour reciprocity: every reference resolves and points back.
-  const ids = new Set(contract.pages.map((p) => p.id));
+  const ids = seenIds;
   const byId = new Map(contract.pages.map((p) => [p.id, p]));
   let neighborPass = true;
   let neighborDetail = "all neighbour references reciprocal";
