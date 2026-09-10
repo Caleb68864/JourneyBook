@@ -91,6 +91,63 @@ export interface PageGridOptions {
   tier?: MapTier;
 }
 
+/** How big a grid an extent tiles into, without materialising or rejecting it. */
+export interface PageGridSize {
+  columns: number;
+  rows: number;
+  /** `columns * rows` — exactly what {@link buildPageGrid} would emit. */
+  pages: number;
+  /** True when the grid is bigger than {@link MAX_ATLAS_PAGES} can render. */
+  overLimit: boolean;
+}
+
+/**
+ * Measure the grid an extent produces, WITHOUT building it and WITHOUT throwing.
+ *
+ * `buildPageGrid` rejects an over-cap extent, which is right for a render and
+ * useless for a warning: a caller that wants to say "this box is 5,256 pages,
+ * which is too many" cannot learn the number from a function whose answer to a
+ * too-large box is an exception. The web editor's over-limit guard was written
+ * against `buildPageGrid(...).pages.length > MAX_ATLAS_PAGES`, a condition that
+ * is provably unreachable — the call throws exactly when it would be true — so
+ * the estimate, the "Too Large" confirm, the disabled Generate button and the
+ * over-limit banner were all dead code, and the user met the cap as a raw 400
+ * from the render worker minutes later.
+ *
+ * Counting is cheap (no projections per page), so this is also what
+ * `buildPageGrid` uses for its own fail-fast guard: one definition of "how many
+ * pages", used by both the guard and the warning.
+ */
+export function pageGridSize(options: PageGridOptions): PageGridSize {
+  const { bbox, scale, page } = options;
+  const overlap = options.overlap ?? 0;
+
+  const [west, south, east, north] = bbox;
+  const center: LngLat = { lng: (west + east) / 2, lat: (south + north) / 2 };
+  const projector = createProjector(center);
+
+  // Planar bounds of the extent (min/max over the four projected corners).
+  const corners = [
+    projector.forward({ lng: west, lat: south }),
+    projector.forward({ lng: west, lat: north }),
+    projector.forward({ lng: east, lat: south }),
+    projector.forward({ lng: east, lat: north }),
+  ];
+  const xs = corners.map((c) => c[0]);
+  const ys = corners.map((c) => c[1]);
+  const extentWidth = Math.max(...xs) - Math.min(...xs);
+  const extentHeight = Math.max(...ys) - Math.min(...ys);
+
+  const fp = groundFootprintMeters(scale, page);
+  const stepX = fp.widthMeters * (1 - overlap);
+  const stepY = fp.heightMeters * (1 - overlap);
+
+  const columns = Math.max(1, Math.ceil(extentWidth / stepX));
+  const rows = Math.max(1, Math.ceil(extentHeight / stepY));
+
+  return { columns, rows, pages: columns * rows, overLimit: columns * rows > MAX_ATLAS_PAGES };
+}
+
 /**
  * Tile a geographic extent into a fixed-scale page grid (extent-driven mode).
  * Pages are laid out in a single page-centred projection so every page shares
@@ -125,17 +182,17 @@ export function buildPageGrid(options: PageGridOptions): AtlasContract {
   const stepX = fp.widthMeters * (1 - overlap);
   const stepY = fp.heightMeters * (1 - overlap);
 
-  const columns = Math.max(1, Math.ceil(extentWidth / stepX));
-  const rows = Math.max(1, Math.ceil(extentHeight / stepY));
-
   // Fail fast, before materialising a single page. The grid's size is known from
   // the extent and the footprint alone, so an extent that cannot fit is rejected
   // here rather than after millions of projections have been run only for the
   // render-side page cap to throw them away. Mirrors the corridor guard in
   // buildRouteAtlas, and references the same cap so both messages read alike.
-  if (rows * columns > MAX_ATLAS_PAGES) {
+  // The count comes from pageGridSize so the guard and the UI's warning cannot
+  // disagree about how many pages a box is.
+  const { columns, rows, pages: pageCount, overLimit } = pageGridSize(options);
+  if (overLimit) {
     throw new Error(
-      `Invalid request: this extent produces ${rows * columns} pages (${columns} x ${rows}) at ${scale.id}, ` +
+      `Invalid request: this extent produces ${pageCount} pages (${columns} x ${rows}) at ${scale.id}, ` +
         `exceeding the ${MAX_ATLAS_PAGES}-page limit. Use a smaller area or a coarser scale.`,
     );
   }

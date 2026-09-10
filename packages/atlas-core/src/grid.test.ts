@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { SCALE_PRESETS, type BBox, type LngLat } from "./index.js";
 import { LETTER_PORTRAIT, groundFootprintMeters } from "./page.js";
 import { createProjector, geodesicDistanceMeters } from "./projection.js";
-import { pageLabel, buildLocationPage, buildPageGrid } from "./grid.js";
+import { pageLabel, buildLocationPage, buildPageGrid, pageGridSize } from "./grid.js";
 
 const usgs = SCALE_PRESETS.find((p) => p.id === "usgs-7-5-min")!; // 1:24,000
 
@@ -173,6 +173,43 @@ describe("buildPageGrid", () => {
     const none = buildPageGrid({ bbox, scale: usgs, page: LETTER_PORTRAIT, overlap: 0 });
     const heavy = buildPageGrid({ bbox, scale: usgs, page: LETTER_PORTRAIT, overlap: 0.5 });
     expect(heavy.pages.length).toBeGreaterThan(none.pages.length);
+  });
+
+  /**
+   * `buildPageGrid` throws exactly when the grid would exceed the cap, which is
+   * right for a render and useless for a warning: a UI asking "how big is this
+   * box?" gets an exception precisely when the answer matters. The web editor's
+   * over-limit guard was built on `buildPageGrid(...).pages.length > cap` and was
+   * therefore provably unreachable. `pageGridSize` is the answer-shaped half.
+   */
+  it("[BEHAVIORAL] pageGridSize answers for an extent buildPageGrid refuses to build", () => {
+    const huge: BBox = [-125, 24, -66, 49]; // the continental US at 1:24,000
+    const options = { bbox: huge, scale: usgs, page: LETTER_PORTRAIT };
+
+    expect(() => buildPageGrid(options)).toThrow(/exceeding the 200-page limit/);
+
+    const size = pageGridSize(options);
+    expect(size.pages).toBe(1086537);
+    expect(size.columns * size.rows).toBe(size.pages);
+    expect(size.overLimit).toBe(true);
+  });
+
+  it("pageGridSize agrees with the grid it describes, whenever one can be built", () => {
+    for (const [w, h, overlap] of [
+      [1, 1, 0],
+      [2.2, 1.2, 0],
+      [3, 2, 0.05],
+      [2, 1, 0.5],
+    ] as const) {
+      const options = { bbox: bboxAround(center, w, h), scale: usgs, page: LETTER_PORTRAIT, overlap };
+      const size = pageGridSize(options);
+      const grid = buildPageGrid(options);
+
+      // Same number, from the same computation — the guard and the estimate
+      // cannot drift into disagreeing about how many pages a box is.
+      expect(size.pages, `${w}x${h} @ ${overlap}`).toBe(grid.pages.length);
+      expect(size.overLimit).toBe(false);
+    }
   });
 
   it("[BEHAVIORAL] rejects an oversized extent before materialising any page", () => {

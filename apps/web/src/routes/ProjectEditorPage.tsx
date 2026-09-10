@@ -2,13 +2,12 @@ import { useCallback, useEffect, useState } from "react";
 import {
   DEFAULT_MAP_TIER,
   DEFAULT_SCALE_PRESET_ID,
-  LETTER_PORTRAIT,
   MAX_ATLAS_PAGES,
   SCALE_PRESETS,
-  buildPageGrid,
   enclosingBBox,
 } from "@journeybook/atlas-core";
 import type { BBox, LngLat, MapTier } from "@journeybook/atlas-core";
+import { estimatePages } from "../lib/page-estimate";
 import { api, type Location, type Project, type GeneratedPdf } from "../api/client";
 import { MapPreview } from "../components/MapPreview";
 import { ScalePicker } from "../components/ScalePicker";
@@ -354,22 +353,19 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
   const hasGeometry = project.extent !== null || locations.length > 0;
 
   // Page count for a bbox at the project's scale — comes straight from the engine
-  // (buildPageGrid), not reimplemented here (ADR 0004). Used to warn/block before a
+  // (pageGridSize), not reimplemented here (ADR 0004). Used to warn/block before a
   // too-large extent is confirmed or rendered (the render caps at MAX_ATLAS_PAGES).
-  const countPages = (bbox: BBox | null): number | null => {
-    if (!bbox || !scale) return null;
-    try {
-      return buildPageGrid({
-        bbox, scale, page: LETTER_PORTRAIT, overlap: project.overlap ?? 0, tier: DEFAULT_MAP_TIER,
-      }).pages.length;
-    } catch {
-      return null;
-    }
-  };
-  const pendingPageCount = countPages(pendingBbox);
-  const pendingOverLimit = pendingPageCount !== null && pendingPageCount > MAX_ATLAS_PAGES;
-  const savedPageCount = countPages(project.extent);
-  const savedOverLimit = savedPageCount !== null && savedPageCount > MAX_ATLAS_PAGES;
+  //
+  // This used to call `buildPageGrid` and catch — which threw away the answer in
+  // exactly the over-limit case the warning is for, making every flag below
+  // provably false. `estimatePages` measures without building and without
+  // throwing; `page-estimate.test.ts` pins that.
+  const pendingEstimate = estimatePages(pendingBbox, scale, project.overlap ?? 0);
+  const savedEstimate = estimatePages(project.extent, scale, project.overlap ?? 0);
+  const pendingPageCount = pendingEstimate.pages;
+  const pendingOverLimit = pendingEstimate.overLimit;
+  const savedPageCount = savedEstimate.pages;
+  const savedOverLimit = savedEstimate.overLimit;
 
   const drawActive = drawMode !== "none";
   const drawCursor = drawMode === "bbox-first"
@@ -507,6 +503,9 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
                   {pendingPageCount !== null && (
                     <p className={`font-mono text-[10px] ${pendingOverLimit ? "font-bold text-campfire-700" : "text-bark-600"}`}>
                       {pendingOverLimit ? "⚠ " : ""}This box ≈ {pendingPageCount} page{pendingPageCount === 1 ? "" : "s"}
+                      {pendingEstimate.columns !== null
+                        ? ` (${pendingEstimate.columns} × ${pendingEstimate.rows})`
+                        : ""}
                       {pendingOverLimit
                         ? ` — over the ${MAX_ATLAS_PAGES}-page limit. Draw a smaller box or pick a coarser scale.`
                         : "."}
