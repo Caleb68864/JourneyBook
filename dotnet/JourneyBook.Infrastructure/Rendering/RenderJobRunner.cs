@@ -32,11 +32,16 @@ public sealed class RenderJobRunner(
 
     public async Task RunAsync(RenderJob job, CancellationToken ct = default)
     {
-        await pdfService.UpdateStatusAsync(
-            job.GeneratedPdfId, new UpdateGeneratedPdfStatusRequest("Rendering"), ct);
-
         try
         {
+            // INSIDE the try. This write used to sit outside it, so a throw from it —
+            // the row deleted between accept and dequeue, a DB blip — escaped RunAsync
+            // uncaught, was swallowed by RenderJobProcessor's catch, and left the row
+            // at Pending for ever. That is precisely the case the processor's "belt to
+            // the braces" comment claims RunAsync covers.
+            await pdfService.UpdateStatusAsync(
+                job.GeneratedPdfId, new UpdateGeneratedPdfStatusRequest("Rendering"), ct);
+
             var result = await workerClient.RenderAsync(job.WorkerRequest, ct);
 
             await pdfService.UpdateStatusAsync(

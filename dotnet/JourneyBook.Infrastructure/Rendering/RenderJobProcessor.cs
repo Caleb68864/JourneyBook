@@ -1,3 +1,4 @@
+using JourneyBook.Application.GeneratedPdfs;
 using JourneyBook.Application.Rendering;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -30,10 +31,23 @@ public sealed class RenderJobProcessor(
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // A job taken off the queue after shutdown began and therefore never started.
+        // `ChannelReader.ReadAllAsync` keeps yielding whatever is already BUFFERED
+        // once it has decided there is something to read — it does not re-check the
+        // token between buffered items — so without the guard below the loop happily
+        // "runs" every queued job against an already-cancelled token on the way out.
+        RenderJob? notStarted = null;
+
         try
         {
             await foreach (var job in queue.DequeueAllAsync(stoppingToken))
             {
+                if (stoppingToken.IsCancellationRequested)
+                {
+                    notStarted = job;
+                    break;
+                }
+
                 using var scope = scopeFactory.CreateScope();
                 var runner = scope.ServiceProvider.GetRequiredService<IRenderJobRunner>();
 
@@ -43,6 +57,13 @@ public sealed class RenderJobProcessor(
                 try
                 {
                     await runner.RunAsync(job, stoppingToken);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    // Shutdown mid-render. RunAsync has already marked this record
+                    // Failed on an uncancelled token; everything behind it is drained
+                    // below. Do not keep looping — there is nothing left to run.
+                    break;
                 }
                 catch (Exception ex)
                 {
@@ -55,6 +76,61 @@ public sealed class RenderJobProcessor(
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
             // Normal shutdown.
+        }
+
+        // Whatever is still queued dies with this process — the channel is in-process
+        // and nothing resumes a job from it. ADR 0006 says "a cancelled or shut-down
+        // render is marked Failed"; that used to be true of at most one row per
+        // shutdown (the one in flight), and every job still in the channel was
+        // discarded in silence, leaving its record at Pending for ever while the
+        // client polled it 900 times and then told the user it was still running.
+        await FailQueuedJobsAsync(notStarted);
+    }
+
+    private async Task FailQueuedJobsAsync(RenderJob? notStarted)
+    {
+        List<RenderJob> stranded = notStarted is null ? [] : [notStarted];
+        try
+        {
+            stranded.AddRange(queue.DrainPending());
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Could not drain the render queue during shutdown.");
+        }
+
+        if (stranded.Count == 0) return;
+
+        logger.LogWarning(
+            "Host is stopping with {Count} render job(s) still queued; marking them Failed.",
+            stranded.Count);
+
+        // A fresh scope, and CancellationToken.None: the stopping token is already
+        // cancelled, so using it here would fail the very writes that exist to record
+        // the shutdown. The host's ShutdownTimeout bounds how long this may take.
+        using var scope = scopeFactory.CreateScope();
+        var pdfService = scope.ServiceProvider.GetRequiredService<IGeneratedPdfService>();
+
+        foreach (var job in stranded)
+        {
+            try
+            {
+                await pdfService.UpdateStatusAsync(
+                    job.GeneratedPdfId,
+                    new UpdateGeneratedPdfStatusRequest(
+                        "Failed",
+                        null,
+                        "The service shut down before this render started, and the queue does not " +
+                        "survive a restart. Generate the atlas again."),
+                    CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                // One unwritable row must not strand the rest.
+                logger.LogError(ex,
+                    "Could not mark queued render {GeneratedPdfId} Failed during shutdown.",
+                    job.GeneratedPdfId);
+            }
         }
     }
 }

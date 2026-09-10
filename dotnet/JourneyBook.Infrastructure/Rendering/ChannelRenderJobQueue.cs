@@ -38,4 +38,17 @@ public sealed class ChannelRenderJobQueue : IRenderJobQueue
 
     public IAsyncEnumerable<RenderJob> DequeueAllAsync(CancellationToken ct) =>
         _channel.Reader.ReadAllAsync(ct);
+
+    public IReadOnlyList<RenderJob> DrainPending()
+    {
+        // Complete the writer first so a request racing shutdown cannot slip a job in
+        // behind the drain and have it stranded anyway. EnqueueAsync then throws
+        // ChannelClosedException, which the accepting request surfaces as a failure —
+        // truthful, because the render was never going to happen.
+        _channel.Writer.TryComplete();
+
+        var remaining = new List<RenderJob>();
+        while (_channel.Reader.TryRead(out var job)) remaining.Add(job);
+        return remaining;
+    }
 }
