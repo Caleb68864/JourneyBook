@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { LETTER_PORTRAIT, mapBoxInches } from "@journeybook/atlas-core";
+import { LETTER_PORTRAIT, mapBoxInches, effectiveDpi } from "@journeybook/atlas-core";
 import { measurePdfPages } from "@journeybook/pdf-client";
 import { renderAtlas } from "./render.js";
 
@@ -707,5 +707,100 @@ describe("renderAtlas with a basemap", () => {
     expect(reported).not.toBeNull();
     expect(Number(reported![1])).toBeLessThan(300);
     expect(Number(reported![1])).toBeGreaterThan(400 / mapBoxInches(LETTER_PORTRAIT).widthIn - 1);
+  });
+
+  /**
+   * The same measurement, on the RESULT.
+   *
+   * Everything above this point reads `stderr`, and that is the whole finding:
+   * `stderr` is imported from `node:process` at the top of `render.ts` and is not
+   * injectable, so the only caller it reaches is a terminal. The render worker
+   * calls `renderAtlas` in-process and reports what comes back on the result — it
+   * is how `attribution` reaches the API, the `GeneratedPdf` provenance snapshot,
+   * and an answer for a file already on disk. The commit that first computed this
+   * number paired it with that attribution fix, and delivered the credit to a
+   * queryable record while leaving the measurement in a log stream.
+   *
+   * On a product whose load-bearing promise is true scale, the delivered
+   * resolution is the number that says whether the promise was kept on a given
+   * render.
+   */
+  async function renderAndCaptureResult(input: ZoomProbeInput) {
+    const fetchMock = vi.fn(async () => new Response(new Uint8Array(TILE_PNG), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const dir = mkdtempSync(join(tmpdir(), "jb-render-dpi-result-"));
+    try {
+      return await renderAtlas({
+        ...input,
+        outputPath: join(dir, "out.pdf"),
+        tileBaseUrl: "http://127.0.0.1:1/tiles",
+        overview: false,
+      });
+    } finally {
+      vi.unstubAllGlobals();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it("[BEHAVIORAL] carries the delivered print resolution on the result, not only in the log", async () => {
+    const result = await renderAndCaptureResult({
+      mode: "location",
+      center: { lng: -98, lat: 41 },
+      scalePresetId: "1-100000",
+      tier: 1,
+      basemap: true,
+    });
+
+    expect(result.deliveredDpi).toBeDefined();
+    // Absolute figures, not "a number is present". The failure mode this exists
+    // to prevent is a plausible-looking value that is nobody's measurement.
+    // 1:100,000 at its own preset width lands on z14 and delivers ~2030 px over
+    // the 5.7639 in Letter-portrait map box, so ~352 dpi.
+    expect(result.deliveredDpi!.min).toBeCloseTo(352, 0);
+    expect(result.deliveredDpi!.max).toBeCloseTo(352, 0);
+    expect(result.deliveredDpi!.panels).toBe(1);
+    // And it is the same number the log line reports — one measurement with two
+    // audiences, not two measurements that have to agree.
+    expect(result.deliveredDpi!.min).toBe(
+      effectiveDpi(
+        Math.round(result.deliveredDpi!.min * mapBoxInches(LETTER_PORTRAIT).widthIn),
+        mapBoxInches(LETTER_PORTRAIT).widthIn,
+      ),
+    );
+  });
+
+  it("[BEHAVIORAL] reports the spread across a mixed-scale atlas, not one figure", async () => {
+    // A zoom ladder puts three scales in one book, and they do not print at the
+    // same resolution. An average would be a number no page in the atlas prints
+    // at; the min is the one that decides whether the target was met.
+    const result = await renderAndCaptureResult({
+      mode: "location",
+      center: { lng: -98, lat: 41 },
+      scalePresetId: "usgs-7-5-min",
+      tier: 1,
+      basemap: true,
+      locations: [{ center: { lng: -98, lat: 41 } }],
+      zoomLevels: ["1-100000", "1-50000", "usgs-7-5-min"],
+      tableOfContents: false,
+    });
+
+    expect(result.deliveredDpi).toBeDefined();
+    expect(result.deliveredDpi!.panels).toBe(3);
+    expect(result.deliveredDpi!.max).toBeGreaterThan(result.deliveredDpi!.min);
+  });
+
+  it("[CONTROL] reports no resolution for a render that drew no basemap", async () => {
+    // Undefined, not 0. A render with no panels has no delivered resolution, and
+    // a zero there would be a measurement nobody made — the fabrication this
+    // field exists to replace.
+    const result = await renderAndCaptureResult({
+      mode: "location",
+      center: { lng: -98, lat: 41 },
+      scalePresetId: "1-100000",
+      tier: 1,
+      basemap: false,
+    });
+
+    expect(result.deliveredDpi).toBeUndefined();
   });
 });

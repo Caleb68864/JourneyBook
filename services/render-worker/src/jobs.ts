@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
-import type { RenderProgress } from "@journeybook/render-cli";
+import type { DeliveredDpi, RenderProgress } from "@journeybook/render-cli";
+
+export type { DeliveredDpi };
 
 /**
  * In-memory job registry for the render worker.
@@ -45,6 +47,17 @@ export interface JobRecord {
   /** Volume-relative output path, once the render has completed. */
   outputPath?: string;
   attribution?: string;
+  /**
+   * The print resolution the finished render actually delivered, straight from
+   * `RenderAtlasResult`. Absent while the job is in flight, and absent on a render
+   * that drew no basemap.
+   *
+   * On the record for the same reason `attribution` is: the engine writes it to
+   * `stderr` too, and the worker's stderr is a container log. The API is the thing
+   * that has to be able to answer "what did this PDF come out at" for a file
+   * already on disk, and this is its only channel.
+   */
+  deliveredDpi?: DeliveredDpi;
   error?: string;
   errorKind?: JobErrorKind;
   startedAt: number;
@@ -126,7 +139,22 @@ export class JobStore {
     entry.record.phase = p.phase;
   }
 
-  complete(id: string, outputPath: string, pageCount: number, attribution?: string): void {
+  /**
+   * Record a finished render.
+   *
+   * `attribution` and `deliveredDpi` are REQUIRED parameters that accept
+   * `undefined` rather than optional ones. Both are facts the engine measured and
+   * that have no other route out of this process, and both have been lost before
+   * by being left off a call — an optional parameter makes forgetting one a silent
+   * success, where this makes it a compile error at every call site.
+   */
+  complete(
+    id: string,
+    outputPath: string,
+    pageCount: number,
+    attribution: string | undefined,
+    deliveredDpi: DeliveredDpi | undefined,
+  ): void {
     const entry = this.jobs.get(id);
     if (!entry) return;
     entry.record.state = "completed";
@@ -135,6 +163,7 @@ export class JobStore {
     entry.record.pageCount = pageCount;
     entry.record.page = pageCount;
     if (attribution !== undefined) entry.record.attribution = attribution;
+    if (deliveredDpi !== undefined) entry.record.deliveredDpi = deliveredDpi;
     entry.record.finishedAt = this.now();
   }
 

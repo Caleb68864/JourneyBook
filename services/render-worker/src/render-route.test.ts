@@ -208,6 +208,51 @@ describe("render-worker job protocol", () => {
     expect(record.phase).toBe("done");
   });
 
+  /**
+   * The print resolution the render achieved reaches the job record.
+   *
+   * The engine writes this to `stderr` as well, and in this process `stderr` is a
+   * container log: the API polls `GET /jobs/{id}` and has no other view of what
+   * the worker did. `attribution` takes exactly this route and is how the credit
+   * ends up on the `GeneratedPdf` provenance snapshot; the DPI figure was computed
+   * in the same commit, on a product whose load-bearing promise is true scale, and
+   * stopped at the log.
+   */
+  it("[BEHAVIORAL] reports the print resolution the render delivered on the job record", async () => {
+    stubSlowTiles(0);
+    try {
+      const record = await renderAndSettle({
+        ...validLocation,
+        basemap: true,
+        outputPath: "dpi.pdf",
+      });
+      expect(record.state).toBe("completed");
+      expect(record.deliveredDpi).toBeDefined();
+      // 1:24,000 at this centre lands on z16 and delivers 1941 px over the
+      // 5.7639 in Letter-portrait map box — 336.75 dpi, measured. An absolute
+      // figure, because a number that is merely present is the failure this
+      // exists to prevent.
+      expect(record.deliveredDpi!.min).toBeCloseTo(337, 0);
+      expect(record.deliveredDpi!.max).toBeCloseTo(337, 0);
+      expect(record.deliveredDpi!.panels).toBe(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("[CONTROL] a render with no basemap reports no resolution rather than zero", async () => {
+    // The control for the assertion above: a field that is always populated
+    // cannot show that it was populated by a measurement. A render that drew no
+    // panels has no delivered resolution, and 0 would be a figure nobody took.
+    const record = await renderAndSettle({
+      ...validLocation,
+      basemap: false,
+      outputPath: "dpi-none.pdf",
+    });
+    expect(record.state).toBe("completed");
+    expect(record.deliveredDpi).toBeUndefined();
+  });
+
   it("answers 404 for a job id it has never seen", async () => {
     const res = await app.inject({ method: "GET", url: "/jobs/00000000-0000-0000-0000-000000000000" });
     expect(res.statusCode).toBe(404);

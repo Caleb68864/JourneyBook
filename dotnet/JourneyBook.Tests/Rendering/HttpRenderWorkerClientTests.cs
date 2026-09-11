@@ -528,6 +528,50 @@ public class HttpRenderWorkerClientTests
         Assert.True(handler.Polls >= 3, $"only polled {handler.Polls} times");
     }
 
+    /// <summary>
+    /// The print resolution the render achieved is read off the wire, not dropped.
+    /// </summary>
+    /// <remarks>
+    /// This is the hop the finding was about. The engine measured the delivered DPI
+    /// of every panel and wrote it to <c>stderr</c> — which on this path is the
+    /// worker's container log — so it reached nothing the API could answer with.
+    /// <c>attribution</c> travels this exact route and lands on the <c>GeneratedPdf</c>
+    /// provenance snapshot; the commit that computed the DPI figure paired it with
+    /// that attribution fix and delivered only one of the two. A field missing from
+    /// <c>WorkerJob</c> deserializes to null in silence, which is how the previous
+    /// four-hop losses in this codebase happened, so it is pinned here with a value.
+    /// </remarks>
+    [Fact]
+    public async Task The_print_resolution_the_render_delivered_is_carried_off_the_wire()
+    {
+        var handler = new FakeWorkerHandler(
+            "{\"id\":\"job-1\",\"state\":\"completed\",\"page\":3,\"pageCount\":3,\"phase\":\"done\"," +
+            "\"outputPath\":\"atlas-job.pdf\",\"attribution\":\"USGS\"," +
+            "\"deliveredDpi\":{\"min\":176.2,\"max\":337.8,\"panels\":3}}");
+
+        var result = await ClientFor(handler).RenderAsync(JobRequest());
+
+        Assert.NotNull(result.DeliveredDpi);
+        Assert.Equal(176.2, result.DeliveredDpi!.Min, 3);
+        Assert.Equal(337.8, result.DeliveredDpi.Max, 3);
+        Assert.Equal(3, result.DeliveredDpi.Panels);
+    }
+
+    [Fact]
+    public async Task A_render_that_drew_no_basemap_reports_no_resolution_rather_than_zero()
+    {
+        // The control. A field that is always populated cannot show it was
+        // populated by a measurement, and a 0 here would be a figure nobody took —
+        // on a product whose promise is true scale, worse than saying nothing.
+        var handler = new FakeWorkerHandler(
+            "{\"id\":\"job-1\",\"state\":\"completed\",\"page\":1,\"pageCount\":1,\"phase\":\"done\"," +
+            "\"outputPath\":\"atlas-job.pdf\",\"attribution\":\"JourneyBook atlas\"}");
+
+        var result = await ClientFor(handler).RenderAsync(JobRequest());
+
+        Assert.Null(result.DeliveredDpi);
+    }
+
     [Fact]
     public async Task Reports_each_distinct_position_to_the_caller_exactly_once()
     {
