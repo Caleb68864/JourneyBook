@@ -42,22 +42,6 @@ namespace JourneyBook.Tests;
 /// </remarks>
 public class PdfStatusParityTests
 {
-    /// <summary>Resolve a repo-relative path by walking up from the test binary.</summary>
-    private static string RepoFile(string relative)
-    {
-        var suffix = relative.Replace('/', Path.DirectorySeparatorChar);
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            var candidate = Path.Combine(dir.FullName, suffix);
-            if (File.Exists(candidate)) return candidate;
-            dir = dir.Parent;
-        }
-
-        throw new FileNotFoundException(
-            $"Could not find {relative} walking up from {AppContext.BaseDirectory}.");
-    }
-
     /// <summary>
     /// Parse the <c>RenderStatus</c> union out of the web client's real source.
     /// </summary>
@@ -70,7 +54,7 @@ public class PdfStatusParityTests
     /// </remarks>
     private static IReadOnlyList<string> ParseWebStatuses()
     {
-        var path = RepoFile("apps/web/src/api/render-polling.ts");
+        var path = WebClientContract.RenderPollingPath();
         var source = File.ReadAllText(path);
 
         var union = Regex.Match(
@@ -143,7 +127,7 @@ public class PdfStatusParityTests
     /// </summary>
     private static IReadOnlyList<string> ParseWebTerminalStatuses()
     {
-        var path = RepoFile("apps/web/src/api/render-polling.ts");
+        var path = WebClientContract.RenderPollingPath();
         var source = File.ReadAllText(path);
 
         var decl = Regex.Match(

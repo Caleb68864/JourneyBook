@@ -51,8 +51,9 @@ services:
       # The api proxies render requests to the internal render-worker service.
       RenderWorker__BaseUrl: "http://render-worker:8090"
       # How long the api will wait on one render call. Must not be shorter than the
-      # web client's own 15-minute poll deadline (render-polling.ts), or the api
-      # kills renders the browser is still waiting for.
+      # web client's own poll deadline (`DEFAULT_TIMEOUT_MS` in render-polling.ts,
+      # which is where that figure lives), or the api kills renders the browser is
+      # still waiting for. DependencyInjectionTests reads both and fails on drift.
       RenderWorker__TimeoutSeconds: "${RENDER_WORKER_TIMEOUT_SECONDS:-900}"
       # Route the worker's basemap tile fetches back through THIS api's Stage 3 tile
       # proxy (shared disk cache + attribution + PMTiles), not direct to USGS.

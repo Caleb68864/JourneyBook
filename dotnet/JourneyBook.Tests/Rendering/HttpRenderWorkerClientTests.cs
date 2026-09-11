@@ -96,12 +96,20 @@ public class HttpRenderWorkerClientTests
     }
 
     /// <summary>A client whose poll interval is a millisecond, so the loop is testable.</summary>
+    /// <remarks>
+    /// The default deadline is the web client's own, read out of
+    /// <c>render-polling.ts</c> rather than written out as <c>FromMinutes(15)</c> —
+    /// see <see cref="WebClientContract"/>. These tests are about what the client does
+    /// before its deadline, so the exact figure does not change a verdict here; it is
+    /// derived because a third and fourth hand-copy of a number is how the first two
+    /// came to disagree.
+    /// </remarks>
     private static HttpRenderWorkerClient ClientFor(FakeWorkerHandler handler, TimeSpan? timeout = null) =>
         new(
             new HttpClient(handler)
             {
                 BaseAddress = new Uri("http://render-worker:8090"),
-                Timeout = timeout ?? TimeSpan.FromMinutes(15),
+                Timeout = timeout ?? WebClientContract.ClientPatience(),
             },
             new RenderWorkerPollOptions(TimeSpan.FromMilliseconds(1)));
 
@@ -654,7 +662,8 @@ public class HttpRenderWorkerClientTests
         using var http = new HttpClient(new NeverAnsweringHandler())
         {
             BaseAddress = new Uri("http://render-worker:8090"),
-            Timeout = TimeSpan.FromMinutes(15),
+            // The web client's own deadline, read from its source — see ClientFor.
+            Timeout = WebClientContract.ClientPatience(),
         };
         var client = new HttpRenderWorkerClient(http);
         using var cts = new CancellationTokenSource();
