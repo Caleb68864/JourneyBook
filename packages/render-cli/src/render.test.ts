@@ -2,7 +2,14 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { LETTER_PORTRAIT, mapBoxInches, effectiveDpi } from "@journeybook/atlas-core";
+import {
+  LETTER_PORTRAIT,
+  mapBoxInches,
+  effectiveDpi,
+  panelWidthPxFor,
+  PRINT_DPI_TARGET,
+  SCALE_PRESETS,
+} from "@journeybook/atlas-core";
 import { measurePdfPages } from "@journeybook/pdf-client";
 import { renderAtlas } from "./render.js";
 
@@ -759,14 +766,19 @@ describe("renderAtlas with a basemap", () => {
     expect(result.deliveredDpi!.min).toBeCloseTo(352, 0);
     expect(result.deliveredDpi!.max).toBeCloseTo(352, 0);
     expect(result.deliveredDpi!.panels).toBe(1);
-    // And it is the same number the log line reports — one measurement with two
-    // audiences, not two measurements that have to agree.
-    expect(result.deliveredDpi!.min).toBe(
-      effectiveDpi(
-        Math.round(result.deliveredDpi!.min * mapBoxInches(LETTER_PORTRAIT).widthIn),
-        mapBoxInches(LETTER_PORTRAIT).widthIn,
-      ),
+    // And the substantive claim: what was DELIVERED is not what was ASKED FOR.
+    // The preset's panel width is derived to request exactly PRINT_DPI_TARGET, and
+    // the crop is never resampled down, so the delivered figure overshoots by
+    // wherever the page fell relative to a zoom boundary. If these two were equal
+    // the number would be recomputable from the request and would not need
+    // recording at all — recording it is only worth anything because they differ.
+    const preset = SCALE_PRESETS.find((s) => s.id === "1-100000")!;
+    const requested = effectiveDpi(
+      panelWidthPxFor(preset, LETTER_PORTRAIT),
+      mapBoxInches(LETTER_PORTRAIT).widthIn,
     );
+    expect(requested).toBeCloseTo(PRINT_DPI_TARGET, 0);
+    expect(result.deliveredDpi!.min).toBeGreaterThan(requested);
   });
 
   it("[BEHAVIORAL] reports the spread across a mixed-scale atlas, not one figure", async () => {

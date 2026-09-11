@@ -1046,3 +1046,10 @@ Each entry follows this shape:
 - Surfaces: dotnet/JourneyBook.Tests/WorkerJobStateParityTests.cs, JourneyBook.Infrastructure/Rendering/HttpRenderWorkerClient.cs (WorkerJobStates + default), JourneyBook.Tests/Rendering/HttpRenderWorkerClientTests.cs, JourneyBook.Tests/GeometryMonopolyTests.cs
 - Watch: `JobErrorKind` (`jobs.ts:37`) is a second worker union — `input`/`upstream`/`internal`/`cancelled` — read by the C# client only as an interpolated string in a message, so it cannot drift into a wrong behaviour and is deliberately left unpinned. And `Math.Sqrt` is now forbidden outright in the governed roots: a legitimate non-geometric use (a scoring curve, a standard deviation) must go in `Exempt` with a reason, which is the intended cost — the `No_exemption_has_gone_stale` test makes an exemption a claim rather than a hole.
 - Commit: (pending)
+
+## 2026-09-11 — The DPI-on-the-result test ended on a round trip
+- Symptom: `[BEHAVIORAL] carries the delivered print resolution on the result` closed with an assertion that derived a pixel width from the delivered DPI and then the DPI back from that width — a function compared to its own inverse, the shape this whole branch exists to remove. It could only fail on a float round-trip, never on a wrong measurement.
+- Fix: replaced with the substantive claim. The preset's width is derived to REQUEST `PRINT_DPI_TARGET` (asserted ≈300), and the delivered figure is strictly greater, because the crop is never resampled down. If the two were equal the number would be recomputable from the request and would not need recording at all. The absolute `toBeCloseTo(352, 0)` assertions above it still carry the value.
+- Surfaces: packages/render-cli/src/render.test.ts
+- Watch: the pre-commit hook (`scripts/hooks/pre-commit`) scaffolds the heading with a literal, unexpanded `$(date +%Y-%m-%d)` — so an entry accepted with only the sentinel fields replaced would carry a shell expression as its date. Not fixed here; out of scope for this branch.
+- Commit: (pending)
