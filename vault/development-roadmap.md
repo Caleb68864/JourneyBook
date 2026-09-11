@@ -717,6 +717,111 @@ source_urls:
 > Docker-gated `Api` suites were **not run** — this machine has no daemon; CI's
 > `dotnet-integration` job is the only place they execute.
 
+---
+
+## The half-wired sweep — 2026-09-11 (W3)
+
+Five passes looking specifically for **things declared and only half-wired**: a field
+written and never read, a value that survives several hops and then has no member on
+the next payload, a computed result rendered nowhere, a rule tested but never applied,
+a number nothing acts on. The one shape type checking, schema validation and a green
+suite are all blind to. Full write-ups in `docs/decisions.md`; this is what it changes
+about the plan.
+
+**The richest seam was where it was predicted to be — the boundary walk — and the most
+productive thing in the whole sweep was reading the *previous* fix's own Watch note and
+taking it at face value.** `WorkerWirePayloadParityTests` was written to pin what the
+API sends against what the worker accepts, and its author recorded the gap honestly:
+the check was a hand-written list of five names, so *"a NEW field the API ought to send
+but does not is still invisible"*, and the comment naming `title`, `zoomLevels`,
+`coverPadFraction` and `tileMaxZoom` as "legitimately absent" was checked by nothing.
+Deriving the set difference instead took two of those three claims down:
+
+- **Every atlas the API has ever produced was titled "Journey Book."** The engine is
+  `title: options.title ?? "Journey Book"`; the payload had no member for a title. The
+  project's name is loaded on every render and the user typed it themselves, and it
+  appeared on the project list and on no page of the book — page headers, the overview
+  page, the contents page, the PDF's own document metadata.
+- **`tileMaxZoom`'s docstring names this API as the caller it exists for** ("needed
+  when tiles come through the proxy from a registered `TileSource` whose `MaxZoom`
+  this process cannot see") and this API was the one caller not sending it. Latent only
+  because the seeded row also says 16; a shallower registered source would have had
+  every tile above its own ceiling refused by *this API's own proxy*.
+
+Both are wired, and the parity check is now a set difference against an exemption
+dictionary whose entries are themselves checked for rot in both directions.
+
+### What this changes about the schedule
+
+1. **Print resolution is now reported, not just computed.** `effectiveDpi` — the exact
+   inverse of the `panelWidthPxForDpi` every scale preset's width comes from — was
+   exported, tested, and called by nothing but its own tests. Every render now prints
+   the DPI each panel delivered and warns below the 300 DPI target. `--scale 1-100000`
+   reports **351 dpi**, which independently confirms the 352 measured in
+   `vault/scan2-findings.md` §3.2 and the correction it made to the figures at
+   `:268-270`. **This does not answer the default-preset DPI question, which is still
+   the owner's** — it makes the answer observable from the front door instead of
+   derivable only by a scan.
+2. **ADR 0004 is now enforced by a test rather than by memory.**
+   `docs/decisions/README.md` said in as many words *"Nothing enforces it
+   mechanically"*, with a dated manual search standing in for a guard.
+   `GeometryMonopolyTests` scans the four governed C# projects for the vocabulary
+   geometry cannot be written without. It ships with the mutation it catches **and the
+   enumeration of those it does not** — including geometry in TypeScript outside
+   `atlas-core`, which is precisely where the previous manual search's conclusion was
+   wrong. Reconstructing the ADR *text* for 0001/0003/0004/0005 remains open and is
+   still worth scheduling.
+3. **The progress protocol was half-wired by the commit that added it.** The engine's
+   `phase` reached `RenderProgressUpdate` through four hops and then
+   `UpdateGeneratedPdfProgressRequest` had no member for it. Not cosmetic: `progress`
+   counts finished basemap *panels*, so at phase `pdf` it already equals `pageCount`
+   and the bar read **100% for the whole of PDF assembly**, while a basemap-off render
+   read **0% from start to finish**. Both look like a stall. Now on the record and in
+   the button's label.
+4. **Retention is visible.** The previous sweep found that nothing *acted on*
+   `ExpiresAt` and wired a retention service. That fix was right, and it turned a
+   number nobody acted on into a number that silently deletes the user's file — with
+   the deadline still displayed nowhere. Shape 6 exactly. The history now says how long
+   a PDF is kept.
+5. **A latent data-loss bug was closed by a type, not a test.** `api.locations.update`
+   invented `category: "Other"` / `sourceConfidence: "Unknown"` on every edit because
+   the web's `Location` type had no member to read the real values from. Making them
+   required turned a silent default into a compile error at each call site and found
+   two — one of which was right by coincidence and wrong by construction.
+
+### Deliberately not taken, and why
+
+- **F02**, the empty Application layer with the use cases in Infrastructure. An
+  L-effort relayering and the owner's call.
+- **The default-preset DPI question and the atlas quality default.** Both measured and
+  written up for the owner in the root `ROADMAP.md`. The DPI work above is disclosure —
+  it changes no default, refuses no render and alters no pixel.
+- **A UI for `LocationCategory`.** No renderer, filter or export column consumes the
+  taxonomy, so a picker for it would be the half-wired control this sweep exists to
+  remove, not a smaller version of one.
+- **`AtlasPage`** (a table, a unique index and four neighbour columns nothing writes or
+  reads) and the **dead `Hero`/shadcn component tree** (`Hero.tsx`, `HealthChip.tsx`,
+  `MapFurniture.tsx`, `components/ui/*`, `lib/utils.ts`, `components.json` and the
+  `@radix-ui` dependencies). Both are genuine instances of *a subsystem with no entry
+  point*, both scored ≈0 on `Impact×4 − Blast×3 − Effort`, and both are removals whose
+  blast radius is a migration and a lockfile respectively. They are the next-best
+  candidates for this shape and are recorded rather than done. Note one consequence
+  while they stand: `a11y.test.ts` and `theme-tokens.test.ts` walk every `.tsx` under
+  `apps/web/src`, so part of what their PASS is about is code that never renders.
+
+### Withdrawn
+
+- *"The CLI cannot show progress — `cli.ts` never passes `onProgress`."* True about
+  `cli.ts` and false about the CLI: `renderAtlas` writes per-page lines to `stderr`
+  itself, and both `onProgress` and `signal` have real production consumers in the
+  worker. "No caller found" was a claim about a search of one file.
+
+Suites after this sweep: **482 TS** (atlas-core 100 · web 129 · pdf-client 38 ·
+map-sources 79 · render-cli 105 · render-worker 35) and **216 .NET** non-Docker (309
+with the Docker-gated `Api` suites). The Docker-gated suites were **not run** — no
+daemon on this machine; six new `Api` tests were written for CI's
+`dotnet-integration` job regardless.
+
 ## Phase 1: Print Geometry
 Build the Docker-hosted React/Vite/shadcn/Tailwind web app skeleton, define the outdoor field-guide visual system, accept bounding boxes, create page grid, generate overview and detail pages, and validate Letter-size PDF output from the preferred client-side React PDF path.
 
