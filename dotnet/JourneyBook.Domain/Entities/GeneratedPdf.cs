@@ -52,4 +52,33 @@ public class GeneratedPdf : EntityBase
     /// to be a fraction of, and a progress bar cannot start.
     /// </remarks>
     public int? PageCount { get; set; }
+
+    /// <summary>
+    /// What the engine says it is doing: <c>contract</c>, <c>panel</c>,
+    /// <c>overview</c>, <c>pdf</c> or <c>done</c>. Null before the worker says, and
+    /// cleared when the record reaches a terminal status.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The engine has always reported this, the worker has always recorded it, the
+    /// API's client has always parsed it into <c>RenderProgressUpdate.Phase</c> —
+    /// and it stopped there, because <c>UpdateGeneratedPdfProgressRequest</c> had no
+    /// member for it. Four hops and then no field: the margins shape, inside the
+    /// commit that added the progress protocol.
+    /// </para>
+    /// <para>
+    /// It is not decoration. <see cref="Progress"/> counts finished basemap PANELS,
+    /// so at phase <c>pdf</c> it already equals <see cref="PageCount"/> and the bar
+    /// sits at 100% for the whole of PDF assembly; and a render with the basemap off
+    /// emits no panel events at all, so the bar sits at 0% from start to finish.
+    /// Both of those look exactly like a stalled render, and this is the only field
+    /// that can tell the user otherwise.
+    /// </para>
+    /// <para>
+    /// Stored as the engine's own word rather than a status of our own: the API owns
+    /// no rendering (ADR 0005), and that includes not inventing a vocabulary for
+    /// what the renderer is doing.
+    /// </para>
+    /// </remarks>
+    public string? Phase { get; set; }
 }

@@ -299,6 +299,51 @@ public class RenderJobRunnerTests
         Assert.Equal([0, 1, 2, 3], pdfs.Progress.Select(p => p.Progress));
         Assert.All(pdfs.Progress, p => Assert.Equal(3, p.PageCount));
         Assert.Equal(["Rendering", "Completed"], pdfs.Updates.Select(u => u.Status));
+
+        // The phase, which this test SUPPLIED above and never looked at — the
+        // overlap bug's exact shape, one field along. `RenderProgressUpdate.Phase`
+        // is documented at length in `IRenderWorkerClient` ("carried verbatim
+        // rather than re-interpreted"), reached this class from the engine through
+        // four hops, and then `UpdateGeneratedPdfProgressRequest` had no member for
+        // it, so the only reader in the repo was `HttpRenderWorkerClientTests`.
+        Assert.Equal(["contract", "panel", "panel", "panel"], pdfs.Progress.Select(p => p.Phase));
+    }
+
+    /// <summary>
+    /// The phase reaches the record for the two positions the page counter cannot
+    /// describe.
+    /// </summary>
+    /// <remarks>
+    /// Not a repeat of the assertion above. <c>Progress</c> counts finished basemap
+    /// PANELS, so at phase <c>pdf</c> it already equals <c>PageCount</c> — a client
+    /// reading only the numbers draws a full bar for the whole of PDF assembly — and
+    /// at <c>contract</c> there is no denominator at all. Those are the two reports
+    /// whose numbers are indistinguishable from a stall, and the phase is the only
+    /// thing that separates them.
+    /// </remarks>
+    [Fact]
+    public async Task The_phase_arrives_for_the_positions_the_numbers_cannot_describe()
+    {
+        var pdfs = new RecordingPdfService();
+        var worker = new StubWorkerClient(req => new RenderWorkerResult(req.OutputFileName, 2, null))
+        {
+            Emits =
+            {
+                new RenderProgressUpdate(0, 0, "contract"),
+                new RenderProgressUpdate(2, 2, "panel"),
+                new RenderProgressUpdate(2, 2, "pdf"),
+            },
+        };
+
+        await RunnerFor(pdfs, worker).RunAsync(SampleJob());
+
+        var pdfPhase = Assert.Single(pdfs.Progress.Where(p => p.Phase == "pdf"));
+        // Same two numbers as the last panel report; only the phase differs.
+        Assert.Equal(2, pdfPhase.Progress);
+        Assert.Equal(2, pdfPhase.PageCount);
+
+        var contract = Assert.Single(pdfs.Progress.Where(p => p.Phase == "contract"));
+        Assert.Equal(0, contract.PageCount);
     }
 
     [Fact]

@@ -308,9 +308,79 @@ public class RenderApiTests(RenderApiFactory factory) : IClassFixture<RenderApiF
             // that makes it a fraction.
             Assert.Equal(7, final.Progress);
             Assert.Equal(12, final.PageCount);
+            // …and NOT the phase. A terminal row that still says "panel" is a record
+            // claiming to be doing something it finished doing.
+            Assert.Null(final.Phase);
         }
         finally
         {
+            factory.FakeClient.Emits = [];
+        }
+    }
+
+    /// <summary>
+    /// The engine's phase reaches the status resource while the render is in flight.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The hop that was missing. The engine reports a phase, the worker records it,
+    /// <c>HttpRenderWorkerClient</c> parses it into <c>RenderProgressUpdate.Phase</c>
+    /// — documented there at length as "carried verbatim rather than
+    /// re-interpreted" — and <c>UpdateGeneratedPdfProgressRequest</c> had no member
+    /// for it, so the only reader anywhere in the repo was a unit test.
+    /// </para>
+    /// <para>
+    /// Deliberately phase <c>pdf</c> with <c>Progress == PageCount</c>: those are the
+    /// numbers a finished render reports too, so a client reading only the numbers
+    /// draws a full bar for the whole of PDF assembly. The phase is the only field
+    /// that separates "nearly done" from "stalled", which is why a test that
+    /// asserted the numbers and ignored the word could not see this.
+    /// </para>
+    /// <para>
+    /// Held open with the gate rather than polled to completion, because the phase
+    /// is deliberately cleared on a terminal status — the test above pins that half.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task The_engines_phase_reaches_the_status_resource_while_rendering()
+    {
+        factory.FakeClient.ShouldFail = false;
+        var gate = new TaskCompletionSource();
+        factory.FakeClient.Gate = gate;
+        factory.FakeClient.Emits = [new RenderProgressUpdate(9, 9, "pdf")];
+        try
+        {
+            var projectId = await CreateProjectAsync("Phase Project");
+            var resp = await _client.PostAsJsonAsync($"/api/projects/{projectId}/render",
+                new RenderProjectRequest());
+            var body = (await resp.Content.ReadFromJsonAsync<RenderProjectResponse>())!;
+
+            var deadline = DateTimeOffset.UtcNow.AddSeconds(20);
+            GeneratedPdfResponse? seen = null;
+            while (DateTimeOffset.UtcNow < deadline && seen?.Phase is null)
+            {
+                seen = await _client.GetFromJsonAsync<GeneratedPdfResponse>(
+                    $"/api/generated-pdfs/{body.GeneratedPdfId}");
+                if (seen?.Phase is null) await Task.Delay(25);
+            }
+
+            Assert.NotNull(seen);
+            Assert.Equal("pdf", seen!.Phase);
+            // The two numbers a client would otherwise have to draw a finished bar
+            // from, on a render that is still going.
+            Assert.Equal(9, seen.Progress);
+            Assert.Equal(9, seen.PageCount);
+            Assert.Equal("Rendering", seen.Status);
+
+            gate.SetResult();
+            var final = await PollUntilTerminalAsync(body.GeneratedPdfId);
+            Assert.Equal("Completed", final.Status);
+            Assert.Null(final.Phase);
+        }
+        finally
+        {
+            gate.TrySetResult();
+            factory.FakeClient.Gate = null;
             factory.FakeClient.Emits = [];
         }
     }

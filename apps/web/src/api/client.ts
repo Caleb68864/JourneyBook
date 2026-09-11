@@ -135,6 +135,18 @@ export interface GeneratedPdf {
    */
   progress?: number | null;
   pageCount?: number | null;
+  /**
+   * What the engine says it is doing — `contract` | `panel` | `overview` | `pdf`
+   * | `done` — or null before the worker says, and null again once the record is
+   * terminal.
+   *
+   * The engine has reported this since the progress protocol landed and it
+   * reached the API's own `RenderProgressUpdate` and stopped there, because the
+   * record had no column for it. It is what distinguishes "the bar is at 100%
+   * because the PDF is being written" from "the bar is at 100% and nothing is
+   * happening".
+   */
+  phase?: string | null;
 }
 
 // ---------------------------------------------------------------------------

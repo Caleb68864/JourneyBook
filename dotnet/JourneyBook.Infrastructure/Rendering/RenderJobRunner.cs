@@ -76,7 +76,11 @@ public sealed class RenderJobRunner(
                 {
                     await pdfService.UpdateProgressAsync(
                         job.GeneratedPdfId,
-                        new UpdateGeneratedPdfProgressRequest(update.Page, update.PageCount),
+                        // Phase included. It used to stop here: the engine reports
+                        // it, the worker records it, HttpRenderWorkerClient parses
+                        // it into RenderProgressUpdate.Phase — and this call had no
+                        // member for it, so the only reader in the repo was a test.
+                        new UpdateGeneratedPdfProgressRequest(update.Page, update.PageCount, update.Phase),
                         progressCt);
                 },
                 linked.Token);

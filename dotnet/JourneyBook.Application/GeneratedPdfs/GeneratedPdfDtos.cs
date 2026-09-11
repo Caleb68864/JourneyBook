@@ -34,7 +34,12 @@ public record GeneratedPdfResponse(
     // client reads them here because this record is the only channel a render that
     // outlives its own HTTP request has.
     int? Progress = null,
-    int? PageCount = null);
+    int? PageCount = null,
+    // What the engine says it is doing, in its own word. `Progress` counts finished
+    // basemap PANELS, so it equals `PageCount` for the whole of PDF assembly and
+    // stays 0 for a render with no basemap — both indistinguishable from a stall
+    // without this.
+    string? Phase = null);
 
 /// <summary>
 /// Report the worker's position on an in-flight render.
@@ -45,7 +50,7 @@ public record GeneratedPdfResponse(
 /// would mean every page re-asserted the status — one fumbled call away from a
 /// terminal row being pushed back to <c>Rendering</c> by a late progress event.
 /// </remarks>
-public record UpdateGeneratedPdfProgressRequest(int Progress, int PageCount);
+public record UpdateGeneratedPdfProgressRequest(int Progress, int PageCount, string? Phase = null);
 
 /// <summary>Result of a manual prune: the number of expired records deleted.</summary>
 public record PruneResult(int Deleted);

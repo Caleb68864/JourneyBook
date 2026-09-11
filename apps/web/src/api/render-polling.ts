@@ -39,6 +39,65 @@ export interface RenderProgressSnapshot {
   pageCount: number | null;
   /** 0–100, or null when there is no denominator yet. */
   percent: number | null;
+  /**
+   * What the engine says it is doing, in its own word, or null before it says.
+   *
+   * The counter alone cannot describe the two longest stretches of a render.
+   * `progress` counts finished basemap PANELS, so it already equals `pageCount`
+   * for the whole of PDF assembly — the bar reads 100% and stops — and a render
+   * with the basemap off emits no panel events at all, so it reads 0% from start
+   * to finish. Both look exactly like a stall.
+   */
+  phase: RenderPhase | null;
+}
+
+/**
+ * The engine's phase vocabulary (`RenderProgress["phase"]` in
+ * `packages/render-cli/src/render.ts`), carried verbatim from the worker.
+ *
+ * Typed as a union with a `string` escape rather than a closed union: this
+ * arrives over two process boundaries from another language, and a worker
+ * deployed ahead of the web app must not make the label crash. `phaseLabel`
+ * falls back for anything it does not recognise.
+ */
+export type RenderPhase = "contract" | "panel" | "overview" | "pdf" | "done" | (string & {});
+
+/**
+ * Every phase word this module has been shown and made a decision about.
+ *
+ * A copy of the engine's union, and it is here to be CHECKED rather than trusted:
+ * `render-polling.test.ts` parses `RenderProgress["phase"]` out of the real
+ * `packages/render-cli/src/render.ts` and asserts the two agree. Without that,
+ * renaming a phase in the engine leaves `phaseLabel` silently returning null for
+ * it — the soft failure rather than the loud one, and therefore the one nobody
+ * would notice. Same shape as `TERMINAL_STATUSES` against the C# `PdfStatus`
+ * enum, for the same reason.
+ *
+ * Being in this list does NOT mean the phase gets a label: `panel` and `done` are
+ * deliberately silent. It means somebody looked at it.
+ */
+export const KNOWN_PHASES: readonly string[] = ["contract", "panel", "overview", "pdf", "done"];
+
+/**
+ * Human wording for a phase, or null when there is nothing worth saying.
+ *
+ * `panel` returns null on purpose: during the panel phase the page counter is
+ * moving and says more than any word could. The phases worth naming are exactly
+ * the ones where the counter is not moving.
+ */
+export function phaseLabel(phase: string | null | undefined): string | null {
+  switch (phase) {
+    case "contract":
+      return "Working out the pages";
+    case "overview":
+      return "Drawing the overview";
+    case "pdf":
+      return "Building the PDF";
+    default:
+      // `panel` and `done`, and anything a newer worker invents. Saying nothing
+      // is better than guessing at a word we have never seen.
+      return null;
+  }
 }
 
 /**
@@ -48,14 +107,16 @@ export interface RenderProgressSnapshot {
  * a page count nobody has reported yet is a bar that sits at 0% and then jumps,
  * and is indistinguishable from a render that is genuinely stuck.
  */
-export function progressOf(record: Pick<GeneratedPdf, "progress" | "pageCount">): RenderProgressSnapshot {
+export function progressOf(
+  record: Pick<GeneratedPdf, "progress" | "pageCount" | "phase">,
+): RenderProgressSnapshot {
   const progress = record.progress ?? null;
   const pageCount = record.pageCount ?? null;
   const percent =
     progress !== null && pageCount !== null && pageCount > 0
       ? Math.min(100, Math.max(0, Math.round((progress / pageCount) * 100)))
       : null;
-  return { progress, pageCount, percent };
+  return { progress, pageCount, percent, phase: record.phase ?? null };
 }
 
 export function isTerminal(status: string): boolean {
