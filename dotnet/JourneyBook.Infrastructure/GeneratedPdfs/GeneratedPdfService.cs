@@ -98,7 +98,7 @@ public class GeneratedPdfService : IGeneratedPdfService
         // terminal write are racing by construction — the poll loop reads the job,
         // reports, then sees it finished — so without this guard a Completed row
         // can be overwritten with a page count it has already passed.
-        if (pdf.Status is PdfStatus.Pending or PdfStatus.Rendering)
+        if (pdf.Status.IsInFlight())
         {
             pdf.Progress = request.Progress;
             pdf.PageCount = request.PageCount;
@@ -138,6 +138,9 @@ public class GeneratedPdfService : IGeneratedPdfService
     public async Task<int> FailStrandedAsync(string reason, CancellationToken ct = default)
     {
         var stranded = await _db.GeneratedPdfs
+            // Written out rather than `IsInFlight()` because EF must translate this to
+            // SQL and cannot call a method on the entity. `PdfStatusParityTests` pins
+            // the two lists against each other so this copy cannot drift.
             .Where(g => g.Status == PdfStatus.Pending || g.Status == PdfStatus.Rendering)
             .ToListAsync(ct);
 

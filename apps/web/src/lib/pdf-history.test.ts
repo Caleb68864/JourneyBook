@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { GeneratedPdf } from "../api/client";
 import { describePdfHistoryEntry, STUCK_AFTER_MS } from "./pdf-history";
+import { TERMINAL_STATUSES } from "../api/render-polling";
 
 const T0 = Date.parse("2026-09-10T12:00:00Z");
 
@@ -77,5 +78,62 @@ describe("describePdfHistoryEntry", () => {
     const entry = describePdfHistoryEntry(record("Pending", { createdAt: "not a date" }), T0);
     expect(entry.failed).toBe(false);
     expect(entry.detail).toBeNull();
+  });
+});
+
+/**
+ * A cancelled render (ADR 0007).
+ *
+ * These exist because the bug they describe shipped: `describePdfHistoryEntry`
+ * branched on `Completed` and `Failed` and treated everything else as in progress,
+ * so a record the server had settled at `Cancelled` was drawn as **"Queued…"** for
+ * thirty minutes and then as an interrupted render. That is the same shape as the
+ * integration-test helper that polled a cancelled record until it timed out, and as
+ * the client union that had never heard of the status — one terminal state, six
+ * hand-written lists of which states are terminal.
+ */
+describe("describePdfHistoryEntry and a cancelled render", () => {
+  it("[BEHAVIORAL] labels it Cancelled rather than showing it as still queued", () => {
+    const entry = describePdfHistoryEntry(
+      record("Cancelled", { errorMessage: "Render was cancelled after 4 of 12 pages." }),
+      T0,
+    );
+    expect(entry.label).toBe("Cancelled");
+    expect(entry.detail).toBe("Render was cancelled after 4 of 12 pages.");
+    expect(entry.downloadable).toBe(false);
+  });
+
+  it("[BEHAVIORAL] does not mark it failed", () => {
+    // Nothing went wrong. A red row for something the user asked for sends them
+    // looking for a problem that does not exist.
+    expect(describePdfHistoryEntry(record("Cancelled"), T0).failed).toBe(false);
+  });
+
+  it("falls back to a plain sentence when no reason was recorded", () => {
+    expect(describePdfHistoryEntry(record("Cancelled"), T0).detail).toBe("You cancelled this render.");
+  });
+
+  it("[BEHAVIORAL] is terminal immediately, not after the stuck window", () => {
+    // The defect exactly: with no branch of its own the record fell through to the
+    // in-progress path and read "Queued…" until STUCK_AFTER_MS had passed.
+    const fresh = describePdfHistoryEntry(record("Cancelled"), T0);
+    const old = describePdfHistoryEntry(record("Cancelled"), T0 + STUCK_AFTER_MS + 1);
+    expect(fresh.label).toBe("Cancelled");
+    expect(old.label).toBe("Cancelled");
+    expect(fresh.label).toBe(old.label);
+  });
+
+  it("[BEHAVIORAL] any terminal status the server invents is never drawn as in progress", () => {
+    // The backstop. A status added server-side and not given a branch here used to
+    // be rendered as a spinner; now the fall-through asks `isTerminal`, which is the
+    // one statement of the set and is pinned against the C# enum.
+    for (const status of TERMINAL_STATUSES) {
+      const entry = describePdfHistoryEntry(record(status), T0);
+      expect(entry.label, `${status} was drawn as in progress`).not.toContain("…");
+    }
+    // Control: the in-flight statuses must STILL read as in progress, or the
+    // fall-through above has swallowed the whole thing.
+    expect(describePdfHistoryEntry(record("Pending"), T0).label).toBe("Queued…");
+    expect(describePdfHistoryEntry(record("Rendering"), T0).label).toBe("Rendering…");
   });
 });

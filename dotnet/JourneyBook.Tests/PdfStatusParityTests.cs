@@ -137,6 +137,80 @@ public class PdfStatusParityTests
         Assert.Equal(domain, web);
     }
 
+    /// <summary>
+    /// The statuses the web client treats as terminal, parsed out of
+    /// <c>TERMINAL_STATUSES</c> in its real source.
+    /// </summary>
+    private static IReadOnlyList<string> ParseWebTerminalStatuses()
+    {
+        var path = RepoFile("apps/web/src/api/render-polling.ts");
+        var source = File.ReadAllText(path);
+
+        var decl = Regex.Match(
+            source,
+            @"TERMINAL_STATUSES\s*:\s*readonly\s+RenderStatus\[\]\s*=\s*\[(?<body>[^\]]*)\]",
+            RegexOptions.Singleline);
+        if (!decl.Success)
+        {
+            throw new InvalidOperationException(
+                $"Could not find TERMINAL_STATUSES in {path}. If it moved or changed shape, fix this " +
+                "parser — do not let the parity check quietly pass on nothing.");
+        }
+
+        var names = Regex.Matches(decl.Groups["body"].Value, "\"(?<name>[A-Za-z]+)\"")
+            .Select(m => m.Groups["name"].Value)
+            .ToList();
+        if (names.Count == 0)
+        {
+            throw new InvalidOperationException(
+                $"Found TERMINAL_STATUSES in {path} but parsed no members out of it.");
+        }
+        return names;
+    }
+
+    [Fact]
+    public void The_two_languages_agree_on_which_statuses_are_terminal()
+    {
+        // Added because this exact gap shipped and cost a CI run. The terminal set was
+        // written out by hand in four places; adding `Cancelled` updated three of them,
+        // and the fourth — a test helper saying `"Completed" or "Failed"` — polled a
+        // cancelled record for thirty seconds and reported a timeout that had not
+        // happened. That is the failure the test below this one describes for a client
+        // that has not heard of a status, and nothing was comparing the sets.
+        var web = ParseWebTerminalStatuses().OrderBy(n => n, StringComparer.Ordinal).ToList();
+        var domain = Enum.GetValues<PdfStatus>()
+            .Where(s => s.IsTerminal())
+            .Select(s => s.ToString())
+            .OrderBy(n => n, StringComparer.Ordinal)
+            .ToList();
+
+        Assert.Equal(domain, web);
+
+        // Controls, both directions. Without the first, two empty lists are equal;
+        // without the second, a set containing EVERYTHING is also "agreed" — and a
+        // client that calls Pending terminal stops polling a render that has not
+        // started.
+        Assert.True(domain.Count >= 3, $"only {domain.Count} terminal statuses");
+        Assert.DoesNotContain("Pending", domain);
+        Assert.DoesNotContain("Rendering", domain);
+        Assert.DoesNotContain("Pending", web);
+        Assert.DoesNotContain("Rendering", web);
+    }
+
+    [Fact]
+    public void The_in_flight_set_is_exactly_what_startup_reconciliation_looks_for()
+    {
+        // `FailStrandedAsync` cannot call `IsInFlight()` — EF has to translate its
+        // predicate to SQL — so it writes `Pending || Rendering` out by hand. That copy
+        // is what decides whether a crash-stranded row is ever cleared, and it is
+        // pinned here rather than left to agree by inspection.
+        var inFlight = Enum.GetValues<PdfStatus>()
+            .Where(s => s.IsInFlight())
+            .OrderBy(s => s)
+            .ToList();
+        Assert.Equal(new[] { PdfStatus.Pending, PdfStatus.Rendering }, inFlight);
+    }
+
     [Fact]
     public void Every_status_name_fits_the_column_it_is_stored_in()
     {

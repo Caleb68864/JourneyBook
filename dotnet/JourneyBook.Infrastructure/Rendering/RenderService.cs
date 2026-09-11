@@ -1,5 +1,6 @@
 using JourneyBook.Application.GeneratedPdfs;
 using JourneyBook.Application.Rendering;
+using JourneyBook.Domain;
 using JourneyBook.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -175,7 +176,11 @@ public class RenderService(
         // Already over. Answering "cancelled" here would be the same class of lie as
         // reporting a timeout as a cancellation: nothing was stopped, and a client
         // that is told otherwise will wait for a transition that never comes.
-        if (record.Status is "Completed" or "Failed" or "Cancelled")
+        //
+        // `IsTerminal` rather than a string list. This line read
+        // `is "Completed" or "Failed" or "Cancelled"` — a fifth hand-written copy of
+        // the terminal set, in a change that had just been bitten by the fourth.
+        if (Enum.TryParse<PdfStatus>(record.Status, out var status) && status.IsTerminal())
             return new CancelRenderResult(CancelRenderOutcome.AlreadyFinished, record.Status);
 
         // The queue is in-process (ADR 0006), so a row claiming to be in flight with

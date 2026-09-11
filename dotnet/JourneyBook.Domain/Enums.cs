@@ -79,3 +79,26 @@ public enum PdfStatus
     /// </remarks>
     Cancelled = 4,
 }
+
+/// <summary>Helpers over <see cref="PdfStatus"/>.</summary>
+public static class PdfStatusExtensions
+{
+    /// <summary>
+    /// The statuses a record never leaves.
+    /// </summary>
+    /// <remarks>
+    /// ONE statement of it. The set was written out by hand in four places — the
+    /// startup reconciliation's complement, the progress writer's complement, the web
+    /// client's <c>TERMINAL_STATUSES</c>, and a test helper — and adding
+    /// <see cref="PdfStatus.Cancelled"/> updated three of them. The fourth polled a
+    /// cancelled record for thirty seconds and then reported a timeout that had not
+    /// happened, which is precisely the failure <c>PdfStatusParityTests</c> describes
+    /// for a client that has not heard of a status. A terminal status the reader does
+    /// not recognise is indistinguishable from a render that never finishes.
+    /// </remarks>
+    public static bool IsTerminal(this PdfStatus status) =>
+        status is PdfStatus.Completed or PdfStatus.Failed or PdfStatus.Cancelled;
+
+    /// <summary>True while a render is queued or running — the complement of <see cref="IsTerminal"/>.</summary>
+    public static bool IsInFlight(this PdfStatus status) => !status.IsTerminal();
+}
