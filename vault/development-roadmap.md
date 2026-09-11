@@ -832,10 +832,15 @@ by `master`.
 
 So, for anyone working in this repo:
 
-1. Push the working branch and let CI run **on the branch**.
+1. Push the working branch and **open a PR** — or `gh workflow run CI --ref <branch>`.
+   A bare branch push runs nothing: `.github/workflows/ci.yml` is
+   `on: push: branches: [master]`, plus `pull_request` and `workflow_dispatch`. This
+   matters, and getting it wrong would make the rule below an instruction that
+   silently does nothing.
 2. Read all four jobs — `Repo hygiene`, `TypeScript`, `.NET (unit, no Docker)`,
-   `.NET integration (Testcontainers PostGIS)`.
-3. Merge `--no-ff` only once the branch is green, then read the run on `master` too.
+   `.NET integration (Testcontainers PostGIS)`. A PR run tests the *merge result*,
+   which is what you actually want to know.
+3. Merge `--no-ff` only once that run is green, then read the run on `master` too.
 
 That costs one CI round trip and removes the failure mode entirely. *"Merged and pushed
 is not done until the CI run has been read"* was always the rule; the correction is
