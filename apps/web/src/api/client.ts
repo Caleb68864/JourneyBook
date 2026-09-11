@@ -112,16 +112,29 @@ export interface RenderResult {
 export interface GeneratedPdf {
   id: string;
   projectId: string;
-  /** `Pending` | `Rendering` | `Completed` | `Failed`. */
+  /**
+   * `Pending` | `Rendering` | `Completed` | `Failed` | `Cancelled`.
+   *
+   * The set is `RenderStatus` in `render-polling.ts`, and
+   * `dotnet/JourneyBook.Tests/PdfStatusParityTests.cs` compares that union against
+   * the C# `PdfStatus` enum by reading both files.
+   */
   status: string;
   filePath: string | null;
   createdAt: string;
   expiresAt: string | null;
   /**
-   * Why a `Failed` render failed. The POST answered 202 long before the failure,
-   * so this record is the only place the renderer's diagnostic can reach the user.
+   * Why a `Failed` render failed, or how far a `Cancelled` one got. The POST
+   * answered 202 long before either happened, so this record is the only place the
+   * renderer's diagnostic can reach the user.
    */
   errorMessage?: string | null;
+  /**
+   * Pages the worker has finished, and the total it is rendering. Null until the
+   * worker says (ADR 0007). Meaningless apart: `progress` is a numerator.
+   */
+  progress?: number | null;
+  pageCount?: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -353,6 +366,16 @@ export const api = {
       request<GeneratedPdf[]>("GET", `/projects/${projectId}/generated-pdfs`),
     /** One record's current lifecycle state — what a render poll reads. */
     get: (pdfId: string) => request<GeneratedPdf>("GET", `/generated-pdfs/${pdfId}`),
+    /**
+     * Stop a queued or in-flight render (ADR 0007).
+     *
+     * Answers 202: the cancel has been asked for, and the record reaches
+     * `Cancelled` when the render actually stops — which the caller sees on its next
+     * poll of `get`. So the caller must keep polling rather than assume; treating
+     * this as "it is cancelled now" would show a state the record does not carry.
+     */
+    cancel: (pdfId: string) =>
+      request<{ generatedPdfId: string; status: string }>("POST", `/generated-pdfs/${pdfId}/cancel`),
     contentUrl: (pdfId: string) => `${BASE}/generated-pdfs/${pdfId}/content`,
   },
 

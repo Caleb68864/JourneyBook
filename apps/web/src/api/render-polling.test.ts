@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { waitForRender, isTerminal } from "./render-polling";
+import { waitForRender, isTerminal, progressOf, TERMINAL_STATUSES } from "./render-polling";
 import type { GeneratedPdf } from "./client";
 
 /**
@@ -185,5 +185,116 @@ describe("waitForRender timeout diagnostics", () => {
     await expect(
       waitForRender("pdf-1", { fetchStatus, sleep: noSleep, now, timeoutMs: 10_000 }),
     ).rejects.toThrow(/still running/);
+  });
+});
+
+/**
+ * Progress and cancellation (ADR 0007).
+ *
+ * Each of these fails against the behaviour before the worker owned the job: the
+ * record carried no position at all, and `Cancelled` was not a status the API
+ * could produce or this module could recognise.
+ */
+describe("progressOf", () => {
+  it("[BEHAVIORAL] turns pages-of-pages into a percentage", () => {
+    expect(progressOf({ progress: 3, pageCount: 12 })).toEqual({
+      progress: 3,
+      pageCount: 12,
+      percent: 25,
+    });
+  });
+
+  it("[BEHAVIORAL] has no percentage before the worker has reported a page count", () => {
+    // Null, not 0. An invented percentage is a bar pinned at 0% that then jumps,
+    // and is indistinguishable from a render that has genuinely stalled — which is
+    // precisely the thing a progress indicator exists to tell apart.
+    expect(progressOf({ progress: null, pageCount: null }).percent).toBeNull();
+    expect(progressOf({ progress: 0, pageCount: null }).percent).toBeNull();
+    expect(progressOf({ progress: 4, pageCount: 0 }).percent).toBeNull();
+  });
+
+  it("clamps rather than emitting a percentage outside 0–100", () => {
+    expect(progressOf({ progress: 99, pageCount: 10 }).percent).toBe(100);
+    expect(progressOf({ progress: -5, pageCount: 10 }).percent).toBe(0);
+  });
+});
+
+describe("waitForRender progress", () => {
+  it("[BEHAVIORAL] reports each distinct position once, in order", () => {
+    const seen: (number | null)[] = [];
+    const fetchStatus = scripted([
+      record("Pending"),
+      record("Rendering", { progress: 0, pageCount: 6 }),
+      record("Rendering", { progress: 1, pageCount: 6 }),
+      // Repeated on purpose: the client polls faster than the worker renders, so
+      // most polls carry the same position. Announcing each would make a status
+      // line flicker and, in the API's own poll loop, be a database write per poll.
+      record("Rendering", { progress: 1, pageCount: 6 }),
+      record("Rendering", { progress: 4, pageCount: 6 }),
+      record("Completed", { progress: 6, pageCount: 6 }),
+    ]);
+
+    return waitForRender("pdf-1", {
+      fetchStatus,
+      sleep: noSleep,
+      onProgress: (p) => seen.push(p.progress),
+    }).then(() => {
+      expect(seen).toEqual([null, 0, 1, 4, 6]);
+    });
+  });
+
+  it("[BEHAVIORAL] announces the last position even when that poll is the terminal one", async () => {
+    // A fast render can go from "no position" straight to Completed in one poll.
+    // Reporting after the terminal check would leave such a render's bar sitting at
+    // "starting…" for ever.
+    const seen: number[] = [];
+    const fetchStatus = scripted([record("Completed", { progress: 2, pageCount: 2 })]);
+
+    await waitForRender("pdf-1", {
+      fetchStatus,
+      sleep: noSleep,
+      onProgress: (p) => {
+        if (p.progress !== null) seen.push(p.progress);
+      },
+    });
+
+    expect(seen).toEqual([2]);
+  });
+
+  it("[CONTROL — must be accepted] a record that reports no position still completes", async () => {
+    const fetchStatus = scripted([record("Rendering"), record("Completed")]);
+    const result = await waitForRender("pdf-1", { fetchStatus, sleep: noSleep });
+    expect(result.status).toBe("Completed");
+  });
+});
+
+describe("waitForRender and a cancelled render", () => {
+  it("[BEHAVIORAL] Cancelled is terminal", () => {
+    expect(isTerminal("Cancelled")).toBe(true);
+    expect(TERMINAL_STATUSES).toContain("Cancelled");
+    // The control: an in-flight status must still NOT be terminal, or the whole
+    // poll loop would exit on its first read.
+    expect(isTerminal("Rendering")).toBe(false);
+    expect(isTerminal("Pending")).toBe(false);
+  });
+
+  it("[BEHAVIORAL] rejects with the record's own wording, not the failure boilerplate", async () => {
+    const fetchStatus = scripted([
+      record("Rendering", { progress: 4, pageCount: 12 }),
+      record("Cancelled", { errorMessage: "Render was cancelled after 4 of 12 pages." }),
+    ]);
+
+    const err = await waitForRender("pdf-1", { fetchStatus, sleep: noSleep }).catch((e: unknown) => e);
+
+    expect((err as Error).message).toBe("Render was cancelled after 4 of 12 pages.");
+    // The generic failure message sends someone who pressed Cancel to look in the
+    // API logs for a diagnostic that does not exist.
+    expect((err as Error).message).not.toContain("See the API logs");
+  });
+
+  it("falls back to a plain sentence when a cancelled record carries no message", async () => {
+    const fetchStatus = scripted([record("Cancelled")]);
+    const err = await waitForRender("pdf-1", { fetchStatus, sleep: noSleep }).catch((e: unknown) => e);
+    expect((err as Error).message).toBe("Render was cancelled.");
   });
 });

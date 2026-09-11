@@ -31,6 +31,33 @@ export type RenderStatus = "Pending" | "Rendering" | "Completed" | "Failed" | "C
 /** The statuses a record never leaves. */
 export const TERMINAL_STATUSES: readonly RenderStatus[] = ["Completed", "Failed", "Cancelled"];
 
+/** How far a render has got, as the record reports it. */
+export interface RenderProgressSnapshot {
+  /** Pages finished, or null before the worker says. */
+  progress: number | null;
+  /** Pages in the atlas, or null before the worker knows. */
+  pageCount: number | null;
+  /** 0–100, or null when there is no denominator yet. */
+  percent: number | null;
+}
+
+/**
+ * Turn a record's two numbers into something a bar can be drawn from.
+ *
+ * Null rather than 0 when the denominator is missing. A percentage invented from
+ * a page count nobody has reported yet is a bar that sits at 0% and then jumps,
+ * and is indistinguishable from a render that is genuinely stuck.
+ */
+export function progressOf(record: Pick<GeneratedPdf, "progress" | "pageCount">): RenderProgressSnapshot {
+  const progress = record.progress ?? null;
+  const pageCount = record.pageCount ?? null;
+  const percent =
+    progress !== null && pageCount !== null && pageCount > 0
+      ? Math.min(100, Math.max(0, Math.round((progress / pageCount) * 100)))
+      : null;
+  return { progress, pageCount, percent };
+}
+
 export function isTerminal(status: string): boolean {
   return (TERMINAL_STATUSES as readonly string[]).includes(status);
 }
@@ -42,6 +69,18 @@ export interface WaitForRenderOptions {
   timeoutMs?: number;
   /** Called on every poll whose status differs from the last one seen. */
   onStatus?: (status: string) => void;
+  /**
+   * Called on every poll whose position differs from the last one seen.
+   *
+   * Separate from `onStatus` because they change at different rates: the status
+   * moves three or four times in a render, the position once per page. Folding
+   * them into one callback would either re-announce the status per page or drop
+   * every position after the first.
+   *
+   * `pageCount` is null until the worker has derived the contract, so a consumer
+   * must be able to render "starting…" rather than dividing by nothing.
+   */
+  onProgress?: (progress: RenderProgressSnapshot) => void;
   /** Abort the wait (the render itself keeps going server-side). */
   signal?: AbortSignal;
   /** Seam for tests: how to read the record. Defaults to the real API. */
@@ -85,6 +124,7 @@ export async function waitForRender(
     intervalMs = DEFAULT_INTERVAL_MS,
     timeoutMs = DEFAULT_TIMEOUT_MS,
     onStatus,
+    onProgress,
     signal,
     fetchStatus = (id: string) => api.generatedPdfs.get(id),
     sleep = realSleep,
@@ -93,6 +133,7 @@ export async function waitForRender(
 
   const startedAt = now();
   let lastStatus: string | null = null;
+  let lastProgressKey: string | null = null;
 
   for (;;) {
     if (signal?.aborted) throw new Error("Render wait was cancelled.");
@@ -104,7 +145,29 @@ export async function waitForRender(
       onStatus?.(record.status);
     }
 
+    // Reported before the terminal checks below, so the last position a render
+    // reached is announced even when that poll is also the one that finds it
+    // finished — otherwise a fast render's bar never moves off "starting…".
+    const snapshot = progressOf(record);
+    const progressKey = `${snapshot.progress}/${snapshot.pageCount}`;
+    if (progressKey !== lastProgressKey) {
+      lastProgressKey = progressKey;
+      onProgress?.(snapshot);
+    }
+
     if (record.status === "Completed") return record;
+
+    if (record.status === "Cancelled") {
+      // Its own branch, above `Failed`, and with the record's own wording — which
+      // says how far it got. Letting a cancel fall through to the generic failure
+      // message would tell someone who pressed Cancel to go and look in the API
+      // logs for a diagnostic that does not exist.
+      throw new Error(
+        record.errorMessage && record.errorMessage.length > 0
+          ? record.errorMessage
+          : "Render was cancelled.",
+      );
+    }
 
     if (record.status === "Failed") {
       throw new Error(
