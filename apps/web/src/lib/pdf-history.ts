@@ -1,3 +1,4 @@
+import { PRINT_DPI_TARGET } from "@journeybook/atlas-core";
 import type { GeneratedPdf } from "../api/client";
 
 /**
@@ -11,9 +12,9 @@ import type { GeneratedPdf } from "../api/client";
  * at `Pending` by a restart showed "Pending" for ever, with no explanation and no
  * action.
  *
- * Deriving the text here rather than inline in JSX is deliberate: the app has no
- * DOM test setup, so anything expressed only as JSX is unverifiable, and this
- * page has already lost one guard that way (see `page-estimate.ts`).
+ * Deriving the text here rather than inline in JSX is deliberate: this page has
+ * already lost one guard to untestable JSX (see `page-estimate.ts`). The rows are
+ * now drawn by `components/RenderHistory.tsx`, which has DOM tests of its own.
  */
 export interface PdfHistoryEntry {
   /** Short status word for the row. */
@@ -24,6 +25,96 @@ export interface PdfHistoryEntry {
   failed: boolean;
   /** Whether an Open link should be offered. */
   downloadable: boolean;
+  /**
+   * What a completed atlas actually printed at — or why there is no figure. Null
+   * for every other status: nothing was printed.
+   */
+  resolution: ResolutionNote | null;
+}
+
+/**
+ * The renderer's own measurement of a finished render, read off the record.
+ *
+ * Three answers, kept apart on purpose: the API writes an explicit
+ * `deliveredDpi: null` for a render that drew no basemap, so "there was nothing
+ * to measure" and "nobody measured" (a record older than the measurement, or a
+ * snapshot someone else wrote) are different facts and are reported differently.
+ */
+export type DeliveredResolution =
+  | { kind: "measured"; min: number; max: number; panels: number }
+  | { kind: "no-basemap" }
+  | { kind: "not-recorded" };
+
+export interface ResolutionNote {
+  text: string;
+  /** The softest page printed under {@link PRINT_DPI_TARGET}. Information, not a failure. */
+  belowTarget: boolean;
+}
+
+const isPositive = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n) && n > 0;
+
+/**
+ * Parse `sourceMetadataSnapshot` for the delivered resolution. Refuses rather
+ * than guesses: `POST /api/generated-pdfs` accepts an arbitrary snapshot, so
+ * anything that is not a well-formed `{min, max, panels}` with `min <= max` is
+ * reported as not recorded instead of turned into a number.
+ */
+export function readDeliveredResolution(snapshot: string | null | undefined): DeliveredResolution {
+  if (!snapshot) return { kind: "not-recorded" };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(snapshot);
+  } catch {
+    return { kind: "not-recorded" };
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return { kind: "not-recorded" };
+  if (!("deliveredDpi" in parsed)) return { kind: "not-recorded" };
+
+  const dpi = (parsed as { deliveredDpi: unknown }).deliveredDpi;
+  if (dpi === null) return { kind: "no-basemap" };
+  if (typeof dpi !== "object") return { kind: "not-recorded" };
+
+  const { min, max, panels } = dpi as { min?: unknown; max?: unknown; panels?: unknown };
+  if (!isPositive(min) || !isPositive(max) || !isPositive(panels) || !Number.isInteger(panels) || min > max) {
+    return { kind: "not-recorded" };
+  }
+  return { kind: "measured", min, max, panels };
+}
+
+/**
+ * The sentence a finished atlas carries. Whole DPI, rounded once — the same
+ * convention as the generated table the scale picker reads, so the figure here
+ * and the band there are the same kind of number — and the below-target flag is
+ * decided on the figure the user reads, so "300 DPI" is never also called
+ * "under 300".
+ *
+ * Below the target is stated as information. The atlas is still exactly to
+ * scale; what softens is fine linework. Saying so plainly, in the row's normal
+ * colour, is the owner's decision (state it honestly) rather than a warning
+ * about something that went wrong.
+ */
+export function resolutionNote(reading: DeliveredResolution, targetDpi = PRINT_DPI_TARGET): ResolutionNote {
+  if (reading.kind === "no-basemap") {
+    return { text: "No basemap was drawn, so there is no print resolution to report.", belowTarget: false };
+  }
+  if (reading.kind === "not-recorded") {
+    return { text: "Print resolution was not recorded for this render.", belowTarget: false };
+  }
+
+  const lo = Math.round(reading.min);
+  const hi = Math.round(reading.max);
+  const range = lo === hi ? `${lo} DPI` : `${lo}–${hi} DPI`;
+  const pages = `${reading.panels} map page${reading.panels === 1 ? "" : "s"}`;
+  const printed = `Printed at ${range} across ${pages}.`;
+  const belowTarget = lo < targetDpi;
+  const who = hi >= targetDpi ? "Some pages are" : reading.panels === 1 ? "It is" : "Every page is";
+  return {
+    text: belowTarget
+      ? `${printed} ${who} under ${targetDpi} DPI, so fine contours and small labels may look ` +
+        `a little soft; the scale is still exact.`
+      : printed,
+    belowTarget,
+  };
 }
 
 /**
@@ -81,6 +172,9 @@ export function describePdfHistoryEntry(pdf: GeneratedPdf, now = Date.now()): Pd
       detail: expiryNote(pdf.expiresAt, now),
       failed: false,
       downloadable: true,
+      // What this atlas actually printed at, measured by the renderer. The scale
+      // picker says what a preset delivers on a reference page; this is the file.
+      resolution: resolutionNote(readDeliveredResolution(pdf.sourceMetadataSnapshot)),
     };
   }
 
@@ -92,6 +186,7 @@ export function describePdfHistoryEntry(pdf: GeneratedPdf, now = Date.now()): Pd
       detail: pdf.errorMessage?.trim() || "No diagnostic was recorded. See the API logs.",
       failed: true,
       downloadable: false,
+      resolution: null,
     };
   }
 
@@ -104,6 +199,7 @@ export function describePdfHistoryEntry(pdf: GeneratedPdf, now = Date.now()): Pd
       detail: pdf.errorMessage?.trim() || "You cancelled this render.",
       failed: false,
       downloadable: false,
+      resolution: null,
     };
   }
 
@@ -127,6 +223,7 @@ export function describePdfHistoryEntry(pdf: GeneratedPdf, now = Date.now()): Pd
       detail: null,
       failed: false,
       downloadable: false,
+      resolution: null,
     };
   }
 
@@ -141,5 +238,6 @@ export function describePdfHistoryEntry(pdf: GeneratedPdf, now = Date.now()): Pd
         : "This render was interrupted and will not resume. Generate again.",
     failed: true,
     downloadable: false,
+    resolution: null,
   };
 }

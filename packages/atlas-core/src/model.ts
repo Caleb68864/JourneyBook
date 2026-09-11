@@ -78,11 +78,17 @@ export interface ScalePreset {
  * 41 degrees N a 1:24,000 page lands 1.95x past a zoom boundary and delivers
  * 338 DPI for free, so raising it there would cost tiles and bytes for nothing.
  *
- * That is a statement about 41 degrees N and nowhere else. Measured across the
- * USGS Topo latitude band (18-72 degrees N), this preset's delivered resolution
- * at 1000 px runs **174-346 DPI** — the 338 figure is one point on that band,
- * not a property. `tilemath.test.ts` pins the band so the exception is a
- * decision someone can re-open with numbers rather than a fact of the product.
+ * That is a statement about 41 degrees N and nowhere else. An unclamped page
+ * delivers anywhere from 1x to 2x what it asks for, and where it lands moves with
+ * latitude — the 338 figure is one point on that band, not a property.
+ *
+ * The band itself is deliberately NOT written here. It is measured by the engine
+ * into `apps/web/src/generated/print-resolution.json` (what the scale picker
+ * shows) and `docs/print-resolution.md`, by `scripts/generate-print-resolution.mjs`,
+ * and CI fails when either is stale. This comment used to carry "174-346 DPI
+ * across 18-72N" while the owner had been told "174-343 across 20-70N" — two
+ * hand-typed statements of one measurement, over different ranges, checked by
+ * nothing. Read the table; do not copy a figure out of it into prose.
  */
 export const DEFAULT_PANEL_WIDTH_PX = 1000;
 

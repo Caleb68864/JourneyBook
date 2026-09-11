@@ -729,6 +729,47 @@ public class RenderApiTests(RenderApiFactory factory) : IClassFixture<RenderApiF
     }
 
     /// <summary>
+    /// The render HISTORY carries the resolution each finished atlas printed at.
+    /// </summary>
+    /// <remarks>
+    /// The web app's render history lists records from
+    /// <c>GET /api/projects/{id}/generated-pdfs</c>, not from the per-record status
+    /// resource the test above reads, and it now shows each atlas's measured DPI
+    /// from <c>sourceMetadataSnapshot.deliveredDpi</c>. That is the contract the
+    /// screen depends on, so it is asserted on the list, with a figure below the
+    /// 300 DPI target — the case the screen exists to state honestly.
+    /// </remarks>
+    [Fact]
+    public async Task The_history_list_carries_the_resolution_a_render_printed_at()
+    {
+        factory.FakeClient.ShouldFail = false;
+        factory.FakeClient.DeliveredDpi = new RenderDeliveredDpi(176.2, 343.4, 12);
+        try
+        {
+            var projectId = await CreateProjectAsync("Resolution Project");
+            var resp = await _client.PostAsJsonAsync($"/api/projects/{projectId}/render",
+                new RenderProjectRequest(Tier: 1));
+            var body = (await resp.Content.ReadFromJsonAsync<RenderProjectResponse>())!;
+            Assert.Equal("Completed", (await PollUntilTerminalAsync(body.GeneratedPdfId)).Status);
+
+            var history = await _client.GetFromJsonAsync<List<GeneratedPdfResponse>>(
+                $"/api/projects/{projectId}/generated-pdfs");
+            var row = Assert.Single(history!, r => r.Id == body.GeneratedPdfId);
+
+            Assert.NotNull(row.SourceMetadataSnapshot);
+            using var doc = System.Text.Json.JsonDocument.Parse(row.SourceMetadataSnapshot!);
+            var dpi = doc.RootElement.GetProperty("deliveredDpi");
+            Assert.Equal(176.2, dpi.GetProperty("min").GetDouble());
+            Assert.Equal(343.4, dpi.GetProperty("max").GetDouble());
+            Assert.Equal(12, dpi.GetProperty("panels").GetInt32());
+        }
+        finally
+        {
+            factory.FakeClient.DeliveredDpi = null;
+        }
+    }
+
+    /// <summary>
     /// The project's own name reaches the worker request as the atlas title.
     /// </summary>
     /// <remarks>

@@ -84,3 +84,49 @@ export function tileRangeForBBox(bbox: BBox, zoom: number): TileRange {
     maxY: Math.floor(bottomRight.y / TILE_SIZE),
   };
 }
+
+/** Everything about a basemap panel that is decided before a single tile is fetched. */
+export interface PanelPlan {
+  /** The zoom the requested width asks for. */
+  wantedZoom: number;
+  /** The zoom actually rendered: `wantedZoom`, capped at the source's ceiling. */
+  zoom: number;
+  /** The source has no tiles as deep as the request needed. */
+  zoomClamped: boolean;
+  /** Tiles covering the bbox at `zoom`. */
+  range: TileRange;
+  /** The bbox's window within the stitched tile mosaic, in mosaic pixels. */
+  crop: { left: number; top: number; width: number; height: number };
+}
+
+/**
+ * Zoom, tile range and crop window for a panel of `bbox` at `targetWidthPx`, on a
+ * source whose deepest zoom is `maxZoom`.
+ *
+ * Pure, and the one place this is computed: `renderMapPanel` renders from it, and
+ * the generated print-resolution table the scale picker reads is measured from
+ * it. `crop.width` IS the delivered panel width — nothing resamples — so the
+ * delivered DPI a user is shown before printing comes from the same arithmetic
+ * as the pixels they get. Two copies of this would be two answers to "how sharp
+ * will my map be", and the one the user reads would be the one nobody renders.
+ */
+export function planMapPanel(bbox: BBox, targetWidthPx: number, maxZoom?: number): PanelPlan {
+  const wantedZoom = zoomForBBox(bbox, targetWidthPx);
+  const zoom = maxZoom === undefined ? wantedZoom : Math.min(wantedZoom, maxZoom);
+  const range = tileRangeForBBox(bbox, zoom);
+  const [west, south, east, north] = bbox;
+
+  const topLeft = lngLatToGlobalPixel(west, north, zoom);
+  const bottomRight = lngLatToGlobalPixel(east, south, zoom);
+  const mosaicWidth = (range.maxX - range.minX + 1) * TILE_SIZE;
+  const mosaicHeight = (range.maxY - range.minY + 1) * TILE_SIZE;
+  const left = Math.round(topLeft.x - range.minX * TILE_SIZE);
+  const top = Math.round(topLeft.y - range.minY * TILE_SIZE);
+  // Clamp to the mosaic: the tile range covers the bbox by construction, but
+  // rounding can put the far edge a pixel past the last tile, and sharp treats
+  // an out-of-bounds extract as a hard error.
+  const width = Math.max(1, Math.min(Math.round(bottomRight.x - topLeft.x), mosaicWidth - left));
+  const height = Math.max(1, Math.min(Math.round(bottomRight.y - topLeft.y), mosaicHeight - top));
+
+  return { wantedZoom, zoom, zoomClamped: zoom < wantedZoom, range, crop: { left, top, width, height } };
+}

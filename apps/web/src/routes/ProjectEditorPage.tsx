@@ -13,7 +13,7 @@ import {
   type PanelFormat,
   type RenderOptionsState,
 } from "../lib/render-options";
-import { describePdfHistoryEntry } from "../lib/pdf-history";
+import { RenderHistory } from "../components/RenderHistory";
 import { api, type Location, type Project, type GeneratedPdf } from "../api/client";
 import { MapPreview } from "../components/MapPreview";
 import { ScalePicker } from "../components/ScalePicker";
@@ -790,55 +790,10 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
               )}
             </section>
 
-            {/* Render history */}
-            <section className="flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <span className="font-mono text-[11px] uppercase tracking-widest text-bark-600">Render History</span>
-                <button type="button" onClick={() => void refreshPdfHistory()} className="font-mono text-[10px] uppercase tracking-widest text-forest-700 underline hover:text-forest-600">Refresh</button>
-              </div>
-              {pdfHistory.length === 0 ? (
-                <p className="font-mono text-[10px] text-bark-500">No PDFs generated yet.</p>
-              ) : (
-                <ul className="divide-y divide-bark-200 border border-bark-300">
-                  {pdfHistory.slice(0, 8).map((pdf) => {
-                    // Status text and the failure's diagnostic come from a tested
-                    // pure function — `errorMessage` reached the wire and was
-                    // rendered nowhere, so a failed render was the single word
-                    // "Failed" and a row stranded by a restart said "Pending" for
-                    // ever. See lib/pdf-history.ts.
-                    const entry = describePdfHistoryEntry(pdf);
-                    return (
-                      <li key={pdf.id} className="flex flex-col gap-0.5 px-3 py-1.5">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className={`min-w-0 font-mono text-[10px] ${entry.failed ? "text-campfire-600" : "text-bark-600"}`}>
-                            {new Date(pdf.createdAt).toLocaleString()} · {entry.label}
-                          </span>
-                          {entry.downloadable ? (
-                            <a href={api.generatedPdfs.contentUrl(pdf.id)} target="_blank" rel="noopener noreferrer" className="shrink-0 font-mono text-[10px] uppercase tracking-widest text-forest-700 hover:text-forest-600">Open</a>
-                          ) : null}
-                        </div>
-                        {entry.detail && (
-                          // Coloured by what the line IS, not by the fact that
-                          // there is one. The detail line used to be the failure
-                          // diagnostic and nothing else, so the alarm colour was
-                          // unconditional; it now also carries the retention
-                          // notice on a completed render, and painting "kept until
-                          // the 23rd" in the error colour would report a healthy
-                          // row as a broken one.
-                          <span
-                            className={`break-words font-mono text-[10px] ${
-                              entry.failed ? "text-campfire-600" : "text-bark-600"
-                            }`}
-                          >
-                            {entry.detail}
-                          </span>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </section>
+            {/* Render history — its own component so what it draws can be
+                tested (this page imports MapPreview, which jsdom cannot load),
+                including the resolution each finished atlas actually printed at. */}
+            <RenderHistory pdfs={pdfHistory} onRefresh={() => void refreshPdfHistory()} />
           </div>
         </aside>
       </div>

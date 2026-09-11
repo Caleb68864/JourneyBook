@@ -625,36 +625,42 @@ source_urls:
 >
 > The block below reports per-preset DPI **at 41°N** and correctly says so. What it
 > does not say is how much of the swing is latitude, and that matters because the
-> answer changes the remedy for one preset. Four presets now ship at
-> `PRINT_TARGET_PANEL_WIDTH_PX` (1730); **`usgs-7-5-min` still ships at 1000**, on the
-> reasoning that it already clears 300 DPI. Measured on this commit, every whole
-> degree 20°N–70°N, at each preset's own shipping target:
+> answer changes the remedy for one preset. Four presets ship at
+> `PRINT_TARGET_PANEL_WIDTH_PX`; **`usgs-7-5-min` still ships at the historic 1000
+> px**, on the reasoning that it already clears 300 DPI.
 >
-> | preset | shipping target | delivered DPI, 20–70°N | clamped |
-> |---|---|---|---|
-> | `usgs-7-5-min` | 1000 | **174.3 – 343.0** | never |
-> | `1-25000` | 1730 | 282.8 – 584.4 | 8 of 51 |
-> | `usgs-15-min` | 1730 | 304.8 – 593.7 | never |
-> | `1-50000` | 1730 | 301.0 – 596.5 | never |
-> | `1-100000` | 1730 | 301.1 – 596.8 | never |
+> **The per-preset table that stood here has been removed, on purpose.** It was
+> measured over 20–70°N while `model.ts` quoted 18–72°N and a test pinned a third set
+> at quarter-degree steps: three hand-typed statements of one measurement, none
+> checked against the others, in a project where three resolution figures had
+> already reached the owner wrong. The owner then decided to **state each preset's
+> achieved resolution honestly** rather than chase 300 DPI where the tile ceiling
+> does not allow it, and that needs one number, not three.
 >
-> - **`usgs-7-5-min` — the default, and the land-nav scale — is below 300 DPI at 36 of
->   those 51 latitudes.** Its 338 is the 41°N value and close to its best (343 at
->   42°N); at **43°N it is 174.3**, a **1.97× cliff one degree north of the peak**.
->   43°N is Nebraska's northern border.
-> - **Raising it to 1730 does not fix it.** At that target its worst case is
->   **271.5 DPI at 20°N, and it is CLAMPED at z16** — the panel is already asking for
->   more resolution than USGS Topo has. So the retired claim "reaching 300 DPI needs a
->   deeper basemap, not a bigger number" — correctly called backwards for the other
->   four — **is right for this one preset at low latitude.** Both statements are true
->   of different presets, and the file previously carried only one of them.
-> - `1-25000` also clamps at 8 of the 51 latitudes and dips to 282.8 DPI.
+> **The table now lives in exactly one place:
+> [`docs/print-resolution.md`](../docs/print-resolution.md)**, generated from the
+> engine by `scripts/generate-print-resolution.mjs` (with the JSON the scale picker
+> reads), over every whole degree of the USGS Topo band, 18–72°N. CI fails when it is
+> stale. Read figures there; do not copy them back into this file. What the table
+> establishes, stated without its numbers so this note cannot drift from it:
+>
+> - **`usgs-7-5-min` — the default, and the land-nav scale — straddles 300 DPI.** Its
+>   41°N value is near the top of its band, and one degree north of its peak it
+>   falls off a zoom-boundary cliff to about half.
+> - **Raising it to the 300 DPI request would not fix it.** In the south of the band
+>   the page already needs a zoom USGS Topo does not have (z16 is the ceiling), so a
+>   wider panel lifts its floor but not to 300. The retired claim "reaching 300 DPI
+>   needs a deeper basemap, not a bigger number" — correctly called backwards for the
+>   coarse presets — **is right for this preset at low latitude.**
+> - **`1-25000` asks for 300 DPI and does not get it everywhere** — it is clamped by
+>   the same ceiling in the south. The earlier summary that "the four raised presets
+>   clear 300 DPI" is true of three of them.
 >
 > **What to put to the owner:** print resolution is not a property of this product. It
 > is where each preset's page happens to fall relative to a Web-Mercator zoom boundary,
-> and it moves with **latitude as well as scale**. The band across the whole menu and
-> the continental US is **174 – 597 DPI**. Nothing in the product asks for 300 except
-> the four raised presets, and the one that cannot be raised is the default.
+> and it moves with **latitude as well as scale**. The scale picker now shows each
+> preset's real band before printing, and every finished atlas shows the resolution
+> it actually printed at.
 >
 > #### Recorded: what the size levers actually cost
 >
@@ -917,6 +923,15 @@ Full write-ups in `docs/decisions.md`.
    renders it, nothing refuses or flags a sub-target render on the API path, and
    `N-5` is still open — the `tilemath.test.ts` DPI guard pins only the one preset of
    five that clears 300 dpi.
+
+   **Update — the owner chose "accept and document".** The default preset keeps its
+   width, and the product states what each preset achieves instead. Closed since: the
+   scale picker shows every preset's real band from a table generated by the engine
+   ([`docs/print-resolution.md`](../docs/print-resolution.md), checked by
+   `pnpm check:print-resolution` in CI); the render history and the finished-render
+   message show each atlas's measured DPI and say plainly when it is under 300 —
+   information, not a refusal, which is the decision; and `N-5`, now that
+   `tilemath.test.ts` checks every preset at every latitude against that table.
 
 4. **A vocabulary guard covers the ways its author thought of, which are the unusual
    ones.** `GeometryMonopolyTests` enforces ADR 0004 by scanning for the vocabulary
