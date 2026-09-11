@@ -34,15 +34,28 @@ namespace JourneyBook.Tests;
 /// <b>It catches</b> the vocabulary geometry cannot be written without: trigonometry,
 /// <c>Math.PI</c>, the log/exp pair a Web-Mercator latitude needs, the earth's radius
 /// and the Mercator extent as literals, degree/radian conversion in either
-/// direction, and the two ways to say "tiles per axis at zoom z".
+/// direction, the two ways to say "tiles per axis at zoom z" — and, since
+/// 2026-09-11, the dull vocabulary: metres per degree of latitude, the inch/metre
+/// conversion, and <c>Math.Sqrt</c>.
+/// </para>
+/// <para>
+/// <b>Why that last group was added, because it is the more useful half of the
+/// lesson.</b> Every pattern in the first group was chosen by someone thinking about
+/// how you would VIOLATE this rule, and those are the exotic ways — spherical
+/// trigonometry, an earth radius, a radian conversion. The idiomatic way does not
+/// feel like geometry while you are writing the list. Measured: a metres-per-degree
+/// bbox padder built on <c>111320.0</c> and a planar-distance helper using
+/// <c>Math.Sqrt</c> were both added to a governed root and <b>all 216 .NET tests
+/// passed</b>. A guard covers the ways its author thought of; test one with the most
+/// boring violation you can construct, not the cleverest.
 /// </para>
 /// <para>
 /// <b>It does not catch</b>, and these are not oversights but the honest edge of a
 /// text scan:
 /// </para>
 /// <list type="bullet">
-/// <item>Geometry written with no named constant and no trig — a linear
-/// interpolation in degrees, a bounding-box inflation, a page count as a division.
+/// <item>Geometry written with no named constant, no trig and no square root — a
+/// linear interpolation in degrees, a page count as a division.
 /// <c>LandmarkService</c>'s scoring is arithmetic over a category table and is
 /// invisible here, correctly, because it is not geometry; a page-count formula
 /// would be equally invisible and would not be.</item>
@@ -87,6 +100,27 @@ public class GeometryMonopolyTests
             new Regex(@"(180\s*/\s*Math\.PI|Math\.PI\s*/\s*180|ToRadians|ToDegrees|DegreesTo|RadiansTo)")),
         ("tiles per axis at zoom", new Regex(@"1\s*u?\s*<<\s*\w*[zZ]")),
         ("2^zoom", new Regex(@"Math\.Pow\s*\(\s*2\s*,")),
+
+        // ── The dull ones ────────────────────────────────────────────────────
+        //
+        // Everything above was written by someone thinking about how you would
+        // VIOLATE this rule, and those are the exotic ways: spherical trigonometry,
+        // an earth radius, a radian conversion. The everyday way does not feel like
+        // geometry while you are writing the list, and it was measured: a
+        // `PadExtentMetres` built on `const double MetresPerDegreeLat = 111320.0`
+        // and a `PlanarMetres` using `Math.Sqrt`, both added to a governed root,
+        // and ALL 216 .NET TESTS PASSED. `111320`, `Math.Sqrt` and `0.0254` were
+        // in no pattern above.
+        //
+        // A guard covers the ways its author thought of. Test one with the most
+        // boring violation you can construct, not the cleverest — the clever one is
+        // probably already covered.
+        ("metres per degree literal",
+            new Regex(@"\b111(320|319|325|111|194)(\.\d+)?\b|\b110(540|574|574\.3)(\.\d+)?\b")),
+        ("inch<->metre conversion literal",
+            new Regex(@"(?<![\d.])(0\.0254|25\.4|39\.3700?\d*)(?![\d])")),
+        ("square root / hypotenuse (how a planar distance is spelled)",
+            new Regex(@"Math\.(Sqrt|Hypot|Cbrt)\b")),
     ];
 
     /// <summary>
@@ -214,6 +248,13 @@ public class GeometryMonopolyTests
             ("degree<->radian conversion", "var rad = deg * Math.PI / 180;"),
             ("tiles per axis at zoom", "var n = 1 << zoom;"),
             ("2^zoom", "var n = Math.Pow(2, zoom);"),
+            // The dull ones, sampled with exactly the code the probe wrote: a
+            // metres-per-degree padder and a planar distance. Both passed 216/216
+            // before these rules existed.
+            ("metres per degree literal", "const double MetresPerDegreeLat = 111320.0;"),
+            ("inch<->metre conversion literal", "var metres = inches * 0.0254;"),
+            ("square root / hypotenuse (how a planar distance is spelled)",
+                "return Math.Sqrt(dx * dx + dy * dy);"),
         };
 
         Assert.Equal(Vocabulary.Length, samples.Length);

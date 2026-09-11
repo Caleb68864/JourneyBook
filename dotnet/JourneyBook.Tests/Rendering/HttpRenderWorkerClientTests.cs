@@ -557,6 +557,43 @@ public class HttpRenderWorkerClientTests
         Assert.Equal(3, result.DeliveredDpi.Panels);
     }
 
+    /// <summary>
+    /// A job state this API has never heard of refuses, rather than being read as
+    /// "still rendering" and polled to the deadline.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The switch over <c>job.State</c> had no <c>default</c>, so an unknown state
+    /// fell straight through to the progress path. The consequence was not
+    /// theoretical: rename <c>cancelled</c> to <c>canceled</c> in the worker's
+    /// <c>JobState</c> union and its producer, and <b>every cancel in the product</b>
+    /// becomes a poll to the fifteen-minute deadline, reported as the timeout that
+    /// this whole job protocol was built to tell apart from a cancellation. Measured
+    /// at 216/216 .NET and 486/486 TS green.
+    /// </para>
+    /// <para>
+    /// The deadline here is two seconds so the pre-fix behaviour is observable rather
+    /// than a hang: without the <c>default</c> this test fails with a
+    /// <c>TimeoutException</c> after polling, and with it the client says what is
+    /// wrong immediately. <c>WorkerJobStateParityTests</c> is the other half — this
+    /// one is what the user meets, that one is what stops the drift.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_state_this_API_does_not_know_is_refused_not_polled_to_the_deadline()
+    {
+        var handler = new FakeWorkerHandler(
+            "{\"id\":\"job-1\",\"state\":\"canceled\",\"page\":0,\"pageCount\":1,\"phase\":\"done\"}");
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => ClientFor(handler, TimeSpan.FromSeconds(2)).RenderAsync(JobRequest()));
+
+        // The unknown word itself, so the diagnostic names the drift rather than
+        // describing a symptom.
+        Assert.Contains("canceled", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("jobs.ts", ex.Message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task A_render_that_drew_no_basemap_reports_no_resolution_rather_than_zero()
     {

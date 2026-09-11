@@ -241,6 +241,34 @@ public class HttpRenderWorkerClient(HttpClient http, RenderWorkerPollOptions? po
             "Cannot render: the project has neither an extent (bbox) nor any saved locations.");
     }
 
+    /// <summary>The worker's job-state vocabulary, as one named set.</summary>
+    /// <remarks>
+    /// <para>
+    /// The eighth hand-written copy of a set in this repository, and it was the four
+    /// case labels of one switch with nothing enumerating them — so nothing could
+    /// compare them to <c>JobState</c> in <c>services/render-worker/src/jobs.ts</c>,
+    /// which is where the vocabulary is actually decided.
+    /// <c>wire-contract.test.ts</c> pins the request body, not this.
+    /// </para>
+    /// <para>
+    /// The lesson is the one that consolidating a set without adding the thing that
+    /// fails on a new copy teaches: a previous pass collapsed six copies of the
+    /// terminal-status set and then added a seventh itself, four commits later.
+    /// Naming the set is half; <c>WorkerJobStateParityTests</c> is the half that
+    /// fails when the two sides drift.
+    /// </para>
+    /// </remarks>
+    public static class WorkerJobStates
+    {
+        public const string Rendering = "rendering";
+        public const string Completed = "completed";
+        public const string Failed = "failed";
+        public const string Cancelled = "cancelled";
+
+        /// <summary>Every state this client has been shown and made a decision about.</summary>
+        public static readonly IReadOnlyList<string> All = [Rendering, Completed, Failed, Cancelled];
+    }
+
     /// <summary>The worker's job record, as <c>GET /jobs/{id}</c> returns it (ADR 0007).</summary>
     private sealed record WorkerJob(
         string Id,
@@ -298,14 +326,14 @@ public class HttpRenderWorkerClient(HttpClient http, RenderWorkerPollOptions? po
 
             switch (job.State)
             {
-                case "completed":
+                case WorkerJobStates.Completed:
                     if (job.OutputPath is null)
                         throw new InvalidOperationException(
                             $"Render worker job {job.Id} reported completed with no output path.");
                     return new RenderWorkerResult(
                         job.OutputPath, job.PageCount, job.Attribution, job.DeliveredDpi);
 
-                case "cancelled":
+                case WorkerJobStates.Cancelled:
                     // Its own exception type, not an OperationCanceledException: an
                     // HttpClient deadline throws one of those too, and conflating
                     // them is exactly how a timeout came to be reported to users as
@@ -313,9 +341,33 @@ public class HttpRenderWorkerClient(HttpClient http, RenderWorkerPollOptions? po
                     throw new RenderCancelledException(
                         job.Error ?? $"Render worker job {job.Id} was cancelled.");
 
-                case "failed":
+                case WorkerJobStates.Failed:
                     throw new InvalidOperationException(
                         $"Render worker failed ({job.ErrorKind ?? "unknown"}): {job.Error ?? "no diagnostic"}");
+
+                case WorkerJobStates.Rendering:
+                    // The only non-terminal state. Fall out of the switch to the
+                    // progress report and the next poll.
+                    break;
+
+                default:
+                    // There was no default here, so a state this API has never heard
+                    // of fell straight through to the progress path and was read as
+                    // "still rendering" — which means polling it to the fifteen-minute
+                    // deadline and then reporting the timeout that this whole protocol
+                    // exists to tell APART from a cancellation. Measured: rename
+                    // `cancelled` to `canceled` in the worker's `JobState` union and
+                    // every cancel in the product becomes exactly that, with 216/216
+                    // and 486/486 green.
+                    //
+                    // Failing loudly is the lesser harm. A worker deployed ahead of
+                    // the API produces one clearly-explained failed record instead of
+                    // a quarter-hour spinner ending in an untrue diagnostic.
+                    throw new InvalidOperationException(
+                        $"Render worker job {job.Id} reported state '{job.State}', which this API has " +
+                        $"no handling for. Known states: {string.Join(", ", WorkerJobStates.All)}. " +
+                        "The worker's `JobState` union (services/render-worker/src/jobs.ts) and this " +
+                        "switch have drifted — most likely a worker deployed ahead of the API.");
             }
 
             if (onProgress is not null && job.PageCount > 0)
