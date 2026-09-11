@@ -115,6 +115,31 @@ public class RenderService(
         var tileProxyBaseUrl = configuration["Tiles:ProxyBaseUrl"] is { Length: > 0 } u ? u : null;
         var tileSourceId = configuration["Tiles:DefaultSource"] is { Length: > 0 } s ? s : "usgs-topo";
 
+        // How deep the source being proxied actually goes. The engine cannot see the
+        // registry — that is the whole reason `tileMaxZoom` is on its input — so when
+        // we route the worker through this API's proxy we owe it the ceiling, or it
+        // applies the one hardcoded for USGS Topo (16) to whatever source is
+        // configured. A shallower source then has every tile above its own top zoom
+        // refused by this API's own proxy with ZoomOutOfRange, and the render fails a
+        // tile at a time for a reason the engine has no way to name.
+        //
+        // Deliberately NOT a fallback constant: if the proxy is configured and the
+        // source is not in the registry, send nothing and let the engine keep its own
+        // default rather than invent a ceiling on the user's behalf.
+        int? tileMaxZoom = null;
+        if (tileProxyBaseUrl is not null)
+        {
+            tileMaxZoom = await db.TileSources
+                .Where(t => t.Key == tileSourceId)
+                .Select(t => (int?)t.MaxZoom)
+                .FirstOrDefaultAsync(ct);
+        }
+
+        // The atlas title: the project's own name. Whitespace-only names are left
+        // null so the engine's "Journey Book" fallback still applies — an atlas
+        // titled with a blank line is worse than one titled with the default.
+        var title = string.IsNullOrWhiteSpace(project.Name) ? null : project.Name.Trim();
+
         var workerReq = new RenderWorkerRequest(
             ScalePresetId: scalePresetId,
             Tier: request.Tier,
@@ -126,6 +151,8 @@ public class RenderService(
             OutputFileName: outputFileName,
             TileBaseUrl: tileProxyBaseUrl,
             TileSourceId: tileProxyBaseUrl is null ? null : tileSourceId,
+            TileMaxZoom: tileMaxZoom,
+            Title: title,
             Route: request.Route,
             Landmarks: landmarks,
             IncludeLandmarks: landmarks.Count > 0,

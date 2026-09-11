@@ -112,6 +112,21 @@ public record RenderWorkerRequest(
     // hitting USGS directly. Null → worker fetches USGS directly.
     string? TileBaseUrl = null,
     string? TileSourceId = null,
+    // Deepest zoom the tile source being proxied actually has, from the registered
+    // `TileSource.MaxZoom`. The engine's docstring for this field names THIS caller
+    // as the reason it exists — "needed when tiles come through the proxy from a
+    // registered TileSource whose MaxZoom this process cannot see" — and the API
+    // was the one caller not sending it, so the engine fell back to the ceiling
+    // hardcoded for USGS Topo (16) whatever source was actually configured. Null
+    // when no proxy is configured: the worker then fetches its own basemap and
+    // knows its own ceiling.
+    int? TileMaxZoom = null,
+    // The book title printed in every page header, on the overview page, on the
+    // contents page and in the PDF's own document metadata. This is the PROJECT'S
+    // NAME — the one thing about an atlas the user typed themselves. There was no
+    // member for it here, so `renderAtlasPdfToFile`'s `?? "Journey Book"` fallback
+    // applied to every atlas the API has ever produced.
+    string? Title = null,
     bool Route = false,
     // Persisted landmarks forwarded as additive vector furniture (camelCase
     // `landmarks` on the wire), gated by the include flag like Route.

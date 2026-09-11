@@ -551,6 +551,101 @@ public class RenderApiTests(RenderApiFactory factory) : IClassFixture<RenderApiF
     }
 
     /// <summary>
+    /// The project's own name reaches the worker request as the atlas title.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The hop this covers is <c>RenderService</c>: <c>project.Name</c> was loaded on
+    /// every render — it is part of the same <c>Include</c> chain that fetches the
+    /// page grid — and <c>RenderWorkerRequest</c> had no member to put it in. The
+    /// engine's <c>renderAtlasPdfToFile</c> is <c>title: options.title ?? "Journey
+    /// Book"</c>, so the fallback fired for every atlas the API has ever produced:
+    /// the name the user typed was on the project list page and on no page of the
+    /// book.
+    /// </para>
+    /// <para>
+    /// A deliberately distinctive name, and asserted by equality: "contains a title"
+    /// would pass on the string this test exists to prove is gone.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Render_carries_the_projects_own_name_as_the_atlas_title()
+    {
+        factory.FakeClient.ShouldFail = false;
+        var projectId = await CreateProjectAsync("Pawnee Creek Land Nav");
+
+        var resp = await _client.PostAsJsonAsync($"/api/projects/{projectId}/render",
+            new RenderProjectRequest(Tier: 1));
+
+        Assert.Equal(HttpStatusCode.Accepted, resp.StatusCode);
+        var body = await resp.Content.ReadFromJsonAsync<RenderProjectResponse>();
+        Assert.NotNull(body);
+        await PollUntilTerminalAsync(body!.GeneratedPdfId);
+
+        Assert.True(
+            factory.FakeClient.Requests.TryGetValue($"atlas-{body.GeneratedPdfId:N}.pdf", out var sent),
+            "the worker was never handed this render's request");
+
+        Assert.Equal("Pawnee Creek Land Nav", sent!.Title);
+        Assert.NotEqual("Journey Book", sent.Title);
+    }
+
+    /// <summary>
+    /// A name that is only whitespace stays null, so the engine's own fallback
+    /// applies rather than an atlas titled with a blank line.
+    /// </summary>
+    /// <remarks>
+    /// The shape-5 half of the title fix: where the software knows the answer it
+    /// should send it, and where it does not it must not invent one. An empty string
+    /// on the wire is not "no title" to the engine — <c>?? "Journey Book"</c> does
+    /// not fire on <c>""</c> — so this is the difference between the default and a
+    /// nameless book.
+    /// </remarks>
+    [Fact]
+    public async Task A_blank_project_name_sends_no_title_at_all()
+    {
+        factory.FakeClient.ShouldFail = false;
+        // Straight to the database: the create endpoint refuses a blank name, and
+        // the case this guards is a row that got one some other way (an import, a
+        // migration, a direct write).
+        Guid projectId;
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<JourneyBookDbContext>();
+            var project = new JourneyBook.Domain.Entities.Project
+            {
+                Name = "   ",
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow,
+            };
+            db.Projects.Add(project);
+            project.Locations.Add(new JourneyBook.Domain.Entities.ImportantLocation
+            {
+                Name = "Stop",
+                LocationNumber = 1,
+                Location = NetTopologySuite.NtsGeometryServices.Instance
+                    .CreateGeometryFactory(4326).CreatePoint(new NetTopologySuite.Geometries.Coordinate(-96.7, 40.8)),
+            });
+            await db.SaveChangesAsync();
+            projectId = project.Id;
+        }
+
+        var resp = await _client.PostAsJsonAsync($"/api/projects/{projectId}/render",
+            new RenderProjectRequest(Tier: 1));
+
+        Assert.Equal(HttpStatusCode.Accepted, resp.StatusCode);
+        var body = await resp.Content.ReadFromJsonAsync<RenderProjectResponse>();
+        Assert.NotNull(body);
+        await PollUntilTerminalAsync(body!.GeneratedPdfId);
+
+        Assert.True(
+            factory.FakeClient.Requests.TryGetValue($"atlas-{body.GeneratedPdfId:N}.pdf", out var sent),
+            "the worker was never handed this render's request");
+
+        Assert.Null(sent!.Title);
+    }
+
+    /// <summary>
     /// A knob outside the engine's range is a 400 on the POST, not a queued job
     /// that fails minutes later and leaves the user to go and read a Failed row.
     /// </summary>
@@ -568,5 +663,196 @@ public class RenderApiTests(RenderApiFactory factory) : IClassFixture<RenderApiF
             new RenderProjectRequest(PanelWidthPx: widthPx, PanelFormat: format, PanelQuality: quality));
 
         Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+    }
+}
+
+// ── Tile-proxy ceiling ────────────────────────────────────────────────────────
+
+/// <summary>
+/// The same stack with the Stage 3 tile proxy configured, which is the deployed
+/// topology (<c>docker-compose.yml</c> sets <c>Tiles__ProxyBaseUrl</c>) and the only
+/// one in which <c>tileMaxZoom</c> means anything.
+/// </summary>
+/// <remarks>
+/// A separate factory rather than a setting on <see cref="RenderApiFactory"/>: every
+/// test in that class shares one fixture, and turning the proxy on for all of them
+/// would change the request under assertions that are about something else.
+/// </remarks>
+public sealed class ProxiedRenderApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
+{
+    private readonly PostgreSqlContainer _db = new PostgreSqlBuilder(TestContainerImages.Postgis)
+        .WithDatabase("journeybook")
+        .WithUsername("journeybook")
+        .WithPassword("journeybook")
+        .Build();
+
+    public string GeneratedDir { get; } =
+        Path.Combine(Path.GetTempPath(), $"jb-proxy-render-test-{Guid.NewGuid():N}");
+
+    public FakeRenderWorkerClient FakeClient { get; private set; } = null!;
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder.UseSetting("ConnectionStrings:Postgres", _db.GetConnectionString());
+        builder.UseSetting("GeneratedPdf:GeneratedDir", GeneratedDir);
+        builder.UseSetting("Tiles:ProxyBaseUrl", "http://api:8080/api/tiles");
+        builder.UseSetting("Tiles:DefaultSource", "usgs-topo");
+
+        builder.ConfigureTestServices(services =>
+        {
+            services.RemoveAll<IRenderWorkerClient>();
+            FakeClient = new FakeRenderWorkerClient(GeneratedDir);
+            services.AddSingleton<IRenderWorkerClient>(FakeClient);
+        });
+    }
+
+    public async Task InitializeAsync()
+    {
+        await _db.StartAsync();
+        using var scope = Services.CreateScope();
+        await scope.ServiceProvider.GetRequiredService<JourneyBookDbContext>()
+            .Database.MigrateAsync();
+    }
+
+    async Task IAsyncLifetime.DisposeAsync()
+    {
+        await _db.DisposeAsync();
+        if (Directory.Exists(GeneratedDir))
+            Directory.Delete(GeneratedDir, recursive: true);
+    }
+}
+
+public class ProxiedRenderApiTests(ProxiedRenderApiFactory factory)
+    : IClassFixture<ProxiedRenderApiFactory>
+{
+    private readonly HttpClient _client = factory.CreateClient();
+
+    private async Task<Guid> CreateProjectAsync(string name)
+    {
+        var post = await _client.PostAsJsonAsync("/api/projects",
+            new CreateProjectRequest(name, "usgs-7-5-min"));
+        var created = await post.Content.ReadFromJsonAsync<ProjectResponse>();
+        Assert.NotNull(created);
+        var ext = await _client.PutAsJsonAsync($"/api/projects/{created!.Id}/extent",
+            new BBoxDto(-96.75, 40.78, -96.65, 40.85));
+        Assert.Equal(HttpStatusCode.OK, ext.StatusCode);
+        return created.Id;
+    }
+
+    private async Task<GeneratedPdfResponse> PollUntilTerminalAsync(Guid id)
+    {
+        for (var i = 0; i < 200; i++)
+        {
+            var r = await _client.GetFromJsonAsync<GeneratedPdfResponse>($"/api/generated-pdfs/{id}");
+            if (r is not null && r.Status is "Completed" or "Failed" or "Cancelled") return r;
+            await Task.Delay(50);
+        }
+        throw new TimeoutException($"Generated PDF {id} never reached a terminal status.");
+    }
+
+    /// <summary>
+    /// With the proxy configured, the render carries the registered source's own
+    /// <c>MaxZoom</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>RenderAtlasInput.tileMaxZoom</c>'s docstring names this exact caller as the
+    /// reason the field exists — "needed when tiles come through the proxy from a
+    /// registered <c>TileSource</c> whose <c>MaxZoom</c> this process cannot see" —
+    /// and the API, the only component that proxies, was the one caller never
+    /// sending it. The engine then applied the ceiling hardcoded for USGS Topo
+    /// (<c>panel.ts</c>'s <c>maxZoom: 16</c>) to whatever source was configured, and
+    /// a shallower one had every tile above its own top zoom refused by this API's
+    /// own proxy with <c>ZoomOutOfRange</c>.
+    /// </para>
+    /// <para>
+    /// The seed's 16 and the engine's 16 agreeing today is exactly why this was
+    /// invisible; the assertion reads the value out of the database rather than
+    /// restating it, so a re-seed at a different depth moves the expectation with it
+    /// instead of pinning a fifth copy of the number.
+    /// </para>
+    /// </remarks>
+    private async Task<RenderWorkerRequest> RenderAndCaptureAsync(string projectName)
+    {
+        var projectId = await CreateProjectAsync(projectName);
+        var resp = await _client.PostAsJsonAsync($"/api/projects/{projectId}/render",
+            new RenderProjectRequest(Tier: 1));
+        Assert.Equal(HttpStatusCode.Accepted, resp.StatusCode);
+        var body = await resp.Content.ReadFromJsonAsync<RenderProjectResponse>();
+        Assert.NotNull(body);
+        await PollUntilTerminalAsync(body!.GeneratedPdfId);
+
+        Assert.True(
+            factory.FakeClient.Requests.TryGetValue($"atlas-{body.GeneratedPdfId:N}.pdf", out var sent),
+            $"the worker was never handed a request for atlas-{body.GeneratedPdfId:N}.pdf");
+        return sent!;
+    }
+
+    private async Task SetSeededMaxZoomAsync(int value)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<JourneyBookDbContext>();
+        var source = await db.TileSources.SingleAsync(t => t.Key == "usgs-topo");
+        source.MaxZoom = value;
+        await db.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// With the proxy configured, the render carries the registered source's own
+    /// <c>MaxZoom</c> — read from the registry, not restated as a constant.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>RenderAtlasInput.tileMaxZoom</c>'s docstring names this exact caller as the
+    /// reason the field exists — "needed when tiles come through the proxy from a
+    /// registered <c>TileSource</c> whose <c>MaxZoom</c> this process cannot see" —
+    /// and the API, the only component that proxies, was the one caller never
+    /// sending it. The engine then applied the ceiling hardcoded for USGS Topo
+    /// (<c>panel.ts</c>'s <c>maxZoom: 16</c>) to whatever source was configured, and
+    /// a shallower one had every tile above its own top zoom refused by this API's
+    /// own proxy with <c>ZoomOutOfRange</c>.
+    /// </para>
+    /// <para>
+    /// The seed's 16 and the engine's 16 agreeing today is exactly why this was
+    /// invisible, and it is why the first assertion alone would be worth little: a
+    /// hardcoded 16 passes it. So the row is then MOVED and the request must move
+    /// with it. One test rather than two because the mutation is shared fixture
+    /// state and xUnit gives no ordering between tests in a class.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Render_through_the_proxy_carries_the_registered_sources_max_zoom()
+    {
+        int seeded;
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<JourneyBookDbContext>();
+            seeded = await db.TileSources.Where(t => t.Key == "usgs-topo")
+                .Select(t => t.MaxZoom).SingleAsync();
+        }
+
+        try
+        {
+            var asSeeded = await RenderAndCaptureAsync("Proxied Ceiling Project");
+
+            // The proxy is on, so both halves of the routing must be there…
+            Assert.Equal("http://api:8080/api/tiles", asSeeded.TileBaseUrl);
+            Assert.Equal("usgs-topo", asSeeded.TileSourceId);
+            // …and so must the ceiling the engine cannot look up for itself.
+            Assert.Equal(seeded, asSeeded.TileMaxZoom);
+
+            // Now move the registry. A ceiling restated as a constant anywhere on
+            // this path — 16 in C#, or the engine's own — cannot follow it.
+            var moved = seeded == 13 ? 12 : 13;
+            await SetSeededMaxZoomAsync(moved);
+
+            var afterMove = await RenderAndCaptureAsync("Proxied Shallow Ceiling Project");
+            Assert.Equal(moved, afterMove.TileMaxZoom);
+            Assert.NotEqual(seeded, afterMove.TileMaxZoom);
+        }
+        finally
+        {
+            await SetSeededMaxZoomAsync(seeded);
+        }
     }
 }

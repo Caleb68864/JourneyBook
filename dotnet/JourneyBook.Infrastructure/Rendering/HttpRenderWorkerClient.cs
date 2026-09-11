@@ -45,6 +45,14 @@ public class HttpRenderWorkerClient(HttpClient http, RenderWorkerPollOptions? po
         string OutputPath,
         string? TileBaseUrl,
         string? TileSourceId,
+        // Nullable for the same reason the panel knobs are: an unset value must be
+        // an ABSENT wire field so the engine keeps its own default, not a C# zero
+        // that silently caps every panel at zoom 0.
+        int? TileMaxZoom,
+        // The atlas title. Nullable and omitted when null so a caller with no title
+        // gets the engine's "Journey Book" fallback exactly as before, rather than
+        // an empty string printed as the book's name.
+        string? Title,
         bool Route,
         // Optional additive landmark furniture (camelCase `landmarks`, omitted when
         // null). Forwarded only when the include-landmarks flag is set, like Route.
@@ -181,6 +189,8 @@ public class HttpRenderWorkerClient(HttpClient http, RenderWorkerPollOptions? po
                 OutputPath: request.OutputFileName,
                 TileBaseUrl: request.TileBaseUrl,
                 TileSourceId: request.TileSourceId,
+                TileMaxZoom: request.TileMaxZoom,
+                Title: request.Title,
                 Route: request.Route,
                 Landmarks: landmarks,
                 TableOfContents: request.TableOfContents,
@@ -211,6 +221,8 @@ public class HttpRenderWorkerClient(HttpClient http, RenderWorkerPollOptions? po
                 OutputPath: request.OutputFileName,
                 TileBaseUrl: request.TileBaseUrl,
                 TileSourceId: request.TileSourceId,
+                TileMaxZoom: request.TileMaxZoom,
+                Title: request.Title,
                 Route: request.Route,
                 Landmarks: landmarks,
                 TableOfContents: request.TableOfContents,
