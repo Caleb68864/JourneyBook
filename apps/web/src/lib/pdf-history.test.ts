@@ -137,3 +137,68 @@ describe("describePdfHistoryEntry and a cancelled render", () => {
     expect(describePdfHistoryEntry(record("Rendering"), T0).label).toBe("Rendering…");
   });
 });
+
+/**
+ * The retention window the server has always enforced and never mentioned.
+ *
+ * `expiresAt` is stamped on every record from `GeneratedPdf:RetentionDays`
+ * (default 30) and `GeneratedPdfRetentionService` deletes the file AND the row on
+ * a timer. It is serialized to this app, typed on the `GeneratedPdf` interface,
+ * and before this was named in `apps/web` by nothing but a test fixture's `null`.
+ * A family's trip atlas disappeared from the history with no notice that it ever
+ * had a deadline.
+ */
+describe("the retention window is visible", () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const at = (ms: number) => new Date(T0 + ms).toISOString();
+
+  it("[BEHAVIORAL] a completed render says how long its PDF is kept", () => {
+    const entry = describePdfHistoryEntry(
+      record("Completed", { expiresAt: at(12 * DAY) }),
+      T0,
+    );
+    expect(entry.detail).not.toBeNull();
+    expect(entry.detail).toContain("12 days");
+    // Still downloadable — this is a notice, not a gate.
+    expect(entry.downloadable).toBe(true);
+    expect(entry.failed).toBe(false);
+  });
+
+  it("[BEHAVIORAL] warns rather than counts when the deadline is inside a day", () => {
+    // "0 days" is the wrong thing to print on the row that most needs reading.
+    expect(describePdfHistoryEntry(record("Completed", { expiresAt: at(DAY + 1) }), T0).detail)
+      .toBe("Kept for 1 more day — download it if you want to keep it.");
+    expect(describePdfHistoryEntry(record("Completed", { expiresAt: at(3 * 60 * 60 * 1000) }), T0).detail)
+      .toContain("less than a day");
+  });
+
+  it("says the file MAY be gone once the window has passed, not that it is", () => {
+    // The sweep runs on an interval, not at the instant of expiry, so a row can be
+    // past its deadline with the file still on disk and the Open link still
+    // working. Claiming it is deleted when it opens is the same class of error as
+    // claiming it is safe when it is not.
+    const entry = describePdfHistoryEntry(record("Completed", { expiresAt: at(-DAY) }), T0);
+    expect(entry.detail).toContain("may already have been deleted");
+    expect(entry.downloadable).toBe(true);
+  });
+
+  it("[CONTROL] says nothing when the server stamped no deadline", () => {
+    // Retention can be disabled, and legacy rows have no `expiresAt`. Printing
+    // "expires in 30 days" from a value the server did not send would be a guess
+    // about the one thing the server is the authority on.
+    expect(describePdfHistoryEntry(record("Completed", { expiresAt: null }), T0).detail).toBeNull();
+    expect(describePdfHistoryEntry(record("Completed", { expiresAt: "not a date" }), T0).detail)
+      .toBeNull();
+  });
+
+  it("[CONTROL] leaves a failed render's diagnostic alone", () => {
+    // A failed render has no file to keep, and the detail line is the only channel
+    // its diagnostic has. A retention note that displaced it would trade a real
+    // fix for a cosmetic one.
+    const entry = describePdfHistoryEntry(
+      record("Failed", { expiresAt: at(12 * DAY), errorMessage: "Tile fetch failed" }),
+      T0,
+    );
+    expect(entry.detail).toBe("Tile fetch failed");
+  });
+});

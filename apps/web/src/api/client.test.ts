@@ -145,3 +145,81 @@ describe("api.landmarks.import", () => {
     });
   });
 });
+
+/**
+ * `PUT /locations/{id}` replaces the whole record, and this client used to fill in
+ * `category: "Other"` and `sourceConfidence: "Unknown"` whenever the caller did
+ * not pass them — which was every caller, because the web's `Location` type had no
+ * member to read the real values from. So the client invented a classification on
+ * the user's behalf, in a domain where the server was the only thing that knew,
+ * and every pin-colour or zoom-ladder change quietly reset it.
+ *
+ * Both fields are now REQUIRED on the helper, which turns the silent default into
+ * a compile error at each call site. That is the real guard; this is the test that
+ * the wire carries what was passed rather than something of the client's own.
+ */
+describe("api.locations.update", () => {
+  function stubLocation() {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : {};
+      return new Response(JSON.stringify({ id: "l1", projectId: "p1", ...body }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  it("[BEHAVIORAL] sends the caller's classification, not a default of its own", async () => {
+    const fetchMock = stubLocation();
+    await api.locations.update("l1", {
+      name: "Trailhead",
+      lng: -97.5,
+      lat: 41.5,
+      notes: "gate locked after dark",
+      category: "Trailhead",
+      sourceConfidence: "High",
+      pinColor: "#b03a2e",
+    });
+
+    const body = sentBody(fetchMock);
+    expect(body.category).toBe("Trailhead");
+    expect(body.sourceConfidence).toBe("High");
+    // Named explicitly: these are the two values that used to appear here on
+    // every update regardless of what the record held.
+    expect(body.category).not.toBe("Other");
+    expect(body.sourceConfidence).not.toBe("Unknown");
+  });
+
+  it("[CONTROL] still sends every other field the whole-record PUT replaces", async () => {
+    // A PUT that dropped a field to avoid defaulting it would trade one silent
+    // reset for another.
+    const fetchMock = stubLocation();
+    await api.locations.update("l1", {
+      name: "Trailhead",
+      lng: -97.5,
+      lat: 41.5,
+      notes: "gate locked after dark",
+      category: "Other",
+      sourceConfidence: "Unknown",
+      scalePresetId: "1-50000",
+      pinShape: "star",
+      pinColor: "#b03a2e",
+      zoomLevels: ["1-100000", "usgs-7-5-min"],
+    });
+
+    expect(sentBody(fetchMock)).toEqual({
+      name: "Trailhead",
+      lng: -97.5,
+      lat: 41.5,
+      category: "Other",
+      notes: "gate locked after dark",
+      sourceConfidence: "Unknown",
+      scalePresetId: "1-50000",
+      pinShape: "star",
+      pinColor: "#b03a2e",
+      zoomLevels: ["1-100000", "usgs-7-5-min"],
+    });
+  });
+});

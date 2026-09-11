@@ -14,7 +14,26 @@ public record CreateGeneratedPdfRequest(string? SourceMetadataSnapshot = null);
 /// location once the render completes; <c>ErrorMessage</c> carries the renderer's
 /// diagnostic for a <c>Failed</c> render and is cleared on any other status.
 /// </summary>
-public record UpdateGeneratedPdfStatusRequest(string Status, string? FilePath = null, string? ErrorMessage = null);
+/// <param name="SourceMetadataSnapshot">
+/// Provenance for a render that has finished, as a JSON object — which is what
+/// <c>GeneratedPdf</c>'s own summary says the record is for ("a snapshot of the
+/// source metadata (tile sources, attribution, scale) captured at render time").
+/// It could only ever be supplied on CREATE, and the render path creates the
+/// record before the render starts, so every record a real render produced had a
+/// null snapshot; the only writer was the manual <c>POST /api/generated-pdfs</c>
+/// and its own test. Null leaves whatever is already there untouched.
+/// </param>
+/// <param name="PageCount">
+/// The authoritative page count from the finished render. Progress reports carry
+/// one too, but a render that completes between two polls emits none, so a fast
+/// atlas reached <c>Completed</c> with no page count at all.
+/// </param>
+public record UpdateGeneratedPdfStatusRequest(
+    string Status,
+    string? FilePath = null,
+    string? ErrorMessage = null,
+    string? SourceMetadataSnapshot = null,
+    int? PageCount = null);
 
 /// <summary>A generated-PDF record as stored, including its retention window and metadata snapshot.</summary>
 public record GeneratedPdfResponse(
@@ -34,7 +53,12 @@ public record GeneratedPdfResponse(
     // client reads them here because this record is the only channel a render that
     // outlives its own HTTP request has.
     int? Progress = null,
-    int? PageCount = null);
+    int? PageCount = null,
+    // What the engine says it is doing, in its own word. `Progress` counts finished
+    // basemap PANELS, so it equals `PageCount` for the whole of PDF assembly and
+    // stays 0 for a render with no basemap — both indistinguishable from a stall
+    // without this.
+    string? Phase = null);
 
 /// <summary>
 /// Report the worker's position on an in-flight render.
@@ -45,7 +69,7 @@ public record GeneratedPdfResponse(
 /// would mean every page re-asserted the status — one fumbled call away from a
 /// terminal row being pushed back to <c>Rendering</c> by a late progress event.
 /// </remarks>
-public record UpdateGeneratedPdfProgressRequest(int Progress, int PageCount);
+public record UpdateGeneratedPdfProgressRequest(int Progress, int PageCount, string? Phase = null);
 
 /// <summary>Result of a manual prune: the number of expired records deleted.</summary>
 public record PruneResult(int Deleted);

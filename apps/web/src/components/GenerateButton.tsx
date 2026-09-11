@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
-import { waitForRender, type RenderProgressSnapshot } from "../api/render-polling";
+import { phaseLabel, waitForRender, type RenderProgressSnapshot } from "../api/render-polling";
 import { toRenderRequestBody, type RenderOptionsState } from "../lib/render-options";
 
 interface GenerateButtonProps {
@@ -38,11 +38,24 @@ export function waitingLabel(
 ): string {
   const base = (jobStatus && WAITING_LABEL[jobStatus]) ?? "Generating…";
   if (jobStatus !== "Rendering" || progress === null) return base;
+
+  // The engine's own word for what it is doing, where it has one worth saying.
+  // This is the half of the report that used to be dropped on the way in, and it
+  // covers exactly the stretches the counter cannot describe: before the pages
+  // are derived (no denominator), and during PDF assembly (the counter has
+  // already reached the denominator and stopped).
+  const phase = phaseLabel(progress.phase);
+
   // No denominator yet: the worker has the job but has not derived the pages. "0 of
   // 0" and "0%" are both worse than saying nothing, because they read as a render
-  // that has stalled rather than one that has not started counting.
-  if (progress.pageCount === null || progress.percent === null) return base;
-  return `Rendering… ${progress.progress ?? 0}/${progress.pageCount} (${progress.percent}%)`;
+  // that has stalled rather than one that has not started counting. The phase, when
+  // there is one, says more than either.
+  if (progress.pageCount === null || progress.percent === null) {
+    return phase ? `${phase}…` : base;
+  }
+
+  const counted = `Rendering… ${progress.progress ?? 0}/${progress.pageCount} (${progress.percent}%)`;
+  return phase ? `${phase}… ${progress.progress ?? 0}/${progress.pageCount}` : counted;
 }
 
 export function GenerateButton({ projectId, options, disabled }: GenerateButtonProps) {

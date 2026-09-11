@@ -615,4 +615,97 @@ describe("renderAtlas with a basemap", () => {
     });
     expect([...zooms]).toEqual([12]);
   });
+
+  /**
+   * What the render says about the resolution it actually DELIVERED.
+   *
+   * `effectiveDpi` is the exact inverse of the `panelWidthPxForDpi` every scale
+   * preset's width is derived from, and it was exported, tested, and called by
+   * nothing but its own tests. So on a product whose load-bearing promise is
+   * true scale, the renderer knew the printed resolution of every page, warned
+   * when a panel came out *softer than asked for*, and never once said what it
+   * had achieved.
+   *
+   * It matters because the delivered width is not the requested one: nothing
+   * resamples, so the target is a floor and the crop is 1x-2x it depending on
+   * where the page falls relative to a Web-Mercator zoom boundary. Two presets
+   * 4% apart in scale can print 1.9x apart in DPI.
+   */
+  async function renderAndCaptureStderr(input: ZoomProbeInput): Promise<string> {
+    const fetchMock = vi.fn(async () => new Response(new Uint8Array(TILE_PNG), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const lines: string[] = [];
+    const spy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation((chunk: string | Uint8Array) => {
+        lines.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString());
+        return true;
+      });
+    const dir = mkdtempSync(join(tmpdir(), "jb-render-dpi-"));
+    try {
+      await renderAtlas({
+        ...input,
+        outputPath: join(dir, "out.pdf"),
+        tileBaseUrl: "http://127.0.0.1:1/tiles",
+        basemap: true,
+        overview: false,
+      });
+      return lines.join("");
+    } finally {
+      spy.mockRestore();
+      vi.unstubAllGlobals();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it("[BEHAVIORAL] reports the print resolution each panel actually delivered", async () => {
+    const out = await renderAndCaptureStderr({
+      mode: "location",
+      center: { lng: -98, lat: 41 },
+      scalePresetId: "1-100000",
+      tier: 1,
+    });
+
+    // An absolute number, not merely the presence of the word "dpi": the whole
+    // failure mode here is a figure that reads plausible and is nobody's
+    // measurement. 1:100,000 at its own preset width lands on z14, which
+    // delivers ~2030 px over the 5.7639 in Letter-portrait map box.
+    expect(out).toMatch(/panel L1 \(z14, 35\d dpi\)/);
+    expect(out).toMatch(/print resolution: 35\d dpi across 1 panel\(s\)/);
+  });
+
+  it("[CONTROL] says nothing about missing the target when the target is met", async () => {
+    // The warning must not be a line that always prints. A render clearing 300
+    // DPI has nothing to disclose, and a warning on every render is a warning
+    // nobody reads.
+    const out = await renderAndCaptureStderr({
+      mode: "location",
+      center: { lng: -98, lat: 41 },
+      scalePresetId: "1-100000",
+      tier: 1,
+    });
+    expect(out).not.toContain("below the");
+  });
+
+  it("[BEHAVIORAL] discloses a render that will print below the stated target", async () => {
+    // Disclosure, not policy: `--panel-px 400` is a caller asking for a soft
+    // panel and they still get one. What changed is that the render says so.
+    // Whether the DEFAULTS should ask for more is the owner's open question and
+    // nothing here answers it.
+    const out = await renderAndCaptureStderr({
+      mode: "location",
+      center: { lng: -98, lat: 41 },
+      scalePresetId: "1-100000",
+      tier: 1,
+      panelWidthPx: 400,
+    });
+
+    expect(out).toMatch(/WARNING: the lowest panel prints at \d+ dpi, below the 300 dpi target/);
+    // And the figure it warns about is the one it measured, not the one asked
+    // for: 400 px was the REQUEST, and the panel is wider than that.
+    const reported = /print resolution: (\d+) dpi/.exec(out);
+    expect(reported).not.toBeNull();
+    expect(Number(reported![1])).toBeLessThan(300);
+    expect(Number(reported![1])).toBeGreaterThan(400 / mapBoxInches(LETTER_PORTRAIT).widthIn - 1);
+  });
 });

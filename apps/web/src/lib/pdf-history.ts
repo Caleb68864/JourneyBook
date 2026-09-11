@@ -34,9 +34,54 @@ export interface PdfHistoryEntry {
  */
 export const STUCK_AFTER_MS = 30 * 60 * 1000;
 
+/** One day, for turning a retention deadline into a number of days. */
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * What a completed row should say about how long its PDF will still be there.
+ *
+ * `expiresAt` is stamped on every record from `GeneratedPdf:RetentionDays`
+ * (default 30), is enforced by `GeneratedPdfRetentionService`, which deletes the
+ * file AND the row on a timer — and was rendered nowhere. It reached this app on
+ * the wire and sat in the `GeneratedPdf` interface with no reader outside a test
+ * fixture, so an atlas a family generated for a trip vanished from the history
+ * with no notice that it ever had a deadline.
+ *
+ * Returns null when there is nothing honest to say: no deadline stamped (a
+ * legacy row, or retention disabled), or an unparseable date. Inventing "expires
+ * in 30 days" from a value the server did not send would be a guess about the
+ * one thing the server is the authority on.
+ */
+export function expiryNote(expiresAt: string | null | undefined, now: number): string | null {
+  if (!expiresAt) return null;
+  const at = Date.parse(expiresAt);
+  if (!Number.isFinite(at)) return null;
+
+  const remainingMs = at - now;
+  if (remainingMs <= 0) {
+    // The sweep runs on an interval, not at the instant of expiry, so a row can
+    // be past its deadline and still openable for a while. "May already have
+    // been" rather than "has been": claiming the file is gone when the Open link
+    // still works is the same class of error as claiming it is safe when it is not.
+    return "Past its retention window — this PDF may already have been deleted.";
+  }
+
+  const days = Math.floor(remainingMs / DAY_MS);
+  if (days >= 2) return `Kept until ${new Date(at).toLocaleDateString()} (${days} days).`;
+  if (days === 1) return "Kept for 1 more day — download it if you want to keep it.";
+  return "Kept for less than a day — download it if you want to keep it.";
+}
+
 export function describePdfHistoryEntry(pdf: GeneratedPdf, now = Date.now()): PdfHistoryEntry {
   if (pdf.status === "Completed") {
-    return { label: "Completed", detail: null, failed: false, downloadable: true };
+    return {
+      label: "Completed",
+      // The retention deadline the server is already enforcing. A completed row
+      // is the only one where it means anything: the others have no file to keep.
+      detail: expiryNote(pdf.expiresAt, now),
+      failed: false,
+      downloadable: true,
+    };
   }
 
   if (pdf.status === "Failed") {

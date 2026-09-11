@@ -50,21 +50,56 @@ function startRender() {
 
 describe("waitingLabel", () => {
   it("[BEHAVIORAL] folds the worker's position into the label", () => {
-    expect(waitingLabel("Rendering", { progress: 3, pageCount: 12, percent: 25 }))
+    expect(waitingLabel("Rendering", { progress: 3, pageCount: 12, percent: 25, phase: "panel" }))
       .toBe("Rendering… 3/12 (25%)");
   });
 
   it("[BEHAVIORAL] says nothing numeric before the worker has derived the pages", () => {
     // "0 of 0" and "0%" both read as a render that has stalled rather than one
     // that has not started counting, which is worse than the plain word.
-    expect(waitingLabel("Rendering", { progress: null, pageCount: null, percent: null }))
+    expect(waitingLabel("Rendering", { progress: null, pageCount: null, percent: null, phase: null }))
       .toBe("Rendering…");
   });
 
   it("keeps the queued label even if a stale position is still in hand", () => {
     // Queued means the job has not reached the worker. A page count next to it
     // would claim progress on a render that has not begun.
-    expect(waitingLabel("Pending", { progress: 3, pageCount: 12, percent: 25 })).toBe("Queued…");
+    expect(waitingLabel("Pending", { progress: 3, pageCount: 12, percent: 25, phase: "panel" }))
+      .toBe("Queued…");
+  });
+
+  /**
+   * The two stretches of a render the counter cannot describe.
+   *
+   * `progress` counts finished basemap PANELS. At phase `pdf` every panel is
+   * done, so it already equals `pageCount` — the label reads "12/12 (100%)" and
+   * the bar is full, for the whole of PDF assembly, which on a 200-page atlas is
+   * minutes. And before the contract is derived there is no denominator at all.
+   * Both are indistinguishable from a stalled render, and the engine's own word
+   * for what it is doing is the only thing that can tell them apart. It reached
+   * `RenderProgressUpdate.Phase` in the API and stopped there.
+   */
+  it("[BEHAVIORAL] says what the engine is doing when the counter has stopped at 100%", () => {
+    expect(waitingLabel("Rendering", { progress: 12, pageCount: 12, percent: 100, phase: "pdf" }))
+      .toBe("Building the PDF… 12/12");
+  });
+
+  it("[BEHAVIORAL] says what the engine is doing when there is no denominator yet", () => {
+    expect(waitingLabel("Rendering", { progress: 0, pageCount: null, percent: null, phase: "contract" }))
+      .toBe("Working out the pages…");
+  });
+
+  it("[CONTROL] leaves the panel phase to the counter", () => {
+    // `panel` is the one phase where the number is moving and says more than any
+    // word. A label that named every phase would replace a live counter with a
+    // static noun, which is a regression dressed as a feature.
+    expect(waitingLabel("Rendering", { progress: 5, pageCount: 12, percent: 42, phase: "panel" }))
+      .toBe("Rendering… 5/12 (42%)");
+  });
+
+  it("[CONTROL] falls back to the counter for a phase word it does not know", () => {
+    expect(waitingLabel("Rendering", { progress: 5, pageCount: 12, percent: 42, phase: "tessellating" }))
+      .toBe("Rendering… 5/12 (42%)");
   });
 });
 

@@ -30,10 +30,19 @@ one-line paraphrases is its own piece of work and has not been done.** Until it 
 these are the only authoritative statements of those rules, both in `CLAUDE.md`:
 
 - **0004** — "TS `atlas-core` is the one source of truth for geometry; never
-  reimplement projection/grid/scale math in C#." Verified still held as of
-  2026-09-09: an exhaustive search for trigonometry, earth radii and degree/radian
-  conversion across `dotnet/` and `apps/api/` found none
-  (`vault/maintainability-2026-09-09.md` §8). Nothing enforces it mechanically.
+  reimplement projection/grid/scale math in C#." This used to end "Nothing enforces
+  it mechanically", with a dated manual search standing in for a guard — and a
+  correct value written down on a date is true until the next commit, with nothing
+  to say when it stops being. `dotnet/JourneyBook.Tests/GeometryMonopolyTests.cs`
+  now scans the four governed projects for the vocabulary geometry cannot be
+  written without (trigonometry, `Math.PI`, the log/exp pair a Web-Mercator
+  latitude needs, earth-radius and Mercator-extent literals, degree/radian
+  conversion, tiles-per-axis at zoom) and fails on a hit that is not in an
+  exemption list with a reason. One exemption today: `TileEndpoints.cs`'s
+  `1 << z`, a range guard on an untrusted tile index. **Read the test's own remarks
+  for what it does NOT catch** — geometry with no named constant, geometry
+  delegated to NetTopologySuite, and geometry in TypeScript outside `atlas-core`,
+  which is where the previous manual search's conclusion was actually wrong.
 - **0005** — "The API owns no geometry/render"; it proxies render jobs to the Node
   `render-worker` over HTTP. ADR 0006 in this directory extends that boundary and
   states what it found there; **ADR 0007 moves it**, by making the worker the owner
@@ -49,7 +58,7 @@ the code does, or write the ADR.
 |---|---|---|
 | 0001 | Foundation stack | **text missing** — cited by `staged-build-roadmap.md:222` |
 | 0003 | Map panel rendering (USGS raster tiles) | **text missing** — cited by `panel.ts:339` |
-| 0004 | `atlas-core` owns all geometry | **text missing** — cited in eight places |
+| 0004 | `atlas-core` owns all geometry | **text missing** — cited in eight places; the rule itself is now guarded by `GeometryMonopolyTests` |
 | 0005 | The API owns no geometry or rendering | **text missing** — cited in five places |
 | [0006](0006-asynchronous-rendering.md) | Asynchronous rendering: the API accepts, a background loop performs | Accepted |
 | [0007](0007-worker-owned-render-jobs.md) | Worker-owned render jobs: progress and cancel live where the work does | Accepted |

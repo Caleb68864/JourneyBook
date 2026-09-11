@@ -82,6 +82,19 @@ public class GeneratedPdfService : IGeneratedPdfService
         // downloadable PDF. Cancelled carries one too — "cancelled after 12 of 60
         // pages" is the whole content of that outcome.
         pdf.ErrorMessage = status is PdfStatus.Failed or PdfStatus.Cancelled ? request.ErrorMessage : null;
+        // The phase belongs to a render in flight. A terminal row that still says
+        // "panel" is a record claiming to be doing something it finished doing —
+        // the same defect as an error message left standing next to a completed
+        // PDF, which is the line above.
+        if (status.IsTerminal()) pdf.Phase = null;
+
+        // Both null-guarded rather than assigned: this method is called for every
+        // lifecycle transition, and a Rendering write that blanked the provenance a
+        // previous call had recorded would be a field that is only ever briefly
+        // true. Null here means "not saying", not "clear it".
+        if (request.SourceMetadataSnapshot is not null)
+            pdf.SourceMetadataSnapshot = request.SourceMetadataSnapshot;
+        if (request.PageCount is not null) pdf.PageCount = request.PageCount;
 
         await _db.SaveChangesAsync(ct);
         return ToResponse(pdf);
@@ -102,6 +115,11 @@ public class GeneratedPdfService : IGeneratedPdfService
         {
             pdf.Progress = request.Progress;
             pdf.PageCount = request.PageCount;
+            // Only overwrite the phase when this report carries one. A null here is
+            // "the worker did not say", not "the worker is doing nothing", and
+            // blanking the last known phase on such a report would make the label
+            // flicker between the real phase and nothing.
+            if (request.Phase is not null) pdf.Phase = request.Phase;
             await _db.SaveChangesAsync(ct);
         }
 
@@ -206,5 +224,6 @@ public class GeneratedPdfService : IGeneratedPdfService
             g.SourceMetadataSnapshot,
             g.ErrorMessage,
             g.Progress,
-            g.PageCount);
+            g.PageCount,
+            g.Phase);
 }

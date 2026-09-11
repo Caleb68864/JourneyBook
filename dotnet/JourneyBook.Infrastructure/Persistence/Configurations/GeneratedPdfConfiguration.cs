@@ -23,6 +23,12 @@ public class GeneratedPdfConfiguration : IEntityTypeConfiguration<GeneratedPdf>
         // become an unbounded column; the runner truncates before it gets here.
         builder.Property(g => g.ErrorMessage).HasMaxLength(2000);
 
+        // The engine's own phase word, not a status of ours. Bounded because it is
+        // a free string from another process: the longest member of the engine's
+        // union is "overview" (8), so 32 leaves room for a new one without leaving
+        // room for a payload.
+        builder.Property(g => g.Phase).HasMaxLength(32);
+
         builder.HasIndex(g => g.ProjectId);
     }
 }

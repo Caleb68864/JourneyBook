@@ -1,3 +1,4 @@
+using System.Text.Json;
 using JourneyBook.Application.GeneratedPdfs;
 using JourneyBook.Application.Rendering;
 using JourneyBook.Infrastructure.Rendering;
@@ -299,6 +300,141 @@ public class RenderJobRunnerTests
         Assert.Equal([0, 1, 2, 3], pdfs.Progress.Select(p => p.Progress));
         Assert.All(pdfs.Progress, p => Assert.Equal(3, p.PageCount));
         Assert.Equal(["Rendering", "Completed"], pdfs.Updates.Select(u => u.Status));
+
+        // The phase, which this test SUPPLIED above and never looked at — the
+        // overlap bug's exact shape, one field along. `RenderProgressUpdate.Phase`
+        // is documented at length in `IRenderWorkerClient` ("carried verbatim
+        // rather than re-interpreted"), reached this class from the engine through
+        // four hops, and then `UpdateGeneratedPdfProgressRequest` had no member for
+        // it, so the only reader in the repo was `HttpRenderWorkerClientTests`.
+        Assert.Equal(["contract", "panel", "panel", "panel"], pdfs.Progress.Select(p => p.Phase));
+    }
+
+    /// <summary>
+    /// The phase reaches the record for the two positions the page counter cannot
+    /// describe.
+    /// </summary>
+    /// <remarks>
+    /// Not a repeat of the assertion above. <c>Progress</c> counts finished basemap
+    /// PANELS, so at phase <c>pdf</c> it already equals <c>PageCount</c> — a client
+    /// reading only the numbers draws a full bar for the whole of PDF assembly — and
+    /// at <c>contract</c> there is no denominator at all. Those are the two reports
+    /// whose numbers are indistinguishable from a stall, and the phase is the only
+    /// thing that separates them.
+    /// </remarks>
+    // ── Provenance on the finished record ────────────────────────────────────
+
+    /// <summary>
+    /// The credit the PDF actually printed lands on the record.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>RenderWorkerResult.Attribution</c> is the engine's collected credit —
+    /// "the credit the PDF actually printed, not a guess from the input flags", in
+    /// its own words — carried over the job protocol, deserialized into
+    /// <c>WorkerJob.Attribution</c>, and assigned into <c>RenderWorkerResult</c>
+    /// at <c>HttpRenderWorkerClient</c>. A repo-wide search for a reader of that
+    /// property found the constructor call and nothing else. Written and never
+    /// read, on the field a licensing requirement leans on.
+    /// </para>
+    /// <para>
+    /// Its other half: <c>GeneratedPdf.SourceMetadataSnapshot</c> is declared as
+    /// "a snapshot of the source metadata (tile sources, attribution, scale)
+    /// captured at render time" and the render path created every record with an
+    /// empty one. A value with no reader and a field with no writer, and each was
+    /// the other's answer.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task The_finished_record_carries_the_attribution_the_PDF_actually_printed()
+    {
+        var pdfs = new RecordingPdfService();
+        var worker = new StubWorkerClient(
+            req => new RenderWorkerResult(req.OutputFileName, 7, "USGS The National Map · OpenStreetMap"));
+
+        await RunnerFor(pdfs, worker).RunAsync(SampleJob());
+
+        var completed = Assert.Single(pdfs.Updates.Where(u => u.Status == "Completed"));
+        Assert.NotNull(completed.SourceMetadataSnapshot);
+
+        using var doc = JsonDocument.Parse(completed.SourceMetadataSnapshot!);
+        Assert.Equal(
+            "USGS The National Map · OpenStreetMap",
+            doc.RootElement.GetProperty("attribution").GetString());
+        // The request's own parameters too — the rest of what "source metadata at
+        // render time" names.
+        Assert.Equal("usgs-7-5-min", doc.RootElement.GetProperty("scalePresetId").GetString());
+        Assert.Equal(1, doc.RootElement.GetProperty("tier").GetInt32());
+    }
+
+    /// <summary>
+    /// The page count from the finished render reaches the record even when no
+    /// progress report did.
+    /// </summary>
+    /// <remarks>
+    /// <c>PageCount</c> only ever arrived through <c>UpdateProgressAsync</c>, and
+    /// the client emits a progress report only when it observes one between two
+    /// polls. A render that finishes inside one poll interval — a small line-art
+    /// atlas, or anything with a warm tile cache — reached <c>Completed</c> with a
+    /// null page count, so the record could not say how many pages the PDF it
+    /// points at has. `Emits` is deliberately empty here.
+    /// </remarks>
+    [Fact]
+    public async Task A_render_that_reported_no_progress_still_records_its_page_count()
+    {
+        var pdfs = new RecordingPdfService();
+        var worker = new StubWorkerClient(req => new RenderWorkerResult(req.OutputFileName, 7, null));
+
+        await RunnerFor(pdfs, worker).RunAsync(SampleJob());
+
+        Assert.Empty(pdfs.Progress);
+        var completed = Assert.Single(pdfs.Updates.Where(u => u.Status == "Completed"));
+        Assert.Equal(7, completed.PageCount);
+    }
+
+    /// <summary>
+    /// A jsonb column and a quote character. The attribution is a free string from
+    /// another process and several real provider credits contain quotes; string
+    /// concatenation would build something Postgres refuses and fail a render that
+    /// had already succeeded.
+    /// </summary>
+    [Fact]
+    public async Task A_quoted_attribution_still_produces_valid_JSON()
+    {
+        var pdfs = new RecordingPdfService();
+        var worker = new StubWorkerClient(
+            req => new RenderWorkerResult(req.OutputFileName, 1, "The \"National\" Map \\ tiles"));
+
+        await RunnerFor(pdfs, worker).RunAsync(SampleJob());
+
+        var completed = Assert.Single(pdfs.Updates.Where(u => u.Status == "Completed"));
+        using var doc = JsonDocument.Parse(completed.SourceMetadataSnapshot!);
+        Assert.Equal("The \"National\" Map \\ tiles", doc.RootElement.GetProperty("attribution").GetString());
+    }
+
+    [Fact]
+    public async Task The_phase_arrives_for_the_positions_the_numbers_cannot_describe()
+    {
+        var pdfs = new RecordingPdfService();
+        var worker = new StubWorkerClient(req => new RenderWorkerResult(req.OutputFileName, 2, null))
+        {
+            Emits =
+            {
+                new RenderProgressUpdate(0, 0, "contract"),
+                new RenderProgressUpdate(2, 2, "panel"),
+                new RenderProgressUpdate(2, 2, "pdf"),
+            },
+        };
+
+        await RunnerFor(pdfs, worker).RunAsync(SampleJob());
+
+        var pdfPhase = Assert.Single(pdfs.Progress.Where(p => p.Phase == "pdf"));
+        // Same two numbers as the last panel report; only the phase differs.
+        Assert.Equal(2, pdfPhase.Progress);
+        Assert.Equal(2, pdfPhase.PageCount);
+
+        var contract = Assert.Single(pdfs.Progress.Where(p => p.Phase == "contract"));
+        Assert.Equal(0, contract.PageCount);
     }
 
     [Fact]

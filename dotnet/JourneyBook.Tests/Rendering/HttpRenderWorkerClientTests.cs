@@ -797,4 +797,99 @@ public class HttpRenderWorkerClientTests
         using var doc = JsonDocument.Parse(handler.CapturedBody!);
         Assert.Equal(wire, doc.RootElement.GetProperty("panelFormat").GetString());
     }
+
+    /// <summary>
+    /// The atlas title reaches the wire as the caller's string, not as a default.
+    /// </summary>
+    /// <remarks>
+    /// <c>renderAtlasPdfToFile</c> is <c>title: options.title ?? "Journey Book"</c>,
+    /// and this payload had no member for a title at all — so every atlas the API
+    /// ever produced was called "Journey Book" on every page header, on the overview
+    /// page, in the contents and in the PDF's own document metadata, while the
+    /// project's own name sat in the database. Asserting the STRING, not the
+    /// presence of the field: a payload carrying <c>title: ""</c> would satisfy a
+    /// presence check and print an atlas with no name.
+    /// </remarks>
+    [Fact]
+    public async Task Title_is_carried_verbatim_on_the_wire()
+    {
+        var (client, handler) = Build();
+        await client.RenderAsync(new RenderWorkerRequest(
+            ScalePresetId: "usgs-7-5-min", Tier: 1, Orientation: "Portrait", Overlap: 0,
+            Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
+            Extent: new BBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Locations: [], OutputFileName: "atlas-title.pdf",
+            Title: "Pawnee Creek Land Nav"));
+
+        using var doc = JsonDocument.Parse(handler.CapturedBody!);
+        Assert.Equal("Pawnee Creek Land Nav", doc.RootElement.GetProperty("title").GetString());
+    }
+
+    /// <summary>
+    /// No title means an ABSENT field, so the engine's own fallback applies.
+    /// </summary>
+    /// <remarks>
+    /// The whole reason <c>Title</c> is nullable. A C# default of <c>""</c> would
+    /// serialize as <c>title: ""</c>, the engine's <c>?? "Journey Book"</c> would not
+    /// fire (an empty string is not null), and the atlas would print a blank title —
+    /// a fix that replaced a wrong name with no name.
+    /// </remarks>
+    [Fact]
+    public async Task No_title_is_an_absent_field_not_an_empty_one()
+    {
+        var (client, handler) = Build();
+        await client.RenderAsync(new RenderWorkerRequest(
+            ScalePresetId: "usgs-7-5-min", Tier: 1, Orientation: "Portrait", Overlap: 0,
+            Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
+            Extent: new BBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Locations: [], OutputFileName: "atlas-untitled.pdf"));
+
+        using var doc = JsonDocument.Parse(handler.CapturedBody!);
+        Assert.False(doc.RootElement.TryGetProperty("title", out _));
+    }
+
+    /// <summary>
+    /// The proxied source's ceiling reaches the wire, and an unset one is absent.
+    /// </summary>
+    /// <remarks>
+    /// <c>RenderAtlasInput.tileMaxZoom</c>'s own docstring names this API as the
+    /// caller it exists for — "needed when tiles come through the proxy from a
+    /// registered <c>TileSource</c> whose <c>MaxZoom</c> this process cannot see" —
+    /// and this payload had no member for it, so the engine applied the ceiling
+    /// hardcoded for USGS Topo (<c>panel.ts</c>'s <c>maxZoom: 16</c>) to whatever
+    /// source was configured. The absent case matters as much: <c>tileMaxZoom: 0</c>
+    /// from a non-nullable <c>int</c> would clamp every panel to the whole-world
+    /// tile.
+    /// </remarks>
+    [Theory]
+    [InlineData(14)]
+    [InlineData(16)]
+    public async Task Tile_max_zoom_is_carried_when_the_API_knows_the_sources_ceiling(int maxZoom)
+    {
+        var (client, handler) = Build();
+        await client.RenderAsync(new RenderWorkerRequest(
+            ScalePresetId: "usgs-7-5-min", Tier: 1, Orientation: "Portrait", Overlap: 0,
+            Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
+            Extent: new BBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Locations: [], OutputFileName: "atlas-zoom.pdf",
+            TileBaseUrl: "http://api:8080/api/tiles", TileSourceId: "shallow-source",
+            TileMaxZoom: maxZoom));
+
+        using var doc = JsonDocument.Parse(handler.CapturedBody!);
+        Assert.Equal(maxZoom, doc.RootElement.GetProperty("tileMaxZoom").GetInt32());
+    }
+
+    [Fact]
+    public async Task No_tile_max_zoom_is_an_absent_field_not_a_zero()
+    {
+        var (client, handler) = Build();
+        await client.RenderAsync(new RenderWorkerRequest(
+            ScalePresetId: "usgs-7-5-min", Tier: 1, Orientation: "Portrait", Overlap: 0,
+            Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
+            Extent: new BBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Locations: [], OutputFileName: "atlas-nozoom.pdf"));
+
+        using var doc = JsonDocument.Parse(handler.CapturedBody!);
+        Assert.False(doc.RootElement.TryGetProperty("tileMaxZoom", out _));
+    }
 }

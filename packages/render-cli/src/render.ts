@@ -4,6 +4,8 @@ import {
   DEFAULT_PANEL_WIDTH_PX,
   LETTER_PORTRAIT,
   MAX_ATLAS_PAGES,
+  PRINT_DPI_TARGET,
+  effectiveDpi,
   panelWidthPxFor,
   buildPageGrid,
   buildLocationPage,
@@ -649,6 +651,22 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
   // tile comes back with its attribution header. Deduped because every page of an
   // atlas normally shares one source and the footer has room for one line.
   const attributions: string[] = [];
+  // The print resolution actually DELIVERED, per page, as a fraction of the
+  // printed map box it lands on.
+  //
+  // This product's load-bearing promise is true scale, and `effectiveDpi` — the
+  // exact inverse of the `panelWidthPxForDpi` that every scale preset's width is
+  // derived from — was exported, tested and called by nothing but its own tests.
+  // So the renderer knew the number, warned when a panel was *softer than asked
+  // for* (`zoomClamped`), and never once said what it had achieved.
+  //
+  // It is worth reporting rather than merely computing because the delivered
+  // width is NOT the requested one: `renderMapPanel` crops at native tile
+  // resolution and never resamples, so the target is a floor and the delivered
+  // panel is 1x-2x it depending on where the page falls relative to a
+  // Web-Mercator zoom boundary. Two presets 4% apart in scale can print 1.9x
+  // apart in DPI, and nothing in the output said so.
+  const deliveredDpi: number[] = [];
   if (input.basemap) {
     panels = {};
     for (const page of contract.pages) {
@@ -669,7 +687,11 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
         if (panel.attribution && !attributions.includes(panel.attribution)) {
           attributions.push(panel.attribution);
         }
-        stderr.write(`  panel ${page.id} (z${panel.zoom})\n`);
+        // Measured against the same map box `panelWidthFor` sized the request
+        // from, so the reported DPI is the one the request was expressed in.
+        const dpi = effectiveDpi(panel.widthPx, mapBoxInches(pageSpec).widthIn);
+        deliveredDpi.push(dpi);
+        stderr.write(`  panel ${page.id} (z${panel.zoom}, ${Math.round(dpi)} dpi)\n`);
         // The source has no tiles below this zoom, so the panel is softer than
         // --panel-px asked for. Before the clamp this was not a warning: the
         // request went out at a zoom the source does not serve and every tile
@@ -705,6 +727,29 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
       // 100% with work outstanding.
       pagesDone += 1;
       report("panel", page.id);
+    }
+
+    // One line stating what the atlas will actually print at, once, at the end
+    // of the phase that decided it.
+    //
+    // DISCLOSURE, not a policy change. Whether the default preset should ask for
+    // a different width is the owner's open question (see `ROADMAP.md`); nothing
+    // here changes a default, refuses a render or alters a single pixel. What it
+    // changes is that a render which silently misses the stated target now says
+    // so, in the renderer's own output, at the moment it is knowable.
+    if (deliveredDpi.length > 0) {
+      const min = Math.min(...deliveredDpi);
+      const max = Math.max(...deliveredDpi);
+      const range = Math.round(min) === Math.round(max)
+        ? `${Math.round(min)} dpi`
+        : `${Math.round(min)}-${Math.round(max)} dpi`;
+      stderr.write(`  print resolution: ${range} across ${deliveredDpi.length} panel(s)\n`);
+      if (min < PRINT_DPI_TARGET) {
+        stderr.write(
+          `  WARNING: the lowest panel prints at ${Math.round(min)} dpi, below the ` +
+            `${PRINT_DPI_TARGET} dpi target — contour lines and small labels will soften\n`,
+        );
+      }
     }
   }
 

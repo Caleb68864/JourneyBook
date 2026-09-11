@@ -9,6 +9,29 @@ interface ScalePresetOption {
   ratio: number;
 }
 
+/**
+ * Where a geocoded location's coordinate came from, or null when there is no
+ * provenance to show.
+ *
+ * Exported and pure so the wording is testable: the thing that can go wrong here
+ * is claiming a provenance a pin does not have. A location placed by clicking the
+ * map, or imported from CSV, has no `geocodedFrom` and must say nothing at all —
+ * a coordinate the user chose themselves is not "searched for", and captioning it
+ * as though it were would be the app answering a question addressed to nobody.
+ *
+ * The provider is included only when the server recorded one, and is separated
+ * rather than interpolated into a sentence, because "via nominatim" next to the
+ * query is what tells a user why two searches for the same place disagreed.
+ */
+export function locationProvenance(
+  loc: Pick<Location, "geocodedFrom" | "geocodeProvider">,
+): string | null {
+  const query = loc.geocodedFrom?.trim();
+  if (!query) return null;
+  const provider = loc.geocodeProvider?.trim();
+  return provider ? `searched “${query}” · ${provider}` : `searched “${query}”`;
+}
+
 interface LocationListProps {
   locations: Location[];
   /** Available scale presets for the per-location zoom picker. */
@@ -158,6 +181,20 @@ export function LocationList({
                 <p className="font-mono text-[10px] text-bark-500">
                   {loc.lng.toFixed(5)}, {loc.lat.toFixed(5)}
                 </p>
+                {/*
+                  Where this coordinate came from, when the app is the thing that
+                  knows. `handleGeocodePick` records the query and the provider on
+                  every geocoded location; both were persisted, returned on every
+                  read, and displayed nowhere — so the only record of why a pin is
+                  where it is was written and never read. Absent for a pin dropped
+                  on the map or imported from CSV, where there is no provenance to
+                  show and inventing one would be worse than showing none.
+                */}
+                {loc.geocodedFrom && (
+                  <p className="truncate font-mono text-[10px] text-bark-500" title={locationProvenance(loc) ?? undefined}>
+                    {locationProvenance(loc)}
+                  </p>
+                )}
                 {/* Per-location zoom: own scale overrides the project scale. */}
                 <label className="mt-1 flex items-center gap-1 font-mono text-[10px] text-bark-600">
                   <span className="uppercase tracking-wide">Zoom</span>

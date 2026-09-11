@@ -23,6 +23,13 @@ const LOCATION: Location = {
   notes: "gate is locked after dark",
   label: "L1",
   referenceLabel: "see page L1",
+  // Non-default on purpose. These four fields arrive from the API and had no
+  // member on the web's `Location` type at all; a fixture carrying the defaults
+  // would not be able to show whether export drops them.
+  category: "Trailhead",
+  sourceConfidence: "High",
+  geocodedFrom: "Pawnee Creek trailhead",
+  geocodeProvider: "nominatim",
   scalePresetId: "usgs-7-5-min",
   pinShape: "star",
   pinColor: "#b03a2e",

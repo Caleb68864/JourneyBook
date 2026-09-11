@@ -174,6 +174,8 @@ public class WorkerWirePayloadParityTests
         OutputFileName: "atlas-parity.pdf",
         TileBaseUrl: "http://api:8080/api/tiles",
         TileSourceId: "usgs-topo",
+        TileMaxZoom: 16,
+        Title: "Pawnee Creek",
         Route: true,
         Landmarks: [new RenderLandmarkDto(-96.7, 40.8, "Water tower", "Landmark", 3)],
         IncludeLandmarks: true,
@@ -245,19 +247,118 @@ public class WorkerWirePayloadParityTests
             "with a message about a field the sender believes is correct.");
     }
 
+    /// <summary>
+    /// Fields <c>renderBodySchema</c> accepts that this API deliberately does not
+    /// send, each with the reason it is exempt.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This dictionary is the whole point of the test below. The check used to be a
+    /// hand-written list of five field names that must be present — which meant a
+    /// field the API <b>ought</b> to send but does not was invisible, because nothing
+    /// ever compared the two sets in that direction. Two of the four names this
+    /// comment block originally called "legitimately absent" were not legitimate at
+    /// all:
+    /// </para>
+    /// <list type="bullet">
+    /// <item><c>title</c> — the project has a name, the user typed it, and every
+    /// atlas the API rendered printed the literal string "Journey Book" on every
+    /// page header, the overview, the contents page and the PDF's own metadata.</item>
+    /// <item><c>tileMaxZoom</c> — its docstring in <c>render.ts</c> says it is
+    /// "needed when tiles come through the proxy from a registered <c>TileSource</c>
+    /// whose <c>MaxZoom</c> this process cannot see", which is precisely and only
+    /// what this API does. It was the one caller the field exists for.</item>
+    /// </list>
+    /// <para>
+    /// Both are now sent. An exemption's stated reason is a claim like any other, so
+    /// the test also refuses a STALE entry — one naming a field the schema no longer
+    /// has, or one the API has since started sending — because an allowlist nobody
+    /// re-reads is how the first two survived.
+    /// </para>
+    /// </remarks>
+    private static readonly IReadOnlyDictionary<string, string> NotSentOnPurpose =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["zoomLevels"] =
+                "Atlas-level default ladder (render.ts:135: 'applied to every location that has no " +
+                "zoomLevels of its own'). The API has no atlas-wide ladder; it carries the ladder " +
+                "PER LOCATION and always sends each location's own, so the default would never apply.",
+            ["coverPadFraction"] =
+                "Padding around the cover extent. No project column, no member on RenderProjectRequest, " +
+                "and no CLI-reachable value the API has ever held — the engine's own default is the " +
+                "only value that has ever been used. A wire field for a number nobody can set would be " +
+                "the half-wired control this test exists to find.",
+        };
+
     [Fact]
-    public async Task Every_field_the_worker_expects_of_the_API_is_one_it_sends()
+    public async Task Every_field_the_worker_accepts_is_either_sent_or_exempt_with_a_reason()
     {
         var schema = ParseWorkerSchemaFields();
         var payload = await SerializedPayloadFieldsAsync();
 
-        // Not a strict equality: the schema is the ENGINE's contract, and the engine
-        // has inputs the API has no concept of (`title`, `zoomLevels` at atlas level,
-        // `coverPadFraction`, `tileMaxZoom`). Those are legitimately absent. What is
-        // asserted is the reverse of a specific, repeated failure — a field the API
-        // means to send arriving nowhere — so it is pinned per name, for the fields
-        // that have actually been dropped here before.
-        foreach (var required in new[] { "orientation", "margins", "overlap", "basemap", "panelWidthPx" })
+        // The direction that had no check at all. `outputPath`/`mode`/`bbox`/`center`
+        // are excluded because the payload branches on them: a maximal serialization
+        // covers both branches (see SerializedPayloadFieldsAsync), so they are all
+        // present and need no exemption.
+        var absent = schema
+            .Where(f => !payload.Contains(f))
+            .Where(f => !NotSentOnPurpose.ContainsKey(f))
+            .OrderBy(f => f, StringComparer.Ordinal)
+            .ToList();
+
+        Assert.True(
+            absent.Count == 0,
+            $"renderBodySchema accepts {string.Join(", ", absent)} and this API never puts " +
+            "it on the wire. Either send it, or add it to NotSentOnPurpose with the reason — " +
+            "there is no third state. `title` sat in this gap and every API-rendered atlas was " +
+            "titled \"Journey Book\" while the project's own name was in the database.");
+    }
+
+    [Fact]
+    public async Task No_exemption_has_gone_stale()
+    {
+        var schema = ParseWorkerSchemaFields();
+        var payload = await SerializedPayloadFieldsAsync();
+
+        var gone = NotSentOnPurpose.Keys
+            .Where(f => !schema.Contains(f))
+            .OrderBy(f => f, StringComparer.Ordinal)
+            .ToList();
+        Assert.True(
+            gone.Count == 0,
+            $"NotSentOnPurpose exempts {string.Join(", ", gone)}, which renderBodySchema no longer " +
+            "accepts. The exemption is about a field that does not exist; delete the entry.");
+
+        var nowSent = NotSentOnPurpose.Keys
+            .Where(payload.Contains)
+            .OrderBy(f => f, StringComparer.Ordinal)
+            .ToList();
+        Assert.True(
+            nowSent.Count == 0,
+            $"NotSentOnPurpose claims the API does not send {string.Join(", ", nowSent)}, and it does. " +
+            "The reason recorded there is now false; delete the entry.");
+
+        // And the exemption list must stay small enough to read. Not a style rule:
+        // the failure this replaces was a five-name list nobody re-derived, and an
+        // allowlist that grows without anyone noticing is the same object.
+        Assert.True(
+            NotSentOnPurpose.Count <= 6,
+            $"{NotSentOnPurpose.Count} exempted wire fields. Every one is a capability the engine " +
+            "has and the API cannot reach; past a handful that is a finding, not an allowlist.");
+    }
+
+    [Fact]
+    public async Task Every_field_this_API_means_to_send_is_one_the_worker_accepts()
+    {
+        var schema = ParseWorkerSchemaFields();
+        var payload = await SerializedPayloadFieldsAsync();
+
+        // Kept alongside the set comparison above, pinned per name, for the fields
+        // that have actually been dropped here before. The set check would catch a
+        // field vanishing from the SCHEMA; these also name why each one matters, so
+        // a failure reads as a regression report rather than a diff.
+        foreach (var required in new[]
+                 { "orientation", "margins", "overlap", "basemap", "panelWidthPx", "title", "tileMaxZoom" })
         {
             Assert.True(
                 schema.Contains(required),
@@ -266,7 +367,8 @@ public class WorkerWirePayloadParityTests
                 payload.Contains(required),
                 $"The API no longer sends `{required}`. Margins and orientation were dropped here once " +
                 "and every atlas printed at 0.5in portrait; overlap was hardcoded to 0 on this same " +
-                "payload and 95 of 95 tests stayed green.");
+                "payload and 95 of 95 tests stayed green; `title` was absent from this payload for the " +
+                "whole life of the API and every atlas was called \"Journey Book\".");
         }
     }
 

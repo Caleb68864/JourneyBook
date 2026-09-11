@@ -1,3 +1,4 @@
+using System.Text.Json;
 using JourneyBook.Application.GeneratedPdfs;
 using JourneyBook.Application.Rendering;
 using Microsoft.Extensions.Logging;
@@ -76,14 +77,22 @@ public sealed class RenderJobRunner(
                 {
                     await pdfService.UpdateProgressAsync(
                         job.GeneratedPdfId,
-                        new UpdateGeneratedPdfProgressRequest(update.Page, update.PageCount),
+                        // Phase included. It used to stop here: the engine reports
+                        // it, the worker records it, HttpRenderWorkerClient parses
+                        // it into RenderProgressUpdate.Phase — and this call had no
+                        // member for it, so the only reader in the repo was a test.
+                        new UpdateGeneratedPdfProgressRequest(update.Page, update.PageCount, update.Phase),
                         progressCt);
                 },
                 linked.Token);
 
             await pdfService.UpdateStatusAsync(
                 job.GeneratedPdfId,
-                new UpdateGeneratedPdfStatusRequest("Completed", result.OutputPath),
+                new UpdateGeneratedPdfStatusRequest(
+                    "Completed",
+                    result.OutputPath,
+                    SourceMetadataSnapshot: ProvenanceOf(job, result),
+                    PageCount: result.PageCount),
                 // CancellationToken.None: a render that finished must be RECORDED as
                 // finished even if the host began stopping in the meantime.
                 // Otherwise a shutdown landing between the worker's answer and this
@@ -151,6 +160,50 @@ public sealed class RenderJobRunner(
 
         _ => ("Failed", ex.Message),
     };
+
+    /// <summary>
+    /// What this render was made from, as the <c>jsonb</c> snapshot the record has
+    /// always declared and never been given.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>GeneratedPdf</c>'s own summary is "a record of a generated atlas PDF,
+    /// with a snapshot of the source metadata (tile sources, attribution, scale)
+    /// captured at render time", and <c>RenderService</c> created every record with
+    /// <c>new CreateGeneratedPdfRequest()</c> — an empty one. The field's only
+    /// writer was the manual create endpoint and its own test, so no record a real
+    /// render produced ever carried the thing the record exists to carry.
+    /// </para>
+    /// <para>
+    /// <c>Attribution</c> is the reason this is written HERE rather than at create
+    /// time, and the reason it is worth writing at all. It is the credit the PDF
+    /// actually printed — collected by the engine from the tiles that came back,
+    /// not inferred from the request — and with a tile proxy it can name a source
+    /// this process did not know about when the render was accepted. It arrived on
+    /// <c>RenderWorkerResult</c>, was assigned into that record at
+    /// <c>HttpRenderWorkerClient</c>, and had **no reader anywhere in the repo**.
+    /// `vault/licensing-and-attribution/required-attribution-text.md` asks for
+    /// source-specific credit; the footer makes it visible, this makes it
+    /// answerable afterwards for a file already on disk.
+    /// </para>
+    /// <para>
+    /// Written with <c>JsonSerializer</c> rather than string concatenation because
+    /// the column is <c>jsonb</c>: an attribution containing a quote — several real
+    /// provider credits do — would otherwise produce a value Postgres refuses, and
+    /// fail a render that had already succeeded.
+    /// </para>
+    /// </remarks>
+    private static string ProvenanceOf(RenderJob job, RenderWorkerResult result) =>
+        JsonSerializer.Serialize(new
+        {
+            attribution = result.Attribution,
+            pageCount = result.PageCount,
+            scalePresetId = job.WorkerRequest.ScalePresetId,
+            tier = job.WorkerRequest.Tier,
+            tileSourceId = job.WorkerRequest.TileSourceId,
+            basemap = job.WorkerRequest.Basemap,
+            renderedAt = DateTimeOffset.UtcNow,
+        });
 
     private Task WriteAsync(RenderJob job, string status, string? filePath, string message) =>
         pdfService.UpdateStatusAsync(

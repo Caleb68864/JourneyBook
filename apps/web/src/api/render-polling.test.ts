@@ -1,5 +1,14 @@
 import { describe, it, expect, vi } from "vitest";
-import { waitForRender, isTerminal, progressOf, TERMINAL_STATUSES } from "./render-polling";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import {
+  waitForRender,
+  isTerminal,
+  phaseLabel,
+  progressOf,
+  KNOWN_PHASES,
+  TERMINAL_STATUSES,
+} from "./render-polling";
 import type { GeneratedPdf } from "./client";
 
 /**
@@ -197,11 +206,27 @@ describe("waitForRender timeout diagnostics", () => {
  */
 describe("progressOf", () => {
   it("[BEHAVIORAL] turns pages-of-pages into a percentage", () => {
-    expect(progressOf({ progress: 3, pageCount: 12 })).toEqual({
+    expect(progressOf({ progress: 3, pageCount: 12, phase: "panel" })).toEqual({
       progress: 3,
       pageCount: 12,
       percent: 25,
+      phase: "panel",
     });
+  });
+
+  it("[BEHAVIORAL] carries the engine's phase through rather than dropping it", () => {
+    // The whole finding: the engine reports a phase, the worker records it, the
+    // API's client parses it — and the record had no column for it, so the only
+    // reader anywhere in the repo was a .NET test. `toEqual` above is the guard
+    // that a new field cannot be added to the snapshot without being considered;
+    // this is the guard that THIS one arrives.
+    expect(progressOf({ progress: 12, pageCount: 12, phase: "pdf" }).phase).toBe("pdf");
+    expect(progressOf({ progress: 0, pageCount: 0, phase: "contract" }).phase).toBe("contract");
+  });
+
+  it("reports no phase, rather than a guessed one, when the record carries none", () => {
+    expect(progressOf({ progress: 1, pageCount: 2 }).phase).toBeNull();
+    expect(progressOf({ progress: 1, pageCount: 2, phase: null }).phase).toBeNull();
   });
 
   it("[BEHAVIORAL] has no percentage before the worker has reported a page count", () => {
@@ -296,5 +321,92 @@ describe("waitForRender and a cancelled render", () => {
     const fetchStatus = scripted([record("Cancelled")]);
     const err = await waitForRender("pdf-1", { fetchStatus, sleep: noSleep }).catch((e: unknown) => e);
     expect((err as Error).message).toBe("Render was cancelled.");
+  });
+});
+
+describe("phaseLabel", () => {
+  it("[BEHAVIORAL] names the two phases the page counter cannot describe", () => {
+    // These are the whole reason the field is worth carrying. `progress` counts
+    // finished basemap PANELS, so at `pdf` it already equals `pageCount` and the
+    // bar reads 100% for the whole of PDF assembly; and before the contract is
+    // derived there is no denominator at all. Both look like a stall.
+    expect(phaseLabel("pdf")).toBe("Building the PDF");
+    expect(phaseLabel("contract")).toBe("Working out the pages");
+    expect(phaseLabel("overview")).toBe("Drawing the overview");
+  });
+
+  it("says nothing during `panel`, where the counter is already moving", () => {
+    expect(phaseLabel("panel")).toBeNull();
+  });
+
+  it("says nothing for a phase it has never seen, rather than guessing", () => {
+    // This crosses two process boundaries from another language. A worker
+    // deployed ahead of the web app must not make the label read
+    // "undefined…" — saying nothing is the honest fallback.
+    expect(phaseLabel("some-future-phase")).toBeNull();
+    expect(phaseLabel(null)).toBeNull();
+    expect(phaseLabel(undefined)).toBeNull();
+    expect(phaseLabel("done")).toBeNull();
+  });
+});
+
+/**
+ * The engine's phase vocabulary exists in two languages and nothing compared them.
+ *
+ * Same shape, and the same fix, as `TERMINAL_STATUSES` against the C# `PdfStatus`
+ * enum — and the same reason it matters: renaming a phase in `render.ts` leaves
+ * `phaseLabel` returning null for the new word, which is the SOFT failure (the
+ * label quietly goes back to "Rendering…") rather than a loud one. A soft failure
+ * in a copy nobody re-derives is how the phase came to be dropped in the first
+ * place.
+ *
+ * Reads the union out of the real engine source rather than restating it, per the
+ * lesson recorded with `ScalePresetParityTests`: do not compare against a frozen
+ * artefact, and refuse rather than degrade when the parse finds nothing.
+ */
+describe("the phase vocabulary matches the engine's", () => {
+  function enginePhases(): string[] {
+    const source = readFileSync(
+      fileURLToPath(new URL("../../../../packages/render-cli/src/render.ts", import.meta.url)),
+      "utf8",
+    );
+    const match = /\n\s*phase:\s*((?:"[a-z]+"\s*\|\s*)*"[a-z]+")\s*;/.exec(source);
+    const union = match?.[1];
+    if (union === undefined) {
+      throw new Error(
+        "Could not find the `phase:` union in packages/render-cli/src/render.ts. " +
+          "If it moved or changed shape, fix this parser — do not let the parity check " +
+          "quietly pass on nothing.",
+      );
+    }
+    return [...union.matchAll(/"([a-z]+)"/g)].flatMap((m) => (m[1] === undefined ? [] : [m[1]]));
+  }
+
+  it("[CONTROL] actually parsed the engine's union", () => {
+    // Two empty sets are equal. Without this the comparison below is satisfied by
+    // a regex that matched nothing.
+    const phases = enginePhases();
+    expect(phases.length).toBeGreaterThanOrEqual(4);
+    expect(phases).toContain("panel");
+  });
+
+  it("[BEHAVIORAL] knows every phase the engine can emit", () => {
+    const unknown = enginePhases().filter((p) => !KNOWN_PHASES.includes(p));
+    expect(unknown).toEqual([]);
+  });
+
+  it("[BEHAVIORAL] claims no phase the engine cannot emit", () => {
+    const phases = enginePhases();
+    const stale = KNOWN_PHASES.filter((p) => !phases.includes(p));
+    expect(stale).toEqual([]);
+  });
+
+  it("has considered every known phase — labelled or deliberately silent", () => {
+    // `panel` and `done` are silent on purpose; the point is that each was a
+    // decision. A phase in the engine and in neither branch is one nobody looked at.
+    const labelled = KNOWN_PHASES.filter((p) => phaseLabel(p) !== null);
+    const silent = KNOWN_PHASES.filter((p) => phaseLabel(p) === null);
+    expect(labelled.sort()).toEqual(["contract", "overview", "pdf"]);
+    expect(silent.sort()).toEqual(["done", "panel"]);
   });
 });
