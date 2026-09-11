@@ -316,6 +316,11 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
         lng: loc.lng,
         lat: loc.lat,
         notes: loc.notes,
+        // The record's OWN classification, echoed back. The client used to send
+        // "Other"/"Unknown" here because `Location` had no field to read them
+        // from, so every pin-colour or zoom-ladder change reset them.
+        category: loc.category,
+        sourceConfidence: loc.sourceConfidence,
         scalePresetId: loc.scalePresetId,
         pinShape: loc.pinShape,
         pinColor: loc.pinColor,

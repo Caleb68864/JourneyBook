@@ -52,6 +52,30 @@ export interface Location {
   label: string;
   /** e.g. "see page L1" (C# `referenceLabel`). */
   referenceLabel: string;
+  /**
+   * Domain classification (`Other` | `Home` | `School` | `Town` | `Campground` |
+   * `Trailhead` | `Park` | `Water`) and how much the coordinate is trusted
+   * (`Unknown` | `Low` | `Medium` | `High`).
+   *
+   * Declared here so the app can SEND BACK what the server told it. `PUT
+   * /locations/{id}` replaces the whole record, and this client used to supply
+   * `category: "Other"` and `sourceConfidence: "Unknown"` on every update because
+   * the type had no field to read the real value from — so changing a pin colour
+   * reset a location's classification. Nothing in the UI sets a non-default today,
+   * which is the only reason that was not already live data loss.
+   */
+  category: string;
+  sourceConfidence: string;
+  /**
+   * What the user searched for, and which geocoder answered — recorded by
+   * `handleGeocodePick` on create and returned on every read.
+   *
+   * Both were written by this app, persisted, serialized back, and had no member
+   * on this type, so the one record of where a pin came from was written and never
+   * read. Null for a location placed by clicking the map or imported from CSV.
+   */
+  geocodedFrom: string | null;
+  geocodeProvider: string | null;
   /** Optional per-location scale override; null → inherit the project scale. */
   scalePresetId: string | null;
   /** Custom pin shape id (e.g. "shield"); null → default. */
@@ -313,17 +337,27 @@ export const api = {
         geocodeProvider: geocodeProvider ?? null,
       }),
     // Update/delete are on the flat /api/locations/{id} group (not project-scoped).
+    /**
+     * Replace a location. `category` and `sourceConfidence` are REQUIRED.
+     *
+     * They used to be optional here and defaulted to `"Other"`/`"Unknown"` — a
+     * client inventing a value on the user's behalf for a field it had no way to
+     * read, on an endpoint whose own caller carries a comment warning that "PUT
+     * replaces the whole record and omitting a field here silently clears it".
+     * Making them required moves that from a silent default to a compile error at
+     * every call site, which is the only way a whole-record PUT can be safe.
+     */
     update: (
       locationId: string,
-      body: { name: string; lng: number; lat: number; notes?: string | null; category?: string; sourceConfidence?: string; scalePresetId?: string | null; pinShape?: string | null; pinColor?: string | null; zoomLevels?: string[] | null },
+      body: { name: string; lng: number; lat: number; notes?: string | null; category: string; sourceConfidence: string; scalePresetId?: string | null; pinShape?: string | null; pinColor?: string | null; zoomLevels?: string[] | null },
     ) =>
       request<Location>("PUT", `/locations/${locationId}`, {
         name: body.name,
         lng: body.lng,
         lat: body.lat,
-        category: body.category ?? "Other",
+        category: body.category,
         notes: body.notes ?? null,
-        sourceConfidence: body.sourceConfidence ?? "Unknown",
+        sourceConfidence: body.sourceConfidence,
         scalePresetId: body.scalePresetId ?? null,
         pinShape: body.pinShape ?? null,
         pinColor: body.pinColor ?? null,

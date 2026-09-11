@@ -105,6 +105,11 @@ export function ProjectListPage({ onOpen }: ProjectListPageProps) {
         if (l.pinShape || l.pinColor || (l.zoomLevels?.length ?? 0) > 0) {
           await api.locations.update(created.id, {
             name: created.name, lng: created.lng, lat: created.lat, notes: created.notes,
+            // From the record the server just returned, not from a default. These
+            // were `"Other"`/`"Unknown"` supplied by the client, which happens to
+            // be what a fresh create produces — so it was right by coincidence
+            // here and wrong everywhere else the same helper was used.
+            category: created.category, sourceConfidence: created.sourceConfidence,
             scalePresetId: created.scalePresetId, pinShape: l.pinShape, pinColor: l.pinColor,
             zoomLevels: l.zoomLevels ?? null,
           });

@@ -29,6 +29,11 @@ const MOCK_PROJECT_WITH_EXTENT = {
   extent: { west: -96.5, south: 41.0, east: -96.0, north: 41.5 },
 };
 
+// Every field a real `LocationResponse` carries that the app reads. This mock
+// used to stop at `referenceLabel`, which was accurate about the web's own
+// `Location` type and NOT about the API's response — and the type has since
+// grown the four fields it was silently dropping. `scalePresetId`, `pinShape`,
+// `pinColor` and `zoomLevels` are always present on the real response too.
 const MOCK_LOCATION = {
   id: "loc-001",
   projectId: PROJECT_ID,
@@ -38,6 +43,14 @@ const MOCK_LOCATION = {
   notes: null,
   label: "L1",
   referenceLabel: "see page L1",
+  category: "Trailhead",
+  sourceConfidence: "High",
+  geocodedFrom: null,
+  geocodeProvider: null,
+  scalePresetId: null,
+  pinShape: null,
+  pinColor: null,
+  zoomLevels: null,
 };
 
 /**
