@@ -570,6 +570,33 @@ describe("the generated print-resolution table is what the engine delivers", () 
     }
   });
 
+  /**
+   * The table samples one longitude, and `docs/print-resolution.md` tells users
+   * "longitude makes no difference". That sentence is a claim about the engine,
+   * so it is checked here rather than trusted: across the US, from Hawaii to
+   * Maine, every row gives the same zoom and whole DPI as the table does.
+   */
+  it("[BEHAVIORAL] the table holds at every US longitude, not just the one it samples", () => {
+    const table = loadTable();
+    const longitudes = [-160, -155, -123.4, -117, -105, -93.3, -87, -80.1, -75, -67];
+    for (const scale of SCALE_PRESETS) {
+      const row = presetIn(table, scale.id);
+      for (const sample of row.samples) {
+        for (const lng of longitudes) {
+          const bbox = buildLocationPage({ lng, lat: sample.lat }, scale, LETTER_PORTRAIT, "L1").bbox;
+          const wanted = zoomForBBox(bbox, row.panelWidthPx);
+          const zoom = Math.min(wanted, CEILING);
+          const widthPx = Math.round(
+            lngLatToGlobalPixel(bbox[2], sample.lat, zoom).x - lngLatToGlobalPixel(bbox[0], sample.lat, zoom).x,
+          );
+          const where = `${scale.id} at ${sample.lat}N ${lng}E`;
+          expect(zoom, where).toBe(sample.zoom);
+          expect(Math.round(effectiveDpi(widthPx, MAP_BOX_IN)), where).toBe(sample.dpi);
+        }
+      }
+    }
+  });
+
   it("[BEHAVIORAL] the figures the picker quotes are the rows' own extremes", () => {
     const table = loadTable();
     for (const row of table.presets) {
