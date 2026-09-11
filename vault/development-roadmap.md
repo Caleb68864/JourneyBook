@@ -762,6 +762,14 @@ dictionary whose entries are themselves checked for rot in both directions.
    `:268-270`. **This does not answer the default-preset DPI question, which is still
    the owner's** — it makes the answer observable from the front door instead of
    derivable only by a scan.
+
+   > **Corrected 2026-09-11. "Every render now prints it" was true of exactly one
+   > front door.** Every consumer was `stderr.write`, and `stderr` is imported from
+   > `node:process`, so the only caller it reached was a terminal. `RenderAtlasResult`
+   > had no DPI member at all, so on the API path — worker, API, browser — the
+   > measurement reached nothing. It is now on the result and travels to the
+   > `GeneratedPdf` provenance snapshot, the route `attribution` already took in the
+   > same commit. See W4 below.
 2. **ADR 0004 is now enforced by a test rather than by memory.**
    `docs/decisions/README.md` said in as many words *"Nothing enforces it
    mechanically"*, with a dated manual search standing in for a guard.
@@ -853,6 +861,75 @@ cost a round trip on its own, because the number alone cannot distinguish "no pr
 report arrived" from "a later writer overwrote it" from "the test read too early". Any
 assertion in the `Api` suites that a local run cannot reproduce should say what each
 plausible wrong value would mean.
+
+## Guards that read their source — 2026-09-11 (W4)
+
+Five fixes, every one of them a case where a **recent fix left something wrong**. That
+is shape 6 — *the fix that becomes the next instance* — and the practical consequence
+it carries is that after a batch of repairs the next pass should start by mutating the
+repairs, before looking anywhere else. This pass did, and found five.
+
+Nothing here was taken on report. Every claim below was proved by a mutation that went
+red after the fix and **green before it**, each with a control that had to stay green.
+Full write-ups in `docs/decisions.md`.
+
+**486 → 491 TS, 216 → 225 .NET non-Docker.**
+
+### What this changes about the plan
+
+1. **A guard that must know a value living elsewhere now reads it from there.** Three
+   of the five were the same defect wearing different clothes, and the repeated tell is
+   worth more than any of them: **"keep in step with X" is a confession, not a
+   mechanism.**
+
+   - `harness/checks/test-filter-partitions.sh` asserted the two .NET CI jobs between
+     them run every test — correct in shape, and it worked — while keeping a **private
+     copy of the filter it polices**, under a comment saying to keep it in step with
+     `ci.yml`. Measured: regress the filter in `ci.yml`, the drift the check exists to
+     catch, and it reported `PASS: 216 unit + 93 integration == 309`. It now reads the
+     filter out of `ci.yml`, refuses if it finds zero or more than one, **and asserts
+     `CLAUDE.md` quotes the same filter** — that line is the command a contributor
+     without Docker is told to run, so drift there makes the local suite a weaker
+     private variant of the gate, silently, which is the original defect exactly.
+   - The fifteen-minute client deadline was hand-copied into C# three times against
+     one TypeScript source. Raise `DEFAULT_TIMEOUT_MS` to 30 minutes and
+     `900s >= 900s` still passed while the server cap was short again — the original
+     bug's shape, re-created inside its own fix. **The mechanism to derive it already
+     existed and was going unused:** `PdfStatusParityTests` has parsed that same file
+     since the terminal-status fix.
+   - `JobState` was an eighth hand-written copy of a set, as four case labels in one
+     switch with **no `default`** — so an unknown state read as "still rendering" and
+     every cancel was one rename away from being polled to the deadline and reported
+     as a timeout. Fixed with a parity test *and* a refusing default, because they fail
+     differently and only one of them is what the user meets.
+
+2. **A count that has to be maintained by hand should be derived instead.** The
+   partition check's header claimed the filter difference was "exactly those four",
+   measured when the suite held 197 tests; it is ten at 309. The prose had already
+   drifted from the behaviour, in the guard whose whole subject is drift. No count is
+   written there now — it derives and prints one.
+
+3. **Print resolution reaches a record, and the roadmap's claim at `:756` is
+   corrected.** See the note there. What remains open and is still the owner's: whether
+   the default preset should ask for a bigger number. The measurement is now answerable
+   for a file already on disk (`GET /api/generated-pdfs/{id}`), which is what a
+   decision about it needs. Three things it does **not** yet do, deliberately: no UI
+   renders it, nothing refuses or flags a sub-target render on the API path, and
+   `N-5` is still open — the `tilemath.test.ts` DPI guard pins only the one preset of
+   five that clears 300 dpi.
+
+4. **A vocabulary guard covers the ways its author thought of, which are the unusual
+   ones.** `GeometryMonopolyTests` enforces ADR 0004 by scanning for the vocabulary
+   geometry cannot be written without — and a metres-per-degree bbox padder on
+   `111320.0` plus a planar distance on `Math.Sqrt`, both added to a governed root,
+   passed **225/225**. No trig, no earth radius, no radians: just a magic constant and
+   a square root, which do not feel like geometry while you are writing the list. The
+   three dull rules are added, with samples, and the same violating code now fails.
+   **Test a guard with the most boring violation you can construct.**
+
+5. **The branch-first rule held.** Opened as a PR, four checks read, merged after. The
+   `dotnet-integration` job is the one this machine cannot run at all, and it is the
+   one that took `master` red twice before that rule existed.
 
 ## Phase 1: Print Geometry
 Build the Docker-hosted React/Vite/shadcn/Tailwind web app skeleton, define the outdoor field-guide visual system, accept bounding boxes, create page grid, generate overview and detail pages, and validate Letter-size PDF output from the preferred client-side React PDF path.
