@@ -28,6 +28,8 @@ public class GeneratedPdfRetentionServiceTests
         public int Calls => Volatile.Read(ref _calls);
         public Func<int, int>? OnPrune { get; set; }
 
+        public Task<GeneratedPdfResponse?> UpdateProgressAsync(Guid id, UpdateGeneratedPdfProgressRequest request, CancellationToken ct = default)
+            => throw new NotSupportedException();
         public Task<int> PruneExpiredAsync(CancellationToken ct = default)
         {
             var n = Interlocked.Increment(ref _calls);

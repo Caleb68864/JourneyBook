@@ -36,9 +36,20 @@ public sealed class FakeRenderWorkerClient(string generatedDir) : IRenderWorkerC
     /// </remarks>
     public System.Collections.Concurrent.ConcurrentDictionary<string, RenderWorkerRequest> Requests { get; } = new();
 
-    public async Task<RenderWorkerResult> RenderAsync(RenderWorkerRequest request, CancellationToken ct = default)
+    /// <summary>Progress the stub reports before answering, standing in for the worker's job polls.</summary>
+    public IReadOnlyList<RenderProgressUpdate> Emits { get; set; } = [];
+
+    public async Task<RenderWorkerResult> RenderAsync(
+        RenderWorkerRequest request,
+        RenderProgressHandler? onProgress = null,
+        CancellationToken ct = default)
     {
         Requests[request.OutputFileName] = request;
+
+        foreach (var emit in Emits)
+        {
+            if (onProgress is not null) await onProgress(emit, ct);
+        }
 
         if (Gate is not null)
             await Gate.Task.WaitAsync(TimeSpan.FromSeconds(30), ct);
@@ -242,6 +253,111 @@ public class RenderApiTests(RenderApiFactory factory) : IClassFixture<RenderApiF
             gate.TrySetResult();
             factory.FakeClient.Gate = null;
         }
+    }
+
+    // ── Progress and cancel over the wire (ADR 0007) ─────────────────────────
+
+    [Fact]
+    public async Task Progress_the_worker_reports_reaches_the_status_resource()
+    {
+        // The last hop of the chain, and the one the half-wired trap lives on: the
+        // engine can report, the worker can record and the runner can write, and if
+        // GeneratedPdfResponse does not carry the fields the browser still sees
+        // nothing. Every value crossing a new boundary has to be proven to arrive.
+        factory.FakeClient.ShouldFail = false;
+        factory.FakeClient.Emits = [new RenderProgressUpdate(7, 12, "panel")];
+        try
+        {
+            var projectId = await CreateProjectAsync("Progress Project");
+            var resp = await _client.PostAsJsonAsync($"/api/projects/{projectId}/render",
+                new RenderProjectRequest());
+            var body = (await resp.Content.ReadFromJsonAsync<RenderProjectResponse>())!;
+
+            var final = await PollUntilTerminalAsync(body.GeneratedPdfId);
+            Assert.Equal("Completed", final.Status);
+            // The row keeps the last position it was told about, and the denominator
+            // that makes it a fraction.
+            Assert.Equal(7, final.Progress);
+            Assert.Equal(12, final.PageCount);
+        }
+        finally
+        {
+            factory.FakeClient.Emits = [];
+        }
+    }
+
+    [Fact]
+    public async Task Cancelling_an_in_flight_render_settles_the_record_at_Cancelled()
+    {
+        factory.FakeClient.ShouldFail = false;
+        var gate = new TaskCompletionSource();
+        factory.FakeClient.Gate = gate;
+        try
+        {
+            var projectId = await CreateProjectAsync("Cancel Project");
+            var resp = await _client.PostAsJsonAsync($"/api/projects/{projectId}/render",
+                new RenderProjectRequest());
+            var body = (await resp.Content.ReadFromJsonAsync<RenderProjectResponse>())!;
+
+            // Wait until the worker actually has it, so this cancels a render in
+            // flight rather than one still queued — two different code paths, and the
+            // queued one is covered by RenderJobRunnerTests.
+            var deadline = DateTimeOffset.UtcNow.AddSeconds(20);
+            string? status = null;
+            while (DateTimeOffset.UtcNow < deadline && status != "Rendering")
+            {
+                status = (await _client.GetFromJsonAsync<GeneratedPdfResponse>(
+                    $"/api/generated-pdfs/{body.GeneratedPdfId}"))!.Status;
+                if (status != "Rendering") await Task.Delay(25);
+            }
+            Assert.Equal("Rendering", status);
+
+            var cancel = await _client.PostAsync($"/api/generated-pdfs/{body.GeneratedPdfId}/cancel", null);
+            // 202: asked for, not done. The record settles when the render stops.
+            Assert.Equal(HttpStatusCode.Accepted, cancel.StatusCode);
+
+            // The stub is waiting on the gate with the linked token, so the cancel
+            // reaches it the same way it reaches the real worker's DELETE.
+            var final = await PollUntilTerminalAsync(body.GeneratedPdfId);
+            Assert.Equal("Cancelled", final.Status);
+            // Cancelled, not Failed, and it says so rather than leaving the user to
+            // hunt for a diagnostic that does not exist.
+            Assert.NotNull(final.ErrorMessage);
+            Assert.DoesNotContain("shut down", final.ErrorMessage!, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            gate.TrySetResult();
+            factory.FakeClient.Gate = null;
+        }
+    }
+
+    [Fact]
+    public async Task Cancelling_a_finished_render_is_a_conflict_not_a_cancellation()
+    {
+        // CONTROL, must be refused. A cancel that answers 202 for a render that is
+        // already over is the same class of lie as reporting a timeout as a cancel:
+        // the client waits for a transition that will never come.
+        factory.FakeClient.ShouldFail = false;
+        var projectId = await CreateProjectAsync("Late Cancel Project");
+        var resp = await _client.PostAsJsonAsync($"/api/projects/{projectId}/render",
+            new RenderProjectRequest());
+        var body = (await resp.Content.ReadFromJsonAsync<RenderProjectResponse>())!;
+
+        var final = await PollUntilTerminalAsync(body.GeneratedPdfId);
+        Assert.Equal("Completed", final.Status);
+
+        var cancel = await _client.PostAsync($"/api/generated-pdfs/{body.GeneratedPdfId}/cancel", null);
+        Assert.Equal(HttpStatusCode.Conflict, cancel.StatusCode);
+        Assert.Equal("Completed", (await _client.GetFromJsonAsync<GeneratedPdfResponse>(
+            $"/api/generated-pdfs/{body.GeneratedPdfId}"))!.Status);
+    }
+
+    [Fact]
+    public async Task Cancelling_an_unknown_render_is_a_404()
+    {
+        var cancel = await _client.PostAsync($"/api/generated-pdfs/{Guid.NewGuid()}/cancel", null);
+        Assert.Equal(HttpStatusCode.NotFound, cancel.StatusCode);
     }
 
     [Fact]

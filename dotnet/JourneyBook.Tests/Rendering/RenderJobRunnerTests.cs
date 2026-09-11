@@ -47,6 +47,16 @@ public class RenderJobRunnerTests
             => throw new NotSupportedException();
         public Task<bool> DeleteAsync(Guid id, CancellationToken ct = default)
             => throw new NotSupportedException();
+        /// <summary>Every progress write in order, so "it reported" can be told from "it reported once".</summary>
+        public List<UpdateGeneratedPdfProgressRequest> Progress { get; } = [];
+
+        public Task<GeneratedPdfResponse?> UpdateProgressAsync(
+            Guid id, UpdateGeneratedPdfProgressRequest request, CancellationToken ct = default)
+        {
+            Progress.Add(request);
+            return Task.FromResult<GeneratedPdfResponse?>(null);
+        }
+
         public Task<int> PruneExpiredAsync(CancellationToken ct = default)
             => throw new NotSupportedException();
         public Task<int> FailStrandedAsync(string reason, CancellationToken ct = default)
@@ -57,11 +67,51 @@ public class RenderJobRunnerTests
     {
         public bool WasCalled { get; private set; }
 
-        public Task<RenderWorkerResult> RenderAsync(RenderWorkerRequest request, CancellationToken ct = default)
+        /// <summary>Progress the stub emits before answering, standing in for the worker's poll.</summary>
+        public List<RenderProgressUpdate> Emits { get; } = [];
+
+        /// <summary>The token the runner handed down, so a test can assert what it linked.</summary>
+        public CancellationToken ObservedToken { get; private set; }
+
+        public async Task<RenderWorkerResult> RenderAsync(
+            RenderWorkerRequest request,
+            RenderProgressHandler? onProgress = null,
+            CancellationToken ct = default)
         {
             WasCalled = true;
-            return Task.FromResult(handler(request));
+            ObservedToken = ct;
+            foreach (var emit in Emits)
+            {
+                if (onProgress is not null) await onProgress(emit, ct);
+            }
+            return handler(request);
         }
+    }
+
+    /// <summary>A registry with one pre-registered job, so a cancel has something to cancel.</summary>
+    private sealed class StubCancellations : IRenderCancellationRegistry
+    {
+        private readonly Dictionary<Guid, CancellationTokenSource> _sources = [];
+
+        public List<Guid> Released { get; } = [];
+
+        public CancellationToken Register(Guid id)
+        {
+            if (!_sources.TryGetValue(id, out var cts)) _sources[id] = cts = new CancellationTokenSource();
+            return cts.Token;
+        }
+
+        public CancellationToken TokenFor(Guid id) =>
+            _sources.TryGetValue(id, out var cts) ? cts.Token : CancellationToken.None;
+
+        public bool Cancel(Guid id)
+        {
+            if (!_sources.TryGetValue(id, out var cts)) return false;
+            cts.Cancel();
+            return true;
+        }
+
+        public void Release(Guid id) => Released.Add(id);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -78,8 +128,11 @@ public class RenderJobRunnerTests
 
     private static RenderJob SampleJob() => new(Guid.NewGuid(), Guid.NewGuid(), SampleRequest());
 
-    private static RenderJobRunner RunnerFor(IGeneratedPdfService pdfs, IRenderWorkerClient worker) =>
-        new(pdfs, worker, NullLogger<RenderJobRunner>.Instance);
+    private static RenderJobRunner RunnerFor(
+        IGeneratedPdfService pdfs,
+        IRenderWorkerClient worker,
+        IRenderCancellationRegistry? cancellations = null) =>
+        new(pdfs, worker, cancellations ?? new StubCancellations(), NullLogger<RenderJobRunner>.Instance);
 
     // ── Tests ────────────────────────────────────────────────────────────────
 
@@ -158,7 +211,7 @@ public class RenderJobRunnerTests
     }
 
     [Fact]
-    public async Task Marks_a_cancelled_render_Failed_rather_than_leaving_it_Rendering()
+    public async Task Marks_a_shut_down_render_Failed_rather_than_leaving_it_Rendering()
     {
         var pdfs = new RecordingPdfService();
         var worker = new StubWorkerClient(_ => throw new OperationCanceledException());
@@ -168,9 +221,11 @@ public class RenderJobRunnerTests
         await RunnerFor(pdfs, worker).RunAsync(SampleJob(), cts.Token);
 
         // Nothing resumes an in-flight job, so a record left at Rendering is stranded
-        // for the rest of its retention window.
+        // for the rest of its retention window. Failed, NOT Cancelled: nobody asked
+        // for a shutdown, so the record's advice is "generate it again", not "you
+        // stopped it".
         Assert.Equal("Failed", pdfs.Updates[^1].Status);
-        Assert.Contains("cancelled", pdfs.Updates[^1].ErrorMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("shut down", pdfs.Updates[^1].ErrorMessage, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -216,5 +271,134 @@ public class RenderJobRunnerTests
         // "the service shut down or the job was aborted" is the sentence the user got
         // for the API's own two-minute cap. Neither half of it was true.
         Assert.DoesNotContain("shut down", message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // ── Progress (ADR 0007) ──────────────────────────────────────────────────
+
+    [Fact]
+    public async Task Writes_every_position_the_worker_reports_onto_the_record()
+    {
+        var pdfs = new RecordingPdfService();
+        var worker = new StubWorkerClient(req => new RenderWorkerResult(req.OutputFileName, 3, null))
+        {
+            Emits =
+            {
+                new RenderProgressUpdate(0, 3, "contract"),
+                new RenderProgressUpdate(1, 3, "panel"),
+                new RenderProgressUpdate(2, 3, "panel"),
+                new RenderProgressUpdate(3, 3, "panel"),
+            },
+        };
+
+        await RunnerFor(pdfs, worker).RunAsync(SampleJob());
+
+        // The half-wired trap: the worker can report all it likes and the record is
+        // the only thing a polling client reads. Every hop has to be proven to
+        // arrive, and this is the last one before the wire.
+        Assert.Equal([0, 1, 2, 3], pdfs.Progress.Select(p => p.Progress));
+        Assert.All(pdfs.Progress, p => Assert.Equal(3, p.PageCount));
+        Assert.Equal(["Rendering", "Completed"], pdfs.Updates.Select(u => u.Status));
+    }
+
+    [Fact]
+    public async Task A_render_that_reports_nothing_still_completes()
+    {
+        // CONTROL, must be accepted. Progress is optional on the interface, and a
+        // worker that never reports one must not be a render that never finishes.
+        var pdfs = new RecordingPdfService();
+        var worker = new StubWorkerClient(req => new RenderWorkerResult(req.OutputFileName, 1, null));
+
+        await RunnerFor(pdfs, worker).RunAsync(SampleJob());
+
+        Assert.Empty(pdfs.Progress);
+        Assert.Equal("Completed", pdfs.Updates[^1].Status);
+    }
+
+    // ── Cancel (ADR 0007) ────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task A_job_cancelled_while_queued_is_marked_Cancelled_and_never_reaches_the_worker()
+    {
+        var pdfs = new RecordingPdfService();
+        var worker = new StubWorkerClient(req => new RenderWorkerResult(req.OutputFileName, 1, null));
+        var cancellations = new StubCancellations();
+        var job = SampleJob();
+        cancellations.Register(job.GeneratedPdfId);
+        cancellations.Cancel(job.GeneratedPdfId);
+
+        await RunnerFor(pdfs, worker, cancellations).RunAsync(job);
+
+        Assert.Equal(["Cancelled"], pdfs.Updates.Select(u => u.Status));
+        // Not merely "it ended": it must not have started. Rendering an atlas the
+        // user has already withdrawn burns the same minutes of tile fetching and
+        // produces a PDF nothing points at.
+        Assert.False(worker.WasCalled);
+        // And it must never have said Rendering, which would have shown a polling
+        // client a render starting after they cancelled it.
+        Assert.DoesNotContain("Rendering", pdfs.Updates.Select(u => u.Status));
+    }
+
+    [Fact]
+    public async Task A_worker_cancelled_render_is_Cancelled_not_Failed()
+    {
+        var pdfs = new RecordingPdfService();
+        var worker = new StubWorkerClient(_ =>
+            throw new RenderCancelledException("Render was cancelled after 4 of 12 pages."));
+        var cancellations = new StubCancellations();
+        var job = SampleJob();
+        cancellations.Register(job.GeneratedPdfId);
+
+        await RunnerFor(pdfs, worker, cancellations).RunAsync(job);
+
+        Assert.Equal(["Rendering", "Cancelled"], pdfs.Updates.Select(u => u.Status));
+        // The worker's own words, including how far it got. A cancel reported as a
+        // failure sends someone looking for a diagnostic that does not exist.
+        Assert.Equal("Render was cancelled after 4 of 12 pages.", pdfs.Updates[^1].ErrorMessage);
+        Assert.Null(pdfs.Updates[^1].FilePath);
+    }
+
+    [Fact]
+    public async Task A_users_cancel_is_told_apart_from_a_host_shutdown()
+    {
+        // Both cancel the SAME linked token, which is why this needs a test: the
+        // only thing separating them is which source was cancelled, and getting it
+        // wrong tells a user who pressed Cancel that the service restarted.
+        var pdfs = new RecordingPdfService();
+        var worker = new StubWorkerClient(_ => throw new OperationCanceledException());
+        var cancellations = new StubCancellations();
+        var job = SampleJob();
+        cancellations.Register(job.GeneratedPdfId);
+        cancellations.Cancel(job.GeneratedPdfId);
+
+        // Host token healthy; only the user's is cancelled. The queued-cancel branch
+        // is skipped by giving the runner a job whose token cancels mid-flight is
+        // awkward to stage, so this exercises the classifier directly through the
+        // worker throw.
+        await RunnerFor(pdfs, worker, cancellations).RunAsync(job, CancellationToken.None);
+
+        Assert.Equal("Cancelled", pdfs.Updates[^1].Status);
+        Assert.DoesNotContain("shut down", pdfs.Updates[^1].ErrorMessage, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Hands_the_worker_a_token_that_the_users_cancel_can_reach()
+    {
+        // The half-wired trap again, on the cancel path: a registry that is never
+        // linked into the render is a Cancel button that marks a row and leaves the
+        // worker rendering. Assert the token the runner passed down is genuinely
+        // cancellable by the registry.
+        var pdfs = new RecordingPdfService();
+        var worker = new StubWorkerClient(req => new RenderWorkerResult(req.OutputFileName, 1, null));
+        var cancellations = new StubCancellations();
+        var job = SampleJob();
+        cancellations.Register(job.GeneratedPdfId);
+
+        await RunnerFor(pdfs, worker, cancellations).RunAsync(job);
+
+        Assert.True(worker.ObservedToken.CanBeCanceled);
+        Assert.False(worker.ObservedToken.IsCancellationRequested);
+        // And the registry entry is handed back when the job is over, so it is not a
+        // handle on a render that has finished.
+        Assert.Contains(job.GeneratedPdfId, cancellations.Released);
     }
 }

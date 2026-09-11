@@ -16,11 +16,23 @@ import { api, type GeneratedPdf } from "./client";
  * tested for what it does with each status, rather than by waiting on a clock.
  */
 
-/** Statuses the record can be in. `Completed` and `Failed` are terminal. */
-export type RenderStatus = "Pending" | "Rendering" | "Completed" | "Failed";
+/**
+ * Statuses the record can be in. `Completed`, `Failed` and `Cancelled` are terminal.
+ *
+ * This union is the C# `PdfStatus` enum, and the two are compared by
+ * `dotnet/JourneyBook.Tests/PdfStatusParityTests.cs` — which reads THIS file rather
+ * than restating it. A status the client has never heard of is not a cosmetic gap:
+ * `waitForRender` treats anything non-terminal as still running, so an unknown
+ * terminal status is a spinner that runs for the full fifteen minutes and then
+ * reports a timeout that did not happen.
+ */
+export type RenderStatus = "Pending" | "Rendering" | "Completed" | "Failed" | "Cancelled";
+
+/** The statuses a record never leaves. */
+export const TERMINAL_STATUSES: readonly RenderStatus[] = ["Completed", "Failed", "Cancelled"];
 
 export function isTerminal(status: string): boolean {
-  return status === "Completed" || status === "Failed";
+  return (TERMINAL_STATUSES as readonly string[]).includes(status);
 }
 
 export interface WaitForRenderOptions {

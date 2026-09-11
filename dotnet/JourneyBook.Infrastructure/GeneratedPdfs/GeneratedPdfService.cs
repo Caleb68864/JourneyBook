@@ -79,10 +79,32 @@ public class GeneratedPdfService : IGeneratedPdfService
         pdf.FilePath = request.FilePath;
         // The diagnostic belongs to the failure, not to the record: a retry that
         // reaches Completed must not leave the previous error standing next to a
-        // downloadable PDF.
-        pdf.ErrorMessage = status == PdfStatus.Failed ? request.ErrorMessage : null;
+        // downloadable PDF. Cancelled carries one too — "cancelled after 12 of 60
+        // pages" is the whole content of that outcome.
+        pdf.ErrorMessage = status is PdfStatus.Failed or PdfStatus.Cancelled ? request.ErrorMessage : null;
 
         await _db.SaveChangesAsync(ct);
+        return ToResponse(pdf);
+    }
+
+    /// <inheritdoc />
+    public async Task<GeneratedPdfResponse?> UpdateProgressAsync(
+        Guid id, UpdateGeneratedPdfProgressRequest request, CancellationToken ct = default)
+    {
+        var pdf = await _db.GeneratedPdfs.FirstOrDefaultAsync(g => g.Id == id, ct);
+        if (pdf is null) return null;
+
+        // Only while it is still going. The worker's last progress poll and the
+        // terminal write are racing by construction — the poll loop reads the job,
+        // reports, then sees it finished — so without this guard a Completed row
+        // can be overwritten with a page count it has already passed.
+        if (pdf.Status is PdfStatus.Pending or PdfStatus.Rendering)
+        {
+            pdf.Progress = request.Progress;
+            pdf.PageCount = request.PageCount;
+            await _db.SaveChangesAsync(ct);
+        }
+
         return ToResponse(pdf);
     }
 
@@ -179,5 +201,7 @@ public class GeneratedPdfService : IGeneratedPdfService
             g.CreatedAt,
             g.ExpiresAt,
             g.SourceMetadataSnapshot,
-            g.ErrorMessage);
+            g.ErrorMessage,
+            g.Progress,
+            g.PageCount);
 }

@@ -28,7 +28,24 @@ public record GeneratedPdfResponse(
     // Why a Failed render failed. This is a polling client's only channel for the
     // diagnostic: the POST that started the render answered 202 long before the
     // failure happened, so there is no response left to carry it.
-    string? ErrorMessage = null);
+    string? ErrorMessage = null,
+    // How far the render has got. Both null until the worker says otherwise, and
+    // both meaningless without each other — `Progress` is a numerator. The polling
+    // client reads them here because this record is the only channel a render that
+    // outlives its own HTTP request has.
+    int? Progress = null,
+    int? PageCount = null);
+
+/// <summary>
+/// Report the worker's position on an in-flight render.
+/// </summary>
+/// <remarks>
+/// Separate from <c>UpdateGeneratedPdfStatusRequest</c> on purpose: a progress
+/// report is not a lifecycle transition, and routing it through the status writer
+/// would mean every page re-asserted the status — one fumbled call away from a
+/// terminal row being pushed back to <c>Rendering</c> by a late progress event.
+/// </remarks>
+public record UpdateGeneratedPdfProgressRequest(int Progress, int PageCount);
 
 /// <summary>Result of a manual prune: the number of expired records deleted.</summary>
 public record PruneResult(int Deleted);

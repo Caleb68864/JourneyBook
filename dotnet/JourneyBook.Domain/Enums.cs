@@ -51,10 +51,31 @@ public enum LandmarkCategory
 }
 
 /// <summary>Lifecycle of a generated PDF render.</summary>
+/// <remarks>
+/// Stored as a STRING (<c>GeneratedPdfConfiguration</c> sets
+/// <c>HasConversion&lt;string&gt;()</c> with a 20-character cap), so these numeric
+/// values are not persisted and a new member is not by itself a schema change.
+/// <c>ScalePresetParityTests</c>' lesson applies in reverse here: check what the
+/// gate actually sees rather than assuming.
+/// </remarks>
 public enum PdfStatus
 {
     Pending = 0,
     Rendering = 1,
     Completed = 2,
     Failed = 3,
+
+    /// <summary>The render was stopped because someone asked for it to stop.</summary>
+    /// <remarks>
+    /// Distinct from <see cref="Failed"/> and that distinction is the point. Both
+    /// end with no PDF, but one of them is what the user asked for; a cancel
+    /// reported as a failure sends someone looking for a diagnostic that does not
+    /// exist. ADR 0006 accepted "a cancelled or shut-down render is marked Failed"
+    /// as a limitation of having no cancel at all; ADR 0007 adds the cancel, so the
+    /// limitation has to go with it.
+    ///
+    /// Host shutdown deliberately stays <see cref="Failed"/>: nobody asked for it,
+    /// and the record's advice is "generate the atlas again", not "you stopped it".
+    /// </remarks>
+    Cancelled = 4,
 }

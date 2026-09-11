@@ -31,6 +31,18 @@ public interface IGeneratedPdfService
     /// </summary>
     Task<GeneratedPdfResponse?> UpdateStatusAsync(Guid id, UpdateGeneratedPdfStatusRequest request, CancellationToken ct = default);
 
+    /// <summary>
+    /// Record how far an in-flight render has got. Returns <c>null</c> when the
+    /// record does not exist.
+    /// </summary>
+    /// <remarks>
+    /// Writes ONLY while the record is <c>Pending</c> or <c>Rendering</c>. A
+    /// progress report that arrives after the render settled — the last poll racing
+    /// the terminal write — must not touch a finished row, or a record can read
+    /// "Completed" and "page 12 of 60" at the same time.
+    /// </remarks>
+    Task<GeneratedPdfResponse?> UpdateProgressAsync(Guid id, UpdateGeneratedPdfProgressRequest request, CancellationToken ct = default);
+
     /// <summary>Delete a generated-PDF record. Returns <c>false</c> when the record does not exist.</summary>
     Task<bool> DeleteAsync(Guid id, CancellationToken ct = default);
 

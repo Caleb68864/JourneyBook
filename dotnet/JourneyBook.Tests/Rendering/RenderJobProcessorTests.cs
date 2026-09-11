@@ -54,6 +54,8 @@ public class RenderJobProcessorTests
             => throw new NotSupportedException();
         public Task<bool> DeleteAsync(Guid id, CancellationToken ct = default)
             => throw new NotSupportedException();
+        public Task<GeneratedPdfResponse?> UpdateProgressAsync(Guid id, UpdateGeneratedPdfProgressRequest request, CancellationToken ct = default)
+            => throw new NotSupportedException();
         public Task<int> PruneExpiredAsync(CancellationToken ct = default)
             => throw new NotSupportedException();
     }
@@ -285,6 +287,8 @@ public class RenderJobProcessorTests
         public Task<GeneratedPdfResponse?> GetAsync(Guid id, CancellationToken ct = default)
             => throw new NotSupportedException();
         public Task<bool> DeleteAsync(Guid id, CancellationToken ct = default)
+            => throw new NotSupportedException();
+        public Task<GeneratedPdfResponse?> UpdateProgressAsync(Guid id, UpdateGeneratedPdfProgressRequest request, CancellationToken ct = default)
             => throw new NotSupportedException();
         public Task<int> PruneExpiredAsync(CancellationToken ct = default)
             => throw new NotSupportedException();
