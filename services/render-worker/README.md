@@ -39,6 +39,27 @@ Stateless Fastify service that wraps `renderAtlas` for server-side PDF generatio
 |----------|---------|-------------|
 | `PORT` | `8090` | Listening port |
 | `GENERATED_DIR` | `data/generated` | Root directory for output PDFs |
+| `TILE_CACHE_DIR` | *(unset)* | Where this process may write tile bytes. Unset renders without a disk cache, which is what the compose topology does — the C# proxy owns the shared cache. Deliberately **not** a request field. |
+| `TILE_BASE_URL_ALLOWLIST` | *(unset)* | Comma- or whitespace-separated base URLs this worker may be pointed at for tiles. |
+
+### `TILE_BASE_URL_ALLOWLIST`
+
+`tileBaseUrl` arrives on the request body, and this service is unauthenticated by
+design. Without an allowlist the only rules that apply are structural (http(s),
+no embedded credentials, no query/fragment) plus a refusal of non-routable
+destinations — loopback, RFC1918, CGNAT, link-local including
+`169.254.169.254`, multicast and reserved literals, and the `localhost` name.
+That still leaves every *named* host reachable from this container.
+
+Set it. `infra/compose/docker-compose.yml` sets it to `http://api:8080/api/tiles`,
+which is the only destination the API ever sends. Matching is origin plus path
+prefix, so `http://api:8080/api/tiles/usgs-topo` is permitted and
+`http://api:8080/api/admin` is not.
+
+An allowlisted entry **overrides** the non-routable check, so an operator running
+the API beside the worker can name `http://127.0.0.1:5180/api/tiles` and have it
+work. Unset means "no allowlist configured", not "permit nothing" — a deployment
+that has not been told about this variable keeps rendering.
 
 ## Development
 
