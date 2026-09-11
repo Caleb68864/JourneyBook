@@ -19,6 +19,9 @@ import {
   SCALE_PRESETS,
   ATLAS_CORE_VERSION,
   DEFAULT_MAP_TIER,
+  DEFAULT_PANEL_WIDTH_PX,
+  PRINT_DPI_TARGET,
+  PRINT_TARGET_PANEL_WIDTH_PX,
   validateAtlas,
   type AtlasContract,
   type BBox,
@@ -56,7 +59,12 @@ Options:
   --no-notes / --no-reference-grid
                               suppress the foot-of-page notes area / the A–F×1–8 grid
   --basemap                   fetch a USGS (public-domain) topo panel per page (network)
-  --panel-px <n>              target panel width in pixels (default 1000, ~176 DPI on Letter)
+  --panel-px <n>              target panel width in pixels; overrides the per-scale default
+                              for EVERY page (defaults: ${DEFAULT_PANEL_WIDTH_PX}px for
+                              ${SCALE_PRESETS.filter((s) => s.panelWidthPx === DEFAULT_PANEL_WIDTH_PX).length} preset(s),
+                              ${PRINT_TARGET_PANEL_WIDTH_PX}px — a ${PRINT_DPI_TARGET} DPI ask — for the rest,
+                              rescaled to the page's own map box). The render reports the
+                              DPI each panel actually delivered.
   --panel-format png|jpeg     panel encoding (default jpeg; png is lossless and ~6x larger)
   --panel-quality 1..100      JPEG quality (default 90; ignored for png)
   --tile-base-url <url>       route basemap tiles through the C# proxy (e.g. http://localhost:5180/api/tiles)

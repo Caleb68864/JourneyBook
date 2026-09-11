@@ -14,7 +14,26 @@ public record CreateGeneratedPdfRequest(string? SourceMetadataSnapshot = null);
 /// location once the render completes; <c>ErrorMessage</c> carries the renderer's
 /// diagnostic for a <c>Failed</c> render and is cleared on any other status.
 /// </summary>
-public record UpdateGeneratedPdfStatusRequest(string Status, string? FilePath = null, string? ErrorMessage = null);
+/// <param name="SourceMetadataSnapshot">
+/// Provenance for a render that has finished, as a JSON object — which is what
+/// <c>GeneratedPdf</c>'s own summary says the record is for ("a snapshot of the
+/// source metadata (tile sources, attribution, scale) captured at render time").
+/// It could only ever be supplied on CREATE, and the render path creates the
+/// record before the render starts, so every record a real render produced had a
+/// null snapshot; the only writer was the manual <c>POST /api/generated-pdfs</c>
+/// and its own test. Null leaves whatever is already there untouched.
+/// </param>
+/// <param name="PageCount">
+/// The authoritative page count from the finished render. Progress reports carry
+/// one too, but a render that completes between two polls emits none, so a fast
+/// atlas reached <c>Completed</c> with no page count at all.
+/// </param>
+public record UpdateGeneratedPdfStatusRequest(
+    string Status,
+    string? FilePath = null,
+    string? ErrorMessage = null,
+    string? SourceMetadataSnapshot = null,
+    int? PageCount = null);
 
 /// <summary>A generated-PDF record as stored, including its retention window and metadata snapshot.</summary>
 public record GeneratedPdfResponse(

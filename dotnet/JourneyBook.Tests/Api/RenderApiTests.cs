@@ -41,6 +41,16 @@ public sealed class FakeRenderWorkerClient(string generatedDir) : IRenderWorkerC
     /// <summary>Progress the stub reports before answering, standing in for the worker's job polls.</summary>
     public IReadOnlyList<RenderProgressUpdate> Emits { get; set; } = [];
 
+    /// <summary>
+    /// The credit the stub reports having printed, as the real worker does.
+    /// </summary>
+    /// <remarks>
+    /// Was hardcoded null, which is why nothing noticed that the value had no
+    /// reader on the other side: a stub that always reports nothing cannot show
+    /// that nothing is done with what it reports.
+    /// </remarks>
+    public string? Attribution { get; set; }
+
     public async Task<RenderWorkerResult> RenderAsync(
         RenderWorkerRequest request,
         RenderProgressHandler? onProgress = null,
@@ -62,7 +72,7 @@ public sealed class FakeRenderWorkerClient(string generatedDir) : IRenderWorkerC
         Directory.CreateDirectory(generatedDir);
         var fullPath = Path.Combine(generatedDir, request.OutputFileName);
         await File.WriteAllBytesAsync(fullPath, "%PDF-1.4\n%%EOF\n"u8.ToArray(), ct);
-        return new RenderWorkerResult(request.OutputFileName, 1, null);
+        return new RenderWorkerResult(request.OutputFileName, 1, Attribution);
     }
 }
 
@@ -618,6 +628,51 @@ public class RenderApiTests(RenderApiFactory factory) : IClassFixture<RenderApiF
         Assert.Null(sent.PanelWidthPx);
         Assert.Null(sent.PanelFormat);
         Assert.Null(sent.PanelQuality);
+    }
+
+    /// <summary>
+    /// A finished render's record carries the provenance the record is declared for.
+    /// </summary>
+    /// <remarks>
+    /// The last hop of the attribution chain, and the one that was missing: the
+    /// engine collects the credit it actually printed, the worker returns it, the
+    /// client parses it into <c>RenderWorkerResult.Attribution</c> — and nothing in
+    /// the repo read that property. Meanwhile <c>SourceMetadataSnapshot</c>, whose
+    /// declared content is "tile sources, attribution, scale at render time", was
+    /// null on every record a render ever produced because the only way to set it
+    /// was on CREATE, before the render had happened. Asserted through the public
+    /// status resource, which is where a client would look for it.
+    /// </remarks>
+    [Fact]
+    public async Task A_completed_record_carries_the_attribution_and_page_count_of_its_render()
+    {
+        factory.FakeClient.ShouldFail = false;
+        factory.FakeClient.Attribution = "USGS The National Map · OpenStreetMap";
+        try
+        {
+            var projectId = await CreateProjectAsync("Provenance Project");
+            var resp = await _client.PostAsJsonAsync($"/api/projects/{projectId}/render",
+                new RenderProjectRequest(Tier: 3));
+            var body = (await resp.Content.ReadFromJsonAsync<RenderProjectResponse>())!;
+
+            var final = await PollUntilTerminalAsync(body.GeneratedPdfId);
+            Assert.Equal("Completed", final.Status);
+
+            Assert.NotNull(final.SourceMetadataSnapshot);
+            using var doc = System.Text.Json.JsonDocument.Parse(final.SourceMetadataSnapshot!);
+            Assert.Equal(
+                "USGS The National Map · OpenStreetMap",
+                doc.RootElement.GetProperty("attribution").GetString());
+            Assert.Equal(3, doc.RootElement.GetProperty("tier").GetInt32());
+
+            // And the page count, which this render never reported as progress —
+            // `Emits` is empty, so before this the row finished with no count at all.
+            Assert.Equal(1, final.PageCount);
+        }
+        finally
+        {
+            factory.FakeClient.Attribution = null;
+        }
     }
 
     /// <summary>

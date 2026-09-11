@@ -88,6 +88,14 @@ public class GeneratedPdfService : IGeneratedPdfService
         // PDF, which is the line above.
         if (status.IsTerminal()) pdf.Phase = null;
 
+        // Both null-guarded rather than assigned: this method is called for every
+        // lifecycle transition, and a Rendering write that blanked the provenance a
+        // previous call had recorded would be a field that is only ever briefly
+        // true. Null here means "not saying", not "clear it".
+        if (request.SourceMetadataSnapshot is not null)
+            pdf.SourceMetadataSnapshot = request.SourceMetadataSnapshot;
+        if (request.PageCount is not null) pdf.PageCount = request.PageCount;
+
         await _db.SaveChangesAsync(ct);
         return ToResponse(pdf);
     }

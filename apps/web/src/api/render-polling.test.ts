@@ -371,14 +371,15 @@ describe("the phase vocabulary matches the engine's", () => {
       "utf8",
     );
     const match = /\n\s*phase:\s*((?:"[a-z]+"\s*\|\s*)*"[a-z]+")\s*;/.exec(source);
-    if (!match) {
+    const union = match?.[1];
+    if (union === undefined) {
       throw new Error(
         "Could not find the `phase:` union in packages/render-cli/src/render.ts. " +
           "If it moved or changed shape, fix this parser — do not let the parity check " +
           "quietly pass on nothing.",
       );
     }
-    return [...match[1].matchAll(/"([a-z]+)"/g)].map((m) => m[1]);
+    return [...union.matchAll(/"([a-z]+)"/g)].flatMap((m) => (m[1] === undefined ? [] : [m[1]]));
   }
 
   it("[CONTROL] actually parsed the engine's union", () => {
