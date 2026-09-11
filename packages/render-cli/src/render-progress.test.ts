@@ -48,7 +48,7 @@ function stubFetch(tileResponder: () => Promise<Response>): void {
     "fetch",
     vi.fn(async (url: unknown, init?: RequestInit) => {
       if (typeof url !== "string" || !/^https?:/i.test(url)) {
-        return real(url as RequestInfo, init);
+        return real(url as Parameters<typeof fetch>[0], init);
       }
       return tileResponder();
     }),

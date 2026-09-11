@@ -2,6 +2,7 @@ import fs from "node:fs";
 import Fastify from "fastify";
 import { parseTileBaseUrlAllowlist } from "@journeybook/render-cli";
 import { renderRoute } from "./render-route.js";
+import { JobStore } from "./jobs.js";
 
 const parsedPort = Number.parseInt(process.env["PORT"] ?? "8090", 10);
 const PORT = Number.isInteger(parsedPort) && parsedPort > 0 && parsedPort < 65536 ? parsedPort : 8090;
@@ -19,13 +20,26 @@ const TILE_CACHE_DIR = process.env["TILE_CACHE_DIR"];
 // api's tile proxy, which is the only destination the API ever sends.
 const TILE_BASE_URL_ALLOWLIST = parseTileBaseUrlAllowlist(process.env["TILE_BASE_URL_ALLOWLIST"]);
 
-// Cap request bodies (render inputs are tiny) and bound request time so a stalled
-// upstream tile fetch can't pin a connection open forever.
+// Most renders in flight at once. `POST /render` no longer holds its connection
+// open for the render (ADR 0007), so the HTTP layer's own back-pressure is gone;
+// this replaces it. The API sends one render at a time, so any value above 1 is
+// headroom for a second client rather than a concurrency policy.
+const parsedMaxJobs = Number.parseInt(process.env["MAX_ACTIVE_JOBS"] ?? "4", 10);
+const MAX_ACTIVE_JOBS = Number.isInteger(parsedMaxJobs) && parsedMaxJobs > 0 ? parsedMaxJobs : 4;
+
+// Cap request bodies (render inputs are tiny) and bound request time.
+//
+// `requestTimeout` is no longer a bound on a render: since the job protocol,
+// POST /render answers as soon as the job is accepted and every other request
+// here is a status read. It still stops a slow client from pinning a connection.
 const app = Fastify({
   logger: true,
   bodyLimit: 64 * 1024,
   requestTimeout: 120_000,
 });
+
+// One registry for the process, so shutdown can reach every render in flight.
+const jobs = new JobStore();
 
 app.get("/health", async (_req, _reply) => {
   return { status: "ok" };
@@ -35,6 +49,8 @@ await app.register(renderRoute, {
   generatedDir: GENERATED_DIR,
   ...(TILE_CACHE_DIR ? { cacheDir: TILE_CACHE_DIR } : {}),
   tileBaseUrlAllowlist: TILE_BASE_URL_ALLOWLIST,
+  jobs,
+  maxActiveJobs: MAX_ACTIVE_JOBS,
 });
 
 app.log.info(
@@ -56,10 +72,15 @@ async function start(): Promise<void> {
   }
 }
 
-// Graceful shutdown so in-flight renders can drain on container stop.
+// Graceful shutdown. Renders are detached from their requests now, so closing
+// the server no longer stops them: abort every job in flight first, or the
+// process lingers fetching tiles for an atlas nobody will ever be able to read.
+// The abort is the same signal a DELETE /jobs/{id} sends, so each job records
+// itself as `cancelled` on the way out.
 for (const signal of ["SIGTERM", "SIGINT"] as const) {
   process.on(signal, () => {
     app.log.info({ signal }, "shutting down render-worker");
+    jobs.abortAll();
     void app.close().then(() => process.exit(0));
   });
 }
