@@ -1,3 +1,5 @@
+using JourneyBook.Application.Common;
+
 namespace JourneyBook.Application.Rendering;
 
 /// <summary>Request body for POST /api/projects/{id}/render.</summary>
@@ -102,7 +104,7 @@ public record RenderWorkerRequest(
     string Orientation,
     double Overlap,
     RenderMarginsDto Margins,
-    RenderBBoxDto? Extent,
+    BBoxDto? Extent,
     IReadOnlyList<RenderLocationDto> Locations,
     string OutputFileName,
     // Optional tile-proxy routing: when set, the worker fetches basemap tiles via
@@ -143,8 +145,6 @@ public record RenderLandmarkDto(double Longitude, double Latitude, string Name, 
 /// <summary>Safe margins (inches) forwarded to the render worker.</summary>
 public record RenderMarginsDto(double Top, double Right, double Bottom, double Left, double Gutter = 0);
 
-/// <summary>WGS84 bounding box forwarded to the render worker.</summary>
-public record RenderBBoxDto(double West, double South, double East, double North);
 
 /// <summary>A single WGS84 coordinate forwarded to the render worker.</summary>
 public record RenderLocationDto(

@@ -3,6 +3,7 @@ using JourneyBook.Application.Rendering;
 using JourneyBook.Infrastructure.Rendering;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using JourneyBook.Application.Common;
 
 namespace JourneyBook.Tests.Rendering;
 
@@ -94,7 +95,7 @@ public class RenderJobProcessorTests
         new RenderWorkerRequest(
             ScalePresetId: "usgs-7-5-min", Tier: 1, Orientation: "Portrait", Overlap: 0,
             Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
-            Extent: new RenderBBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Extent: new BBoxDto(-96.75, 40.78, -96.65, 40.85),
             Locations: [], OutputFileName: $"atlas-{id}.pdf"));
 
     [Fact]

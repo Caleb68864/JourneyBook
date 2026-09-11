@@ -1,4 +1,5 @@
 using JourneyBook.Application.Rendering;
+using JourneyBook.Application.Common;
 
 namespace JourneyBook.Application.Landmarks;
 
@@ -15,10 +16,10 @@ public record OverpassPoi(
 
 /// <summary>
 /// Import landmarks for a project from OSM via Overpass over the given
-/// extent (WGS84 bounding box). Reuses <see cref="RenderBBoxDto"/> so the
+/// extent (WGS84 bounding box). Reuses <see cref="BBoxDto"/> so the
 /// extent contract matches the rendering pipeline.
 /// </summary>
-public record ImportLandmarksRequest(RenderBBoxDto Bbox);
+public record ImportLandmarksRequest(BBoxDto Bbox);
 
 /// <summary>Result of an Overpass import: the persisted landmarks and their count.</summary>
 public record ImportLandmarksResponse(int Imported, IReadOnlyList<LandmarkResponse> Landmarks);

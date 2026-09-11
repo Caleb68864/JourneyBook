@@ -12,6 +12,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Testcontainers.PostgreSql;
+using JourneyBook.Application.Common;
 
 namespace JourneyBook.Tests.Api;
 
@@ -26,7 +27,7 @@ public sealed class FakeGeocodeClient : IGeocodeClient
 {
     public int CallCount { get; private set; }
     public string? LastQuery { get; private set; }
-    public RenderBBoxDto? LastViewbox { get; private set; }
+    public BBoxDto? LastViewbox { get; private set; }
 
     public static IReadOnlyList<GeocodeResultDto> Fixture { get; } = new List<GeocodeResultDto>
     {
@@ -35,7 +36,7 @@ public sealed class FakeGeocodeClient : IGeocodeClient
     };
 
     public Task<IReadOnlyList<GeocodeResultDto>> SearchAsync(
-        string query, RenderBBoxDto? viewbox = null, CancellationToken ct = default)
+        string query, BBoxDto? viewbox = null, CancellationToken ct = default)
     {
         CallCount++;
         LastQuery = query;

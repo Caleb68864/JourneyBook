@@ -1,4 +1,5 @@
 using JourneyBook.Application.Rendering;
+using JourneyBook.Application.Common;
 
 namespace JourneyBook.Application.Geocoding;
 
@@ -13,6 +14,6 @@ public interface IGeocodeClient
 {
     Task<IReadOnlyList<GeocodeResultDto>> SearchAsync(
         string query,
-        RenderBBoxDto? viewbox = null,
+        BBoxDto? viewbox = null,
         CancellationToken ct = default);
 }

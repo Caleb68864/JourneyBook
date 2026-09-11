@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using JourneyBook.Application.Rendering;
 using JourneyBook.Infrastructure.Rendering;
+using JourneyBook.Application.Common;
 
 namespace JourneyBook.Tests.Rendering;
 
@@ -120,7 +121,7 @@ public class HttpRenderWorkerClientTests
             Orientation: "Portrait",
             Overlap: 0.05,
             Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
-            Extent: new RenderBBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Extent: new BBoxDto(-96.75, 40.78, -96.65, 40.85),
             Locations: [],
             OutputFileName: "atlas-abc.pdf");
 
@@ -199,7 +200,7 @@ public class HttpRenderWorkerClientTests
             Orientation: "Portrait",
             Overlap: 0.05,
             Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
-            Extent: new RenderBBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Extent: new BBoxDto(-96.75, 40.78, -96.65, 40.85),
             Locations: [],
             OutputFileName: "atlas-route.pdf",
             Route: true);
@@ -296,7 +297,7 @@ public class HttpRenderWorkerClientTests
         await bboxClient.RenderAsync(new RenderWorkerRequest(
             ScalePresetId: "1-100000", Tier: 1, Orientation: "Portrait", Overlap: 0,
             Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
-            Extent: new RenderBBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Extent: new BBoxDto(-96.75, 40.78, -96.65, 40.85),
             Locations: [new RenderLocationDto(-96.70, 40.81, "Home")],
             OutputFileName: "atlas-cover-bbox.pdf",
             Cover: true));
@@ -334,7 +335,7 @@ public class HttpRenderWorkerClientTests
             // Four DIFFERENT sides plus a gutter: a payload that copied one value to
             // all four, or dropped the gutter, cannot pass this.
             Margins: new RenderMarginsDto(Top: 0.75, Right: 0.6, Bottom: 0.8, Left: 0.9, Gutter: 0.25),
-            Extent: new RenderBBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Extent: new BBoxDto(-96.75, 40.78, -96.65, 40.85),
             Locations: [],
             OutputFileName: "atlas-margins.pdf");
 
@@ -370,7 +371,7 @@ public class HttpRenderWorkerClientTests
         await client.RenderAsync(new RenderWorkerRequest(
             ScalePresetId: "usgs-7-5-min", Tier: 1, Orientation: csharp, Overlap: 0,
             Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
-            Extent: new RenderBBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Extent: new BBoxDto(-96.75, 40.78, -96.65, 40.85),
             Locations: [], OutputFileName: "atlas-orientation.pdf"));
 
         using var doc = JsonDocument.Parse(handler.CapturedBody!);
@@ -425,7 +426,7 @@ public class HttpRenderWorkerClientTests
         await bboxClient.RenderAsync(new RenderWorkerRequest(
             ScalePresetId: "usgs-7-5-min", Tier: 2, Orientation: "Portrait", Overlap: overlap,
             Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
-            Extent: new RenderBBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Extent: new BBoxDto(-96.75, 40.78, -96.65, 40.85),
             Locations: [], OutputFileName: "atlas-overlap-bbox.pdf"));
 
         using (var doc = JsonDocument.Parse(bboxHandler.CapturedBody!))
@@ -477,7 +478,7 @@ public class HttpRenderWorkerClientTests
         var req = new RenderWorkerRequest(
             ScalePresetId: "usgs-7-5-min", Tier: 1, Orientation: "Portrait", Overlap: 0,
             Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
-            Extent: new RenderBBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Extent: new BBoxDto(-96.75, 40.78, -96.65, 40.85),
             Locations: [], OutputFileName: "atlas-slow.pdf");
 
         // HttpClient signals its OWN timeout as TaskCanceledException — an
@@ -498,7 +499,7 @@ public class HttpRenderWorkerClientTests
     private static RenderWorkerRequest JobRequest(string name = "atlas-job.pdf") => new(
         ScalePresetId: "usgs-7-5-min", Tier: 1, Orientation: "Portrait", Overlap: 0,
         Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
-        Extent: new RenderBBoxDto(-96.75, 40.78, -96.65, 40.85),
+        Extent: new BBoxDto(-96.75, 40.78, -96.65, 40.85),
         Locations: [], OutputFileName: name);
 
     [Fact]
@@ -661,7 +662,7 @@ public class HttpRenderWorkerClientTests
         var req = new RenderWorkerRequest(
             ScalePresetId: "usgs-7-5-min", Tier: 1, Orientation: "Portrait", Overlap: 0,
             Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
-            Extent: new RenderBBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Extent: new BBoxDto(-96.75, 40.78, -96.65, 40.85),
             Locations: [], OutputFileName: "atlas-cancelled.pdf");
 
         var call = client.RenderAsync(req, null, cts.Token);
@@ -702,7 +703,7 @@ public class HttpRenderWorkerClientTests
         await bboxClient.RenderAsync(new RenderWorkerRequest(
             ScalePresetId: "1-50000", Tier: 2, Orientation: "Portrait", Overlap: 0,
             Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
-            Extent: new RenderBBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Extent: new BBoxDto(-96.75, 40.78, -96.65, 40.85),
             Locations: [], OutputFileName: "atlas-knobs-bbox.pdf",
             Basemap: false, PanelWidthPx: 2048, PanelFormat: "png", PanelQuality: 55));
 
@@ -756,7 +757,7 @@ public class HttpRenderWorkerClientTests
         await client.RenderAsync(new RenderWorkerRequest(
             ScalePresetId: "1-50000", Tier: 2, Orientation: "Portrait", Overlap: 0,
             Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
-            Extent: new RenderBBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Extent: new BBoxDto(-96.75, 40.78, -96.65, 40.85),
             Locations: [], OutputFileName: "atlas-default-knobs.pdf"));
 
         using var doc = JsonDocument.Parse(handler.CapturedBody!);
@@ -789,7 +790,7 @@ public class HttpRenderWorkerClientTests
         await client.RenderAsync(new RenderWorkerRequest(
             ScalePresetId: "1-50000", Tier: 1, Orientation: "Portrait", Overlap: 0,
             Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
-            Extent: new RenderBBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Extent: new BBoxDto(-96.75, 40.78, -96.65, 40.85),
             Locations: [], OutputFileName: "atlas-fmt.pdf",
             PanelFormat: input));
 

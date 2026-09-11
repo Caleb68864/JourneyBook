@@ -171,7 +171,12 @@ const renderBodySchema = {
  * end. So the unknown keys are named back to the caller, from the same list the
  * schema is built from — one definition of "accepted", not two.
  */
-const ACCEPTED_FIELDS: ReadonlySet<string> = new Set(Object.keys(renderBodySchema.properties));
+export const ACCEPTED_RENDER_FIELDS: ReadonlySet<string> = new Set(
+  Object.keys(renderBodySchema.properties),
+);
+
+/** @deprecated internal alias kept so the handler below reads as it did. */
+const ACCEPTED_FIELDS = ACCEPTED_RENDER_FIELDS;
 
 function isUpstreamError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;

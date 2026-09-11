@@ -36,7 +36,9 @@ these are the only authoritative statements of those rules, both in `CLAUDE.md`:
   (`vault/maintainability-2026-09-09.md` §8). Nothing enforces it mechanically.
 - **0005** — "The API owns no geometry/render"; it proxies render jobs to the Node
   `render-worker` over HTTP. ADR 0006 in this directory extends that boundary and
-  states what it found there.
+  states what it found there; **ADR 0007 moves it**, by making the worker the owner
+  of a job's identity and state rather than a stateless request/response renderer.
+  0007 is the fullest surviving statement of where that boundary now sits.
 
 Do not cite 0001, 0003, 0004 or 0005 as though a reader can look them up. Cite what
 the code does, or write the ADR.
@@ -50,3 +52,4 @@ the code does, or write the ADR.
 | 0004 | `atlas-core` owns all geometry | **text missing** — cited in eight places |
 | 0005 | The API owns no geometry or rendering | **text missing** — cited in five places |
 | [0006](0006-asynchronous-rendering.md) | Asynchronous rendering: the API accepts, a background loop performs | Accepted |
+| [0007](0007-worker-owned-render-jobs.md) | Worker-owned render jobs: progress and cancel live where the work does | Accepted |

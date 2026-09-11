@@ -4,6 +4,7 @@ using JourneyBook.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using JourneyBook.Application.Common;
 
 namespace JourneyBook.Infrastructure.Rendering;
 
@@ -83,11 +84,11 @@ public class RenderService(
         var outputFileName = $"atlas-{created.Id:N}.pdf";
 
         // 4. Build the worker request.
-        RenderBBoxDto? extent = null;
+        BBoxDto? extent = null;
         if (project.Extent?.Bounds is { } bounds)
         {
             var env = bounds.EnvelopeInternal;
-            extent = new RenderBBoxDto(env.MinX, env.MinY, env.MaxX, env.MaxY);
+            extent = new BBoxDto(env.MinX, env.MinY, env.MaxX, env.MaxY);
         }
 
         var locations = project.Locations

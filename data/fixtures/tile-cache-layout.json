@@ -1,0 +1,78 @@
+{
+  "$comment": [
+    "The disk tile cache's KEY LAYOUT and HIT RULE, as one table read by both",
+    "implementations: packages/map-sources/src/tilecache.ts (the headless CLI) and",
+    "dotnet/JourneyBook.Infrastructure/Tiles/TileCache.cs (the API proxy).",
+    "",
+    "The duplication is deliberate — the CLI and the API are meant to share one cache",
+    "directory, and neither language can call the other — but 'deliberate' only holds",
+    "while the two agree. What they have to agree about is not the code; it is these",
+    "three things:",
+    "",
+    "  1. layout      where a tile is written, relative to the cache root.",
+    "  2. hitNames    which filenames in {source}/{z}/{x} count as a finished tile for",
+    "                 {y}. Both sides document the same trap: a plain '{y}.*' glob also",
+    "                 matches the '{y}.{ext}.tmp-…' file each writes before its rename,",
+    "                 so a concurrent reader would be served a half-written tile as a",
+    "                 hit and the atomic rename would be for nothing.",
+    "  3. escaping    keys that resolve outside the root. Both treat these as a miss on",
+    "                 read and skip the write, rather than writing where they were told.",
+    "",
+    "Companion to tile-content-types.json, which pins the extension mapping. Between",
+    "them, a tile written by either side is found and served correctly by the other.",
+    "Change a rule here and BOTH suites fail, which is the point."
+  ],
+  "layout": [
+    {
+      "source": "usgs-topo",
+      "z": 14,
+      "x": 3826,
+      "y": 6202,
+      "ext": "png",
+      "relativePath": "usgs-topo/14/3826/6202.png"
+    },
+    {
+      "source": "protomaps",
+      "z": 0,
+      "x": 0,
+      "y": 0,
+      "ext": "pbf",
+      "relativePath": "protomaps/0/0/0.pbf"
+    },
+    {
+      "source": "usgs-topo",
+      "z": 16,
+      "x": 15305,
+      "y": 24810,
+      "ext": "jpg",
+      "relativePath": "usgs-topo/16/15305/24810.jpg"
+    }
+  ],
+  "hitNames": [
+    { "y": 6202, "name": "6202.png", "isHit": true, "why": "the ordinary case" },
+    { "y": 6202, "name": "6202.pbf", "isHit": true, "why": "any single alphanumeric extension" },
+    { "y": 6202, "name": "6202", "isHit": true, "why": "extensionless, written before the ext was recorded" },
+    {
+      "y": 6202,
+      "name": "6202.png.tmp-4821-1757600000000",
+      "isHit": false,
+      "why": "the half-written temp file; a '{y}.*' glob matches it and would serve a torn tile"
+    },
+    {
+      "y": 6202,
+      "name": "6202.tmp-4821",
+      "isHit": false,
+      "why": "same trap without an extension in the name"
+    },
+    { "y": 6202, "name": "62020.png", "isHit": false, "why": "a different tile whose stem starts the same" },
+    { "y": 6202, "name": "620.png", "isHit": false, "why": "a different tile" },
+    { "y": 6202, "name": "6202.", "isHit": false, "why": "empty extension segment" },
+    { "y": 0, "name": "0.png", "isHit": true, "why": "y=0 is a real tile, not a falsy one" }
+  ],
+  "escapingKeys": [
+    "../evil",
+    "..",
+    "a/../../b",
+    "sub/../../../outside"
+  ]
+}

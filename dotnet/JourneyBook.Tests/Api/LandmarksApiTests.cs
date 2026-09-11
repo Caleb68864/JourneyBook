@@ -11,6 +11,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Testcontainers.PostgreSql;
+using JourneyBook.Application.Common;
 
 namespace JourneyBook.Tests.Api;
 
@@ -26,7 +27,7 @@ namespace JourneyBook.Tests.Api;
 public sealed class FakeOverpassClient : IOverpassClient
 {
     public int CallCount { get; private set; }
-    public RenderBBoxDto? LastBbox { get; private set; }
+    public BBoxDto? LastBbox { get; private set; }
 
     /// <summary>
     /// Fixture: three named peaks (curated <c>natural=peak</c>, survive), one
@@ -44,7 +45,7 @@ public sealed class FakeOverpassClient : IOverpassClient
         new(-96.50, 41.00, "Old Warehouse", Tags("building", "yes")),
     };
 
-    public Task<IReadOnlyList<OverpassPoi>> QueryLandmarksAsync(RenderBBoxDto bbox, CancellationToken ct = default)
+    public Task<IReadOnlyList<OverpassPoi>> QueryLandmarksAsync(BBoxDto bbox, CancellationToken ct = default)
     {
         CallCount++;
         LastBbox = bbox;
@@ -102,7 +103,7 @@ public class LandmarksApiTests(LandmarksApiFactory factory) : IClassFixture<Land
 {
     private readonly HttpClient _client = factory.CreateClient();
 
-    private static readonly RenderBBoxDto Extent = new(-96.75, 40.78, -96.45, 41.05);
+    private static readonly BBoxDto Extent = new(-96.75, 40.78, -96.45, 41.05);
 
     private async Task<Guid> CreateProjectAsync(string name = "Landmarks Host")
     {

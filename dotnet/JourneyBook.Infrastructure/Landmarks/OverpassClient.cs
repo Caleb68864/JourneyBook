@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using JourneyBook.Application.Landmarks;
 using JourneyBook.Application.Rendering;
+using JourneyBook.Application.Common;
 
 namespace JourneyBook.Infrastructure.Landmarks;
 
@@ -45,7 +46,7 @@ public class OverpassClient(HttpClient http) : IOverpassClient
         ("amenity", "fuel|charging_station|restaurant|fast_food|cafe"),
     ];
 
-    public async Task<IReadOnlyList<OverpassPoi>> QueryLandmarksAsync(RenderBBoxDto bbox, CancellationToken ct = default)
+    public async Task<IReadOnlyList<OverpassPoi>> QueryLandmarksAsync(BBoxDto bbox, CancellationToken ct = default)
     {
         try
         {
@@ -95,10 +96,10 @@ public class OverpassClient(HttpClient http) : IOverpassClient
 
     /// <summary>
     /// Build an Overpass QL query for the curated tag set within <paramref name="bbox"/>.
-    /// Overpass bounding boxes are <c>(south,west,north,east)</c>; <see cref="RenderBBoxDto"/>
+    /// Overpass bounding boxes are <c>(south,west,north,east)</c>; <see cref="BBoxDto"/>
     /// is <c>(West, South, East, North)</c>.
     /// </summary>
-    private static string BuildQuery(RenderBBoxDto bbox)
+    private static string BuildQuery(BBoxDto bbox)
     {
         var south = bbox.South.ToString(System.Globalization.CultureInfo.InvariantCulture);
         var west = bbox.West.ToString(System.Globalization.CultureInfo.InvariantCulture);

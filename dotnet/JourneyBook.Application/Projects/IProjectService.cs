@@ -1,3 +1,4 @@
+using JourneyBook.Application.Common;
 namespace JourneyBook.Application.Projects;
 
 /// <summary>Thrown for invalid project input (e.g. unknown scale preset).</summary>

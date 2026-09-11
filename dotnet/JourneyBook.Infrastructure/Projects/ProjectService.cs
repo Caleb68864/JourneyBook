@@ -6,6 +6,7 @@ using JourneyBook.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using NetTopologySuite;
 using NetTopologySuite.Geometries;
+using JourneyBook.Application.Common;
 
 namespace JourneyBook.Infrastructure.Projects;
 
