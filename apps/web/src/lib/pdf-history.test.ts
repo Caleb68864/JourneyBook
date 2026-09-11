@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { GeneratedPdf } from "../api/client";
-import { describePdfHistoryEntry, STUCK_AFTER_MS } from "./pdf-history";
+import { describePdfHistoryEntry, readDeliveredResolution, STUCK_AFTER_MS } from "./pdf-history";
 import { TERMINAL_STATUSES } from "../api/render-polling";
 
 const T0 = Date.parse("2026-09-10T12:00:00Z");
@@ -200,5 +200,105 @@ describe("the retention window is visible", () => {
       T0,
     );
     expect(entry.detail).toBe("Tile fetch failed");
+  });
+});
+
+/**
+ * The resolution a finished atlas ACTUALLY printed at.
+ *
+ * The renderer measures it per page and the API stores it on the record's
+ * provenance snapshot (`deliveredDpi: {min, max, panels}`, written by
+ * `RenderJobRunner.ProvenanceOf`), returned by both the history list and
+ * `GET /api/generated-pdfs/{id}`. It reached a queryable record and no screen.
+ * The scale picker says what a preset promises; this is what the user's own
+ * print achieved, which can differ — an atlas mixes latitudes and scales.
+ */
+describe("the measured print resolution of a finished atlas", () => {
+  const snapshot = (deliveredDpi: unknown, extra: Record<string, unknown> = {}) =>
+    JSON.stringify({ attribution: "USGS The National Map", deliveredDpi, pageCount: 12, ...extra });
+
+  it("[BEHAVIORAL] reads the renderer's measurement off the record's snapshot", () => {
+    expect(readDeliveredResolution(snapshot({ min: 176.2, max: 343.4, panels: 12 }))).toEqual({
+      kind: "measured",
+      min: 176.2,
+      max: 343.4,
+      panels: 12,
+    });
+  });
+
+  it("tells 'no basemap was drawn' apart from 'nobody measured'", () => {
+    // The API writes an explicit null for a render with no basemap, precisely so
+    // a reader can make this distinction.
+    expect(readDeliveredResolution(snapshot(null))).toEqual({ kind: "no-basemap" });
+    expect(readDeliveredResolution(JSON.stringify({ attribution: "x" }))).toEqual({ kind: "not-recorded" });
+    expect(readDeliveredResolution(null)).toEqual({ kind: "not-recorded" });
+    expect(readDeliveredResolution(undefined)).toEqual({ kind: "not-recorded" });
+  });
+
+  it("[CONTROL] refuses a snapshot it cannot trust rather than showing a number from it", () => {
+    // `POST /api/generated-pdfs` accepts an arbitrary client-supplied snapshot,
+    // so the field is not guaranteed to be the renderer's. A figure invented from
+    // a malformed one would be worse than saying nothing.
+    for (const bad of [
+      "not json",
+      "[]",
+      "42",
+      snapshot({ min: "176", max: 343, panels: 12 }),
+      snapshot({ min: 176, max: Number.NaN, panels: 12 }),
+      snapshot({ min: 0, max: 343, panels: 12 }),
+      snapshot({ min: 343, max: 176, panels: 12 }),
+      snapshot({ min: 176, max: 343, panels: 0 }),
+    ]) {
+      expect(readDeliveredResolution(bad), bad).toEqual({ kind: "not-recorded" });
+    }
+  });
+
+  it("[BEHAVIORAL] a completed row states the range it printed at, in whole DPI", () => {
+    const entry = describePdfHistoryEntry(
+      record("Completed", { sourceMetadataSnapshot: snapshot({ min: 338.2, max: 352.1, panels: 3 }) }),
+      T0,
+    );
+    expect(entry.resolution?.text).toBe("Printed at 338–352 DPI across 3 map pages.");
+    expect(entry.resolution?.belowTarget).toBe(false);
+  });
+
+  it("[BEHAVIORAL] flags a render below 300 DPI plainly, as information", () => {
+    const entry = describePdfHistoryEntry(
+      record("Completed", { sourceMetadataSnapshot: snapshot({ min: 176.2, max: 343.4, panels: 12 }) }),
+      T0,
+    );
+    expect(entry.resolution?.belowTarget).toBe(true);
+    expect(entry.resolution?.text).toContain("Printed at 176–343 DPI across 12 map pages.");
+    expect(entry.resolution?.text).toMatch(/under 300 DPI/);
+    // Information, not an error: the row is not a failure, and the scale is exact.
+    expect(entry.failed).toBe(false);
+    expect(entry.resolution?.text).toMatch(/scale is still exact/);
+  });
+
+  it("the threshold is decided on the figure the user reads", () => {
+    // 299.6 is shown as 300, so it must not be called "under 300".
+    const entry = describePdfHistoryEntry(
+      record("Completed", { sourceMetadataSnapshot: snapshot({ min: 299.6, max: 299.6, panels: 1 }) }),
+      T0,
+    );
+    expect(entry.resolution?.text).toBe("Printed at 300 DPI across 1 map page.");
+    expect(entry.resolution?.belowTarget).toBe(false);
+  });
+
+  it("says why there is no figure, for each reason there can be none", () => {
+    expect(
+      describePdfHistoryEntry(record("Completed", { sourceMetadataSnapshot: snapshot(null) }), T0).resolution?.text,
+    ).toMatch(/no basemap/i);
+    expect(describePdfHistoryEntry(record("Completed"), T0).resolution?.text).toMatch(/not recorded/i);
+  });
+
+  it("[CONTROL] only a completed render has a print resolution", () => {
+    const measured = snapshot({ min: 176, max: 343, panels: 12 });
+    for (const status of ["Pending", "Rendering", "Failed", "Cancelled"]) {
+      expect(
+        describePdfHistoryEntry(record(status, { sourceMetadataSnapshot: measured }), T0).resolution,
+        status,
+      ).toBeNull();
+    }
   });
 });

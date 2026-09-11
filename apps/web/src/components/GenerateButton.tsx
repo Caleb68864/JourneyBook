@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import { phaseLabel, waitForRender, type RenderProgressSnapshot } from "../api/render-polling";
 import { toRenderRequestBody, type RenderOptionsState } from "../lib/render-options";
+import { readDeliveredResolution, resolutionNote, type ResolutionNote } from "../lib/pdf-history";
 
 interface GenerateButtonProps {
   projectId: string;
@@ -65,6 +66,9 @@ export function GenerateButton({ projectId, options, disabled }: GenerateButtonP
   const [jobStatus, setJobStatus] = useState<string | null>(null);
   const [progress, setProgress] = useState<RenderProgressSnapshot | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  // What the finished atlas actually printed at, read off the record the poll
+  // resolved with — the renderer's measurement, not the preset's promise.
+  const [resolution, setResolution] = useState<ResolutionNote | null>(null);
 
   // Stop polling if the user navigates away mid-render. Note what this does NOT do:
   // it does not stop the render. That is the whole distinction ADR 0007 exists for —
@@ -81,6 +85,7 @@ export function GenerateButton({ projectId, options, disabled }: GenerateButtonP
     setJobStatus("Pending");
     setProgress(null);
     setCancelling(false);
+    setResolution(null);
 
     abortRef.current?.abort();
     const controller = new AbortController();
@@ -94,12 +99,13 @@ export function GenerateButton({ projectId, options, disabled }: GenerateButtonP
       const downloadUrl = result.downloadUrl || api.render.getContent(result.generatedPdfId);
       pdfIdRef.current = result.generatedPdfId;
 
-      await waitForRender(result.generatedPdfId, {
+      const finished = await waitForRender(result.generatedPdfId, {
         signal: controller.signal,
         onStatus: setJobStatus,
         onProgress: setProgress,
       });
 
+      setResolution(resolutionNote(readDeliveredResolution(finished.sourceMetadataSnapshot)));
       setPdfUrl(downloadUrl);
       // Try to open the PDF; if a popup blocker stops it, the link below still works.
       window.open(downloadUrl, "_blank", "noopener,noreferrer");
@@ -217,6 +223,11 @@ export function GenerateButton({ projectId, options, disabled }: GenerateButtonP
               </a>
             )}
           </p>
+        )}
+        {/* Below 300 DPI is information, not an error: the atlas is exactly to
+            scale, and the sentence says so. Normal text colour on purpose. */}
+        {status === "done" && resolution && (
+          <p className="font-mono text-[10px] text-bark-600">{resolution.text}</p>
         )}
         {/* Keyed on the message, not on `status`. A cancel that the API refuses
             happens WHILE the render is still going, so the component is still in

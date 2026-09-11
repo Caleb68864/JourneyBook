@@ -139,3 +139,53 @@ describe("GenerateButton posts what the panel asked for", () => {
     });
   });
 });
+
+/**
+ * The moment a render finishes is when a user opens their atlas, so it is the
+ * other place the resolution it ACTUALLY printed at belongs. The final record
+ * the poll resolves with already carries it; the button used to read nothing off
+ * that record but "Completed".
+ */
+describe("GenerateButton says what the finished atlas printed at", () => {
+  function stubFinal(sourceMetadataSnapshot: string | null) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        String(url).includes("/render")
+          ? new Response(
+              JSON.stringify({
+                generatedPdfId: "pdf-1",
+                status: "Pending",
+                downloadUrl: "/api/generated-pdfs/pdf-1/content",
+                statusUrl: "/api/generated-pdfs/pdf-1",
+              }),
+              { status: 202, headers: { "Content-Type": "application/json" } },
+            )
+          : new Response(
+              JSON.stringify({ id: "pdf-1", status: "Completed", errorMessage: null, sourceMetadataSnapshot }),
+              { status: 200, headers: { "Content-Type": "application/json" } },
+            ),
+      ),
+    );
+  }
+
+  it("[BEHAVIORAL] shows the measured resolution, and flags it plainly when it is under 300 DPI", async () => {
+    stubFinal(JSON.stringify({ deliveredDpi: { min: 176.2, max: 343.4, panels: 12 } }));
+    render(<GenerateButton projectId="p1" options={DEFAULT_RENDER_OPTIONS} />);
+    fireEvent.click(screen.getByRole("button", { name: /generate atlas pdf/i }));
+
+    const line = await screen.findByText(/Printed at 176–343 DPI across 12 map pages/);
+    expect(line.textContent).toMatch(/under 300 DPI/);
+    expect(line.className).not.toMatch(/campfire/);
+    expect(screen.getByRole("link", { name: /open \/ download/i })).toBeTruthy();
+  });
+
+  it("[CONTROL] a render with no basemap says there is no figure rather than inventing one", async () => {
+    stubFinal(JSON.stringify({ deliveredDpi: null }));
+    render(<GenerateButton projectId="p1" options={DEFAULT_RENDER_OPTIONS} />);
+    fireEvent.click(screen.getByRole("button", { name: /generate atlas pdf/i }));
+
+    expect(await screen.findByText(/no basemap/i)).toBeTruthy();
+    expect(screen.queryByText(/Printed at/)).toBeNull();
+  });
+});

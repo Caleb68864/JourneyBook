@@ -171,6 +171,18 @@ export interface GeneratedPdf {
    * happening".
    */
   phase?: string | null;
+  /**
+   * Provenance the API wrote when the render finished, as a JSON **string** (the
+   * column is `jsonb`; `GeneratedPdfResponse.SourceMetadataSnapshot` is `string?`).
+   * Written by `RenderJobRunner.ProvenanceOf`: `attribution`, `deliveredDpi`
+   * (`{min, max, panels}`, or an explicit null when no basemap was drawn),
+   * `pageCount`, `scalePresetId`, `tier`, `renderedAt`.
+   *
+   * Parse it with `readDeliveredResolution` in `lib/pdf-history.ts`, never inline:
+   * `POST /api/generated-pdfs` accepts an arbitrary client-supplied snapshot, so
+   * nothing guarantees this is the renderer's.
+   */
+  sourceMetadataSnapshot?: string | null;
 }
 
 // ---------------------------------------------------------------------------
