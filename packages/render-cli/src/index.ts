@@ -14,6 +14,7 @@ export {
   NON_WIRE_INPUT_FIELDS,
   type RenderAtlasInput,
   type RenderAtlasResult,
+  type DeliveredDpi,
   type RenderLocation,
   type RenderProgress,
   type AssembledAtlas,

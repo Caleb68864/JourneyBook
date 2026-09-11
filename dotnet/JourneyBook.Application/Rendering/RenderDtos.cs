@@ -174,5 +174,34 @@ public record RenderLocationDto(
     // page per level as L#a, L#b, …; null/empty means a single page at ScalePresetId.
     IReadOnlyList<string>? ZoomLevels = null);
 
-/// <summary>Response from the render worker: output path, page count, and optional attribution.</summary>
-public record RenderWorkerResult(string OutputPath, int PageCount, string? Attribution);
+/// <summary>
+/// The print resolution a finished render actually delivered, as the engine
+/// measured it (<c>DeliveredDpi</c> in <c>packages/render-cli/src/render.ts</c>).
+/// </summary>
+/// <remarks>
+/// <para>
+/// This product's load-bearing promise is true scale, and this is the number that
+/// says whether it was kept on a given render. It is not derivable from the
+/// request: <c>renderMapPanel</c> crops at native tile resolution and never
+/// resamples, so the requested panel width is a FLOOR and the delivered crop is
+/// 1x-2x it depending on where the page falls relative to a Web-Mercator zoom
+/// boundary. Two scale presets 4% apart print 1.9x apart in DPI.
+/// </para>
+/// <para>
+/// A range, not one figure, because an atlas can mix scales — a zoom ladder puts
+/// 1:100,000 and 1:24,000 in the same book — and the honest answer for such a
+/// render is the spread. <see cref="Min"/> is the one that decides whether the
+/// atlas met the target, because it is the softest page in it.
+/// </para>
+/// </remarks>
+public record RenderDeliveredDpi(double Min, double Max, int Panels);
+
+/// <summary>
+/// Response from the render worker: output path, page count, optional attribution,
+/// and the print resolution the render achieved.
+/// </summary>
+public record RenderWorkerResult(
+    string OutputPath,
+    int PageCount,
+    string? Attribution,
+    RenderDeliveredDpi? DeliveredDpi);

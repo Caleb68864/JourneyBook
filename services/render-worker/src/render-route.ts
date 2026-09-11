@@ -339,11 +339,18 @@ export async function renderRoute(app: FastifyInstance, opts: RenderWorkerOption
           signal,
         });
 
-        jobs.complete(jobId, requestedRelPath, result.pageCount, result.attribution);
+        jobs.complete(
+          jobId,
+          requestedRelPath,
+          result.pageCount,
+          result.attribution,
+          result.deliveredDpi,
+        );
         app.log.info({
           jobId,
           outputPath: requestedRelPath,
           pageCount: result.pageCount,
+          deliveredDpi: result.deliveredDpi,
           mode: body.mode,
           scalePresetId: body.scalePresetId,
           tier: body.tier,

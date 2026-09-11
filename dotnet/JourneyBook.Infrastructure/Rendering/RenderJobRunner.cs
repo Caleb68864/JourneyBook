@@ -187,6 +187,19 @@ public sealed class RenderJobRunner(
     /// answerable afterwards for a file already on disk.
     /// </para>
     /// <para>
+    /// <c>deliveredDpi</c> is here for the same reason and arrived the same way, one
+    /// commit later and only half as far. The engine measures the resolution every
+    /// panel actually printed at — <c>effectiveDpi</c>, the exact inverse of the
+    /// <c>panelWidthPxForDpi</c> every scale preset's width is derived from — and
+    /// wrote it to <c>stderr</c>, which on this path is a container log nobody
+    /// correlates with a PDF. The credit reached a queryable record and the
+    /// measurement did not, in the same commit. On a product whose load-bearing
+    /// promise is true scale, this is the number that says whether the promise was
+    /// kept for the file sitting on disk, and it is not derivable from the request:
+    /// nothing resamples, so the requested width is a floor and the delivered crop
+    /// is 1x-2x it.
+    /// </para>
+    /// <para>
     /// Written with <c>JsonSerializer</c> rather than string concatenation because
     /// the column is <c>jsonb</c>: an attribution containing a quote — several real
     /// provider credits do — would otherwise produce a value Postgres refuses, and
@@ -197,6 +210,11 @@ public sealed class RenderJobRunner(
         JsonSerializer.Serialize(new
         {
             attribution = result.Attribution,
+            // Null for a render with no basemap: a render that drew no panels has no
+            // resolution, and a 0 there would be a measurement nobody made.
+            deliveredDpi = result.DeliveredDpi is { } dpi
+                ? new { min = dpi.Min, max = dpi.Max, panels = dpi.Panels }
+                : null,
             pageCount = result.PageCount,
             scalePresetId = job.WorkerRequest.ScalePresetId,
             tier = job.WorkerRequest.Tier,

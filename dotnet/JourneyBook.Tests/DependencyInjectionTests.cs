@@ -10,12 +10,20 @@ namespace JourneyBook.Tests;
 public class DependencyInjectionTests
 {
     /// <summary>
-    /// The web client's own patience, from <c>apps/web/src/api/render-polling.ts</c>
-    /// (<c>DEFAULT_TIMEOUT_MS = 15 * 60 * 1000</c>). The server-side cap must not be
-    /// shorter than this: if it is, every render longer than the cap is killed by the
-    /// API's own <c>HttpClient</c> while the browser is still politely waiting.
+    /// The web client's own patience, READ OUT OF
+    /// <c>apps/web/src/api/render-polling.ts</c> rather than restated here. The
+    /// server-side cap must not be shorter than it: if it is, every render longer
+    /// than the cap is killed by the API's own <c>HttpClient</c> while the browser is
+    /// still politely waiting.
     /// </summary>
-    private static readonly TimeSpan ClientPatience = TimeSpan.FromMinutes(15);
+    /// <remarks>
+    /// This was <c>TimeSpan.FromMinutes(15)</c> — a hand-copy, and the reason the
+    /// assertion below could not do the job it was added for. Raise
+    /// <c>DEFAULT_TIMEOUT_MS</c> to 30 minutes and <c>900s &gt;= 900s</c> still passed
+    /// while the server cap was silently short again: the original bug's shape,
+    /// re-created inside its own fix. See <see cref="WebClientContract"/>.
+    /// </remarks>
+    private static TimeSpan ClientPatience => WebClientContract.ClientPatience();
 
     private static ServiceProvider BuildRoot(Dictionary<string, string?>? extra = null)
     {
@@ -55,6 +63,23 @@ public class DependencyInjectionTests
             http.Timeout >= ClientPatience,
             $"RenderWorker:TimeoutSeconds default is {http.Timeout.TotalSeconds}s, " +
             $"shorter than the web client's {ClientPatience.TotalSeconds}s wait.");
+    }
+
+    [Fact]
+    public void The_clients_patience_is_read_from_the_clients_own_source()
+    {
+        // The control for the assertion above, and the reason it is a test rather
+        // than a comment: a parser that silently returned a default would compare
+        // 900s against 900s forever and report success. This one throws, and this is
+        // where that throw surfaces as a failure about the parser instead of as a
+        // confusing verdict about a timeout.
+        var patience = WebClientContract.ClientPatience();
+
+        Assert.True(
+            patience >= TimeSpan.FromMinutes(1) && patience <= TimeSpan.FromHours(2),
+            $"parsed {patience} out of {WebClientContract.RenderPollingRelativePath}, which is not a " +
+            "plausible browser deadline — the parser has probably matched something other than " +
+            "DEFAULT_TIMEOUT_MS.");
     }
 
     [Fact]

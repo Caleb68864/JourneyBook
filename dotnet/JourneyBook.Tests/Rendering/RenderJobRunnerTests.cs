@@ -147,7 +147,7 @@ public class RenderJobRunnerTests
         var worker = new StubWorkerClient(req =>
         {
             statusWhenWorkerRan = pdfs.Updates.Count > 0 ? pdfs.Updates[^1].Status : null;
-            return new RenderWorkerResult(req.OutputFileName, 3, null);
+            return new RenderWorkerResult(req.OutputFileName, 3, null, null);
         });
 
         await RunnerFor(pdfs, worker).RunAsync(SampleJob());
@@ -162,7 +162,7 @@ public class RenderJobRunnerTests
     public async Task Drives_a_successful_render_Rendering_then_Completed_with_the_output_path()
     {
         var pdfs = new RecordingPdfService();
-        var worker = new StubWorkerClient(req => new RenderWorkerResult(req.OutputFileName, 12, "USGS"));
+        var worker = new StubWorkerClient(req => new RenderWorkerResult(req.OutputFileName, 12, "USGS", null));
 
         await RunnerFor(pdfs, worker).RunAsync(SampleJob());
 
@@ -243,7 +243,7 @@ public class RenderJobRunnerTests
     public async Task A_failure_writing_Rendering_still_leaves_the_record_Failed()
     {
         var pdfs = new RecordingPdfService { FailOnUpdate = 0 };
-        var worker = new StubWorkerClient(req => new RenderWorkerResult(req.OutputFileName, 1, null));
+        var worker = new StubWorkerClient(req => new RenderWorkerResult(req.OutputFileName, 1, null, null));
 
         await RunnerFor(pdfs, worker).RunAsync(SampleJob());
 
@@ -281,7 +281,7 @@ public class RenderJobRunnerTests
     public async Task Writes_every_position_the_worker_reports_onto_the_record()
     {
         var pdfs = new RecordingPdfService();
-        var worker = new StubWorkerClient(req => new RenderWorkerResult(req.OutputFileName, 3, null))
+        var worker = new StubWorkerClient(req => new RenderWorkerResult(req.OutputFileName, 3, null, null))
         {
             Emits =
             {
@@ -350,7 +350,8 @@ public class RenderJobRunnerTests
     {
         var pdfs = new RecordingPdfService();
         var worker = new StubWorkerClient(
-            req => new RenderWorkerResult(req.OutputFileName, 7, "USGS The National Map · OpenStreetMap"));
+            req => new RenderWorkerResult(
+                req.OutputFileName, 7, "USGS The National Map · OpenStreetMap", null));
 
         await RunnerFor(pdfs, worker).RunAsync(SampleJob());
 
@@ -365,6 +366,67 @@ public class RenderJobRunnerTests
         // render time" names.
         Assert.Equal("usgs-7-5-min", doc.RootElement.GetProperty("scalePresetId").GetString());
         Assert.Equal(1, doc.RootElement.GetProperty("tier").GetInt32());
+    }
+
+    /// <summary>
+    /// The print resolution the render achieved lands on the record too.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Same journey as <c>Attribution</c>, one commit later and only half as far.
+    /// The engine computes <c>effectiveDpi</c> for every panel — the exact inverse
+    /// of the <c>panelWidthPxForDpi</c> that every scale preset's width is derived
+    /// from — and wrote it to <c>stderr</c>, imported straight from
+    /// <c>node:process</c> and not injectable. On the API path that is the worker's
+    /// container log, correlated with no PDF by anything. The credit reached a
+    /// queryable record in that commit and the measurement did not.
+    /// </para>
+    /// <para>
+    /// It is worth recording rather than recomputing because it is not derivable
+    /// from the request: <c>renderMapPanel</c> crops at native tile resolution and
+    /// never resamples, so the requested width is a floor and the delivered crop is
+    /// 1x-2x it depending on where the page fell relative to a Web-Mercator zoom
+    /// boundary. Two presets 4% apart in scale print 1.9x apart. For a file already
+    /// on disk this snapshot is the only thing that can say what it came out at.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task The_finished_record_carries_the_print_resolution_the_render_achieved()
+    {
+        var pdfs = new RecordingPdfService();
+        var worker = new StubWorkerClient(
+            req => new RenderWorkerResult(
+                req.OutputFileName, 3, "USGS", new RenderDeliveredDpi(176.2, 337.8, 3)));
+
+        await RunnerFor(pdfs, worker).RunAsync(SampleJob());
+
+        var completed = Assert.Single(pdfs.Updates.Where(u => u.Status == "Completed"));
+        Assert.NotNull(completed.SourceMetadataSnapshot);
+
+        using var doc = JsonDocument.Parse(completed.SourceMetadataSnapshot!);
+        var dpi = doc.RootElement.GetProperty("deliveredDpi");
+        Assert.Equal(176.2, dpi.GetProperty("min").GetDouble(), 3);
+        Assert.Equal(337.8, dpi.GetProperty("max").GetDouble(), 3);
+        Assert.Equal(3, dpi.GetProperty("panels").GetInt32());
+    }
+
+    [Fact]
+    public async Task A_render_with_no_basemap_records_a_null_resolution_rather_than_zero()
+    {
+        // The control for the test above, and it has to be null rather than absent
+        // as well as rather than 0: a reader asking this snapshot what the PDF
+        // printed at must be able to tell "no basemap was drawn" from "nobody
+        // measured". A zero would be a figure nobody took.
+        var pdfs = new RecordingPdfService();
+        var worker = new StubWorkerClient(req => new RenderWorkerResult(req.OutputFileName, 3, "USGS", null));
+
+        await RunnerFor(pdfs, worker).RunAsync(SampleJob());
+
+        var completed = Assert.Single(pdfs.Updates.Where(u => u.Status == "Completed"));
+        using var doc = JsonDocument.Parse(completed.SourceMetadataSnapshot!);
+        Assert.Equal(
+            JsonValueKind.Null,
+            doc.RootElement.GetProperty("deliveredDpi").ValueKind);
     }
 
     /// <summary>
@@ -383,7 +445,7 @@ public class RenderJobRunnerTests
     public async Task A_render_that_reported_no_progress_still_records_its_page_count()
     {
         var pdfs = new RecordingPdfService();
-        var worker = new StubWorkerClient(req => new RenderWorkerResult(req.OutputFileName, 7, null));
+        var worker = new StubWorkerClient(req => new RenderWorkerResult(req.OutputFileName, 7, null, null));
 
         await RunnerFor(pdfs, worker).RunAsync(SampleJob());
 
@@ -403,7 +465,7 @@ public class RenderJobRunnerTests
     {
         var pdfs = new RecordingPdfService();
         var worker = new StubWorkerClient(
-            req => new RenderWorkerResult(req.OutputFileName, 1, "The \"National\" Map \\ tiles"));
+            req => new RenderWorkerResult(req.OutputFileName, 1, "The \"National\" Map \\ tiles", null));
 
         await RunnerFor(pdfs, worker).RunAsync(SampleJob());
 
@@ -416,7 +478,7 @@ public class RenderJobRunnerTests
     public async Task The_phase_arrives_for_the_positions_the_numbers_cannot_describe()
     {
         var pdfs = new RecordingPdfService();
-        var worker = new StubWorkerClient(req => new RenderWorkerResult(req.OutputFileName, 2, null))
+        var worker = new StubWorkerClient(req => new RenderWorkerResult(req.OutputFileName, 2, null, null))
         {
             Emits =
             {
@@ -443,7 +505,7 @@ public class RenderJobRunnerTests
         // CONTROL, must be accepted. Progress is optional on the interface, and a
         // worker that never reports one must not be a render that never finishes.
         var pdfs = new RecordingPdfService();
-        var worker = new StubWorkerClient(req => new RenderWorkerResult(req.OutputFileName, 1, null));
+        var worker = new StubWorkerClient(req => new RenderWorkerResult(req.OutputFileName, 1, null, null));
 
         await RunnerFor(pdfs, worker).RunAsync(SampleJob());
 
@@ -457,7 +519,7 @@ public class RenderJobRunnerTests
     public async Task A_job_cancelled_while_queued_is_marked_Cancelled_and_never_reaches_the_worker()
     {
         var pdfs = new RecordingPdfService();
-        var worker = new StubWorkerClient(req => new RenderWorkerResult(req.OutputFileName, 1, null));
+        var worker = new StubWorkerClient(req => new RenderWorkerResult(req.OutputFileName, 1, null, null));
         var cancellations = new StubCancellations();
         var job = SampleJob();
         cancellations.Register(job.GeneratedPdfId);
@@ -525,7 +587,7 @@ public class RenderJobRunnerTests
         // worker rendering. Assert the token the runner passed down is genuinely
         // cancellable by the registry.
         var pdfs = new RecordingPdfService();
-        var worker = new StubWorkerClient(req => new RenderWorkerResult(req.OutputFileName, 1, null));
+        var worker = new StubWorkerClient(req => new RenderWorkerResult(req.OutputFileName, 1, null, null));
         var cancellations = new StubCancellations();
         var job = SampleJob();
         cancellations.Register(job.GeneratedPdfId);

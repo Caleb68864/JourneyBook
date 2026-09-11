@@ -96,12 +96,20 @@ public class HttpRenderWorkerClientTests
     }
 
     /// <summary>A client whose poll interval is a millisecond, so the loop is testable.</summary>
+    /// <remarks>
+    /// The default deadline is the web client's own, read out of
+    /// <c>render-polling.ts</c> rather than written out as <c>FromMinutes(15)</c> —
+    /// see <see cref="WebClientContract"/>. These tests are about what the client does
+    /// before its deadline, so the exact figure does not change a verdict here; it is
+    /// derived because a third and fourth hand-copy of a number is how the first two
+    /// came to disagree.
+    /// </remarks>
     private static HttpRenderWorkerClient ClientFor(FakeWorkerHandler handler, TimeSpan? timeout = null) =>
         new(
             new HttpClient(handler)
             {
                 BaseAddress = new Uri("http://render-worker:8090"),
-                Timeout = timeout ?? TimeSpan.FromMinutes(15),
+                Timeout = timeout ?? WebClientContract.ClientPatience(),
             },
             new RenderWorkerPollOptions(TimeSpan.FromMilliseconds(1)));
 
@@ -520,6 +528,87 @@ public class HttpRenderWorkerClientTests
         Assert.True(handler.Polls >= 3, $"only polled {handler.Polls} times");
     }
 
+    /// <summary>
+    /// The print resolution the render achieved is read off the wire, not dropped.
+    /// </summary>
+    /// <remarks>
+    /// This is the hop the finding was about. The engine measured the delivered DPI
+    /// of every panel and wrote it to <c>stderr</c> — which on this path is the
+    /// worker's container log — so it reached nothing the API could answer with.
+    /// <c>attribution</c> travels this exact route and lands on the <c>GeneratedPdf</c>
+    /// provenance snapshot; the commit that computed the DPI figure paired it with
+    /// that attribution fix and delivered only one of the two. A field missing from
+    /// <c>WorkerJob</c> deserializes to null in silence, which is how the previous
+    /// four-hop losses in this codebase happened, so it is pinned here with a value.
+    /// </remarks>
+    [Fact]
+    public async Task The_print_resolution_the_render_delivered_is_carried_off_the_wire()
+    {
+        var handler = new FakeWorkerHandler(
+            "{\"id\":\"job-1\",\"state\":\"completed\",\"page\":3,\"pageCount\":3,\"phase\":\"done\"," +
+            "\"outputPath\":\"atlas-job.pdf\",\"attribution\":\"USGS\"," +
+            "\"deliveredDpi\":{\"min\":176.2,\"max\":337.8,\"panels\":3}}");
+
+        var result = await ClientFor(handler).RenderAsync(JobRequest());
+
+        Assert.NotNull(result.DeliveredDpi);
+        Assert.Equal(176.2, result.DeliveredDpi!.Min, 3);
+        Assert.Equal(337.8, result.DeliveredDpi.Max, 3);
+        Assert.Equal(3, result.DeliveredDpi.Panels);
+    }
+
+    /// <summary>
+    /// A job state this API has never heard of refuses, rather than being read as
+    /// "still rendering" and polled to the deadline.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The switch over <c>job.State</c> had no <c>default</c>, so an unknown state
+    /// fell straight through to the progress path. The consequence was not
+    /// theoretical: rename <c>cancelled</c> to <c>canceled</c> in the worker's
+    /// <c>JobState</c> union and its producer, and <b>every cancel in the product</b>
+    /// becomes a poll to the fifteen-minute deadline, reported as the timeout that
+    /// this whole job protocol was built to tell apart from a cancellation. Measured
+    /// at 216/216 .NET and 486/486 TS green.
+    /// </para>
+    /// <para>
+    /// The deadline here is two seconds so the pre-fix behaviour is observable rather
+    /// than a hang: without the <c>default</c> this test fails with a
+    /// <c>TimeoutException</c> after polling, and with it the client says what is
+    /// wrong immediately. <c>WorkerJobStateParityTests</c> is the other half — this
+    /// one is what the user meets, that one is what stops the drift.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_state_this_API_does_not_know_is_refused_not_polled_to_the_deadline()
+    {
+        var handler = new FakeWorkerHandler(
+            "{\"id\":\"job-1\",\"state\":\"canceled\",\"page\":0,\"pageCount\":1,\"phase\":\"done\"}");
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => ClientFor(handler, TimeSpan.FromSeconds(2)).RenderAsync(JobRequest()));
+
+        // The unknown word itself, so the diagnostic names the drift rather than
+        // describing a symptom.
+        Assert.Contains("canceled", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("jobs.ts", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_render_that_drew_no_basemap_reports_no_resolution_rather_than_zero()
+    {
+        // The control. A field that is always populated cannot show it was
+        // populated by a measurement, and a 0 here would be a figure nobody took —
+        // on a product whose promise is true scale, worse than saying nothing.
+        var handler = new FakeWorkerHandler(
+            "{\"id\":\"job-1\",\"state\":\"completed\",\"page\":1,\"pageCount\":1,\"phase\":\"done\"," +
+            "\"outputPath\":\"atlas-job.pdf\",\"attribution\":\"JourneyBook atlas\"}");
+
+        var result = await ClientFor(handler).RenderAsync(JobRequest());
+
+        Assert.Null(result.DeliveredDpi);
+    }
+
     [Fact]
     public async Task Reports_each_distinct_position_to_the_caller_exactly_once()
     {
@@ -654,7 +743,8 @@ public class HttpRenderWorkerClientTests
         using var http = new HttpClient(new NeverAnsweringHandler())
         {
             BaseAddress = new Uri("http://render-worker:8090"),
-            Timeout = TimeSpan.FromMinutes(15),
+            // The web client's own deadline, read from its source — see ClientFor.
+            Timeout = WebClientContract.ClientPatience(),
         };
         var client = new HttpRenderWorkerClient(http);
         using var cts = new CancellationTokenSource();

@@ -51,6 +51,18 @@ public sealed class FakeRenderWorkerClient(string generatedDir) : IRenderWorkerC
     /// </remarks>
     public string? Attribution { get; set; }
 
+    /// <summary>
+    /// The print resolution the stub reports having achieved, as the real worker
+    /// does.
+    /// </summary>
+    /// <remarks>
+    /// Settable for the same reason <see cref="Attribution"/> is: a stub that
+    /// always reports nothing cannot show that nothing is done with what it
+    /// reports, and that is exactly how this value came to be written to a log
+    /// stream and to no record.
+    /// </remarks>
+    public RenderDeliveredDpi? DeliveredDpi { get; set; }
+
     public async Task<RenderWorkerResult> RenderAsync(
         RenderWorkerRequest request,
         RenderProgressHandler? onProgress = null,
@@ -88,7 +100,7 @@ public sealed class FakeRenderWorkerClient(string generatedDir) : IRenderWorkerC
         // sets `record.pageCount` from the same render result the progress events
         // counted towards.
         var reported = Emits.Count > 0 && Emits[^1].PageCount > 0 ? Emits[^1].PageCount : 1;
-        return new RenderWorkerResult(request.OutputFileName, reported, Attribution);
+        return new RenderWorkerResult(request.OutputFileName, reported, Attribution, DeliveredDpi);
     }
 }
 

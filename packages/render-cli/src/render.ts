@@ -244,10 +244,48 @@ export class RenderCancelledError extends Error {
   }
 }
 
+/**
+ * The print resolution a render actually DELIVERED, across the basemap panels it
+ * drew.
+ *
+ * This product's load-bearing promise is true scale, and this is the number that
+ * says whether the promise was kept on a given render. It is not derivable from
+ * the request: nothing resamples, so `panelWidthPx` is a FLOOR and the delivered
+ * crop is 1x-2x it depending on where the page falls relative to a Web-Mercator
+ * zoom boundary. Two presets 4% apart in scale can print 1.9x apart in DPI.
+ *
+ * A range rather than a single figure because an atlas can mix scales — a zoom
+ * ladder puts 1:100,000 and 1:24,000 in the same book — and the honest answer for
+ * such a render is the spread, not an average nobody's page prints at.
+ */
+export interface DeliveredDpi {
+  /** The softest page in the atlas. The one that decides whether the target was met. */
+  min: number;
+  /** The sharpest. */
+  max: number;
+  /** How many basemap panels these figures are measured over. Never 0. */
+  panels: number;
+}
+
 export interface RenderAtlasResult {
   outputPath: string;
   pageCount: number;
   attribution: string;
+  /**
+   * What this render will print at, or undefined when no basemap was drawn (a
+   * render with no panels has no resolution to report, and inventing one would be
+   * the fabrication this field exists to replace).
+   *
+   * It is on the result, and not only in the renderer's log, because the log is
+   * reachable from the CLI and from nowhere else. The commit that first computed
+   * this paired it with the attribution fix: the credit went to
+   * `RenderAtlasResult.attribution`, on to the worker's job record, and into the
+   * `GeneratedPdf` provenance snapshot, where it is answerable afterwards for a
+   * file already on disk — and the measurement was written to `stderr`, imported
+   * directly from `node:process` and not injectable, so on the API path it reached
+   * nothing at all. Same journey, done the same way.
+   */
+  deliveredDpi?: DeliveredDpi;
   /** The assembled contract (pages, per-page scale, margins) that was rendered. */
   contract: AtlasContract;
   /** USNG grid overlays built for tier-3+ pages (empty for tier 1–2). */
@@ -667,6 +705,9 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
   // Web-Mercator zoom boundary. Two presets 4% apart in scale can print 1.9x
   // apart in DPI, and nothing in the output said so.
   const deliveredDpi: number[] = [];
+  // The summary that leaves this function on the result. Undefined until a panel
+  // has actually been measured, so "no basemap" and "0 dpi" cannot be confused.
+  let delivered: DeliveredDpi | undefined;
   if (input.basemap) {
     panels = {};
     for (const page of contract.pages) {
@@ -740,6 +781,11 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
     if (deliveredDpi.length > 0) {
       const min = Math.min(...deliveredDpi);
       const max = Math.max(...deliveredDpi);
+      // On the RESULT as well as in the log. Everything below this line goes to
+      // `stderr`, which is imported from `node:process` and is not injectable, so
+      // for every caller that is not a terminal — the render worker, and through it
+      // the API and the browser — it is a measurement delivered nowhere.
+      delivered = { min, max, panels: deliveredDpi.length };
       const range = Math.round(min) === Math.round(max)
         ? `${Math.round(min)} dpi`
         : `${Math.round(min)}-${Math.round(max)} dpi`;
@@ -882,6 +928,9 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
     // old string claimed USGS for every basemap render even when the tiles came
     // from a proxied source that had told us its own attribution.
     attribution: attribution ?? "JourneyBook atlas",
+    // The resolution this atlas will actually print at. Omitted, not zeroed, when
+    // no basemap was drawn.
+    ...(delivered ? { deliveredDpi: delivered } : {}),
     contract,
     grids: grids ?? {},
     landmarks,

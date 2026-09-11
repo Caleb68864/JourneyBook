@@ -163,7 +163,13 @@ const DEFAULT_INTERVAL_MS = 1000;
  * against this 15 minutes), every render over two minutes was killed by the API while
  * the browser was still waiting, and the user was told the service had shut down.
  * `DependencyInjectionTests.Render_worker_timeout_defaults_to_at_least_the_clients_own_patience`
- * fails if the pair drifts apart again.
+ * fails if the pair drifts apart again — and it does so because `WebClientContract`
+ * PARSES THIS LINE. It used to hold its own `TimeSpan.FromMinutes(15)`, which meant
+ * raising this number left `900s >= 900s` passing while the server cap was short
+ * again: the bug that test was added for, re-created inside it. This declaration is
+ * now the only place the figure exists, so change it here and the C# side follows or
+ * fails. Keep it a product of integer literals; the parser refuses anything else
+ * rather than guessing.
  */
 const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000;
 
