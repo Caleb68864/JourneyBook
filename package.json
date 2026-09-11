@@ -16,6 +16,8 @@
     "build": "pnpm -r --filter \"./packages/*\" run build",
     "typecheck": "pnpm -r run typecheck",
     "check:fixture": "node scripts/regenerate-sample-atlas.mjs --check",
+    "check:print-resolution": "node scripts/generate-print-resolution.mjs --check",
+    "generate:print-resolution": "node scripts/generate-print-resolution.mjs",
     "dev:web": "pnpm --filter @journeybook/web dev",
     "build:web": "pnpm --filter @journeybook/web build",
     "clean": "pnpm -r exec rimraf dist"

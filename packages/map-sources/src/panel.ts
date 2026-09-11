@@ -1,11 +1,6 @@
 import sharp from "sharp";
 import type { BBox } from "@journeybook/atlas-core";
-import {
-  TILE_SIZE,
-  lngLatToGlobalPixel,
-  zoomForBBox,
-  tileRangeForBBox,
-} from "./tilemath.js";
+import { TILE_SIZE, planMapPanel } from "./tilemath.js";
 import { getCachedTile, storeCachedTile, tileExtensionForContentType } from "./tilecache.js";
 
 /** Parchment fill behind the mosaic, showing wherever a tile fetch failed. */
@@ -382,12 +377,13 @@ export async function renderMapPanel(
   // is ~1947 px over 5.76 in = ~338 DPI, so the 300 DPI target IS met at z16 and
   // z17 is not needed for it. `tilemath.test.ts` pins both numbers.
   // What z17 would buy is headroom, and USGS Topo has none at this scale.
-  const wantedZoom = zoomForBBox(bbox, targetWidthPx);
-  const ceiling = options?.maxZoom ?? basemap.maxZoom;
-  const zoom = ceiling === undefined ? wantedZoom : Math.min(wantedZoom, ceiling);
-  const zoomClamped = zoom < wantedZoom;
-  const range = tileRangeForBBox(bbox, zoom);
-  const [west, south, east, north] = bbox;
+  //
+  // `planMapPanel` makes every one of these decisions, including the crop below,
+  // and is shared with the generated print-resolution table the scale picker
+  // shows — so the resolution a user is promised and the one rendered are the
+  // same arithmetic.
+  const plan = planMapPanel(bbox, targetWidthPx, options?.maxZoom ?? basemap.maxZoom);
+  const { zoom, zoomClamped, range } = plan;
 
   const cols = range.maxX - range.minX + 1;
   const rows = range.maxY - range.minY + 1;
@@ -433,18 +429,10 @@ export async function renderMapPanel(
     );
   }
 
-  // Crop window in mosaic pixels.
-  const topLeft = lngLatToGlobalPixel(west, north, zoom);
-  const bottomRight = lngLatToGlobalPixel(east, south, zoom);
+  // Crop window in mosaic pixels (see `planMapPanel`, which clamps it to the mosaic).
   const mosaicWidth = cols * TILE_SIZE;
   const mosaicHeight = rows * TILE_SIZE;
-  const left = Math.round(topLeft.x - range.minX * TILE_SIZE);
-  const top = Math.round(topLeft.y - range.minY * TILE_SIZE);
-  // Clamp to the mosaic: the tile range covers the bbox by construction, but
-  // rounding can put the far edge a pixel past the last tile, and sharp treats
-  // an out-of-bounds extract as a hard error.
-  const width = Math.max(1, Math.min(Math.round(bottomRight.x - topLeft.x), mosaicWidth - left));
-  const height = Math.max(1, Math.min(Math.round(bottomRight.y - topLeft.y), mosaicHeight - top));
+  const { left, top, width, height } = plan.crop;
 
   const format = options?.format ?? DEFAULT_PANEL_FORMAT;
   const quality = options?.quality ?? DEFAULT_PANEL_QUALITY;

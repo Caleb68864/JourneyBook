@@ -11,6 +11,7 @@ Mechanical check scripts for JourneyBook. Each returns exit 0 (pass) / 1 (fail) 
 | lint.sh | TS typecheck (no eslint yet) | `pnpm -r typecheck` |
 | secrets.sh | no local `.env` can reach a Docker build context | reads `.dockerignore` |
 | golden-fixture.sh | the engine still reproduces `data/fixtures/sample-atlas.json` | `node scripts/regenerate-sample-atlas.mjs --check` (needs `pnpm -r build` first) |
+| print-resolution.sh | the per-preset print-resolution table the scale picker shows (and `docs/print-resolution.md`) still matches the engine | `node scripts/generate-print-resolution.mjs --check` (needs `pnpm -r build` first) |
 | migrations-current.sh | the EF model has a migration behind it | `dotnet ef migrations has-pending-model-changes` (needs no database) |
 
 Backend tests (`dotnet test JourneyBook.slnx`) use Testcontainers PostGIS and require a running Docker daemon — run them separately, not in `test.sh`.

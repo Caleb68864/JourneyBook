@@ -82,6 +82,16 @@ jobs:
       # binds the fixture to the engine at all. Needs the build above.
       - name: The golden fixture still matches what the engine produces
         run: pnpm check:fixture
+      # The print-resolution table, regenerated from the engine and diffed — the
+      # same shape as the fixture check above, for the same reason. The scale
+      # picker shows users this table before they print, and
+      # `docs/print-resolution.md` (which the picker links to) is written from it.
+      # Before it existed the figure was hand-typed prose in three places over two
+      # latitude ranges, checked by nothing. A change to a preset's width, the
+      # basemap's zoom ceiling or the page geometry now fails here until the table
+      # users read is regenerated with it. Needs the build above (map-sources dist).
+      - name: The print-resolution table users see still matches the engine
+        run: pnpm check:print-resolution
       # Covers test files as well as src — see typecheck-covers-tests.sh.
       - run: pnpm -r typecheck
       - name: Test files are inside the typecheck program
