@@ -50,6 +50,29 @@ export function describePdfHistoryEntry(pdf: GeneratedPdf, now = Date.now()): Pd
     };
   }
 
+  if (pdf.status === "Cancelled") {
+    return {
+      label: "Cancelled",
+      // The record's own wording, which says how far the render got. Not `failed`:
+      // nothing went wrong, and a red row for something the user asked for sends
+      // them looking for a problem that does not exist.
+      detail: pdf.errorMessage?.trim() || "You cancelled this render.",
+      failed: false,
+      downloadable: false,
+    };
+  }
+
+  // NOTE: everything past this point treats the record as IN PROGRESS, so a
+  // terminal status with no branch above renders as "Queued…" for thirty minutes
+  // and then as an interrupted render. That is exactly what `Cancelled` did.
+  //
+  // There is deliberately NO catch-all `isTerminal` branch here. One was written
+  // and then removed: every terminal status already has a branch of its own, so
+  // the catch-all was unreachable — probed, and deleting it left all 104 web tests
+  // green, which makes it a guard that cannot fail. The real guard is the test
+  // `any terminal status the server invents is never drawn as in progress`, which
+  // walks `TERMINAL_STATUSES` and fails at TEST time if a status is added without
+  // a branch here. A dead runtime branch would have silently absorbed that.
   const startedAt = Date.parse(pdf.createdAt);
   const stuck = Number.isFinite(startedAt) && now - startedAt > STUCK_AFTER_MS;
 

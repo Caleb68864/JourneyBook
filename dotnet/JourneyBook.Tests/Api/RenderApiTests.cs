@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using JourneyBook.Application.GeneratedPdfs;
 using JourneyBook.Application.Projects;
 using JourneyBook.Application.Rendering;
+using JourneyBook.Domain;
 using JourneyBook.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -151,15 +152,42 @@ public class RenderApiTests(RenderApiFactory factory) : IClassFixture<RenderApiF
     private async Task<GeneratedPdfResponse> PollUntilTerminalAsync(Guid pdfId)
     {
         var deadline = DateTimeOffset.UtcNow.AddSeconds(30);
+        var seen = new List<string>();
+        GeneratedPdfResponse? last = null;
+
         while (DateTimeOffset.UtcNow < deadline)
         {
             var record = await _client.GetFromJsonAsync<GeneratedPdfResponse>($"/api/generated-pdfs/{pdfId}");
             Assert.NotNull(record);
-            if (record!.Status is "Completed" or "Failed") return record;
+            last = record;
+            if (seen.Count == 0 || seen[^1] != record!.Status) seen.Add(record.Status);
+
+            // The real terminal set, not a hand-written copy of it. This helper said
+            // `"Completed" or "Failed"` and so polled a Cancelled record for the whole
+            // thirty seconds before reporting a timeout that had not happened — the
+            // exact failure PdfStatusParityTests describes for a client that has not
+            // heard of a status, committed in the same change that added one.
+            if (Enum.TryParse<PdfStatus>(record!.Status, out var parsed) && parsed.IsTerminal())
+                return record;
             await Task.Delay(50);
         }
 
-        throw new TimeoutException($"Generated PDF {pdfId} never reached a terminal status.");
+        // Say what actually happened. A bare "never reached a terminal status" after
+        // thirty seconds is the worst thing to hand the next person: it cannot
+        // distinguish "the render is stuck" from "it finished in a state this helper
+        // does not recognise", and those have opposite fixes. That ambiguity cost a
+        // CI run, so the message now carries the state the record was actually in,
+        // every transition it made, and the set being compared against.
+        var terminal = string.Join(", ", Enum.GetValues<PdfStatus>().Where(s => s.IsTerminal()));
+        throw new TimeoutException(
+            $"Generated PDF {pdfId} never reached a terminal status in 30s. " +
+            $"Last status: '{last?.Status ?? "<no record>"}' " +
+            $"(progress {last?.Progress?.ToString() ?? "-"}/{last?.PageCount?.ToString() ?? "-"}, " +
+            $"error: {last?.ErrorMessage ?? "<none>"}). " +
+            $"Transitions seen: {(seen.Count > 0 ? string.Join(" -> ", seen) : "<none>")}. " +
+            $"Statuses this helper accepts as terminal: {terminal}. " +
+            "If the last status IS in that list the poll is looking in the wrong place; " +
+            "if it is Pending or Rendering the render genuinely did not settle.");
     }
 
     /// <summary>
