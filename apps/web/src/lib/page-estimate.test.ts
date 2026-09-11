@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { MAX_ATLAS_PAGES, SCALE_PRESETS, type BBox } from "@journeybook/atlas-core";
-import { estimatePages } from "./page-estimate";
+import { LETTER_PORTRAIT, MAX_ATLAS_PAGES, SCALE_PRESETS, type BBox } from "@journeybook/atlas-core";
+import { estimatePages, toPageSpec } from "./page-estimate";
 
 const usgs = SCALE_PRESETS.find((p) => p.id === "usgs-7-5-min")!; // 1:24,000
 
@@ -53,5 +53,81 @@ describe("estimatePages", () => {
     expect(without.overLimit).toBe(false);
     expect(heavy.pages).toBe(225);
     expect(heavy.overLimit).toBe(true);
+  });
+
+  /**
+   * The page setup is a lever on the page count too, and until there was a
+   * control for it this function ignored it outright — Letter portrait,
+   * hardcoded, with a TODO saying so.
+   *
+   * Now that orientation, margins and the gutter are reachable in the app, an
+   * estimate that still assumed portrait would report the page count of a layout
+   * the user is not asking for — and that number gates Confirm Box and Generate.
+   * A control whose consequence the app cannot see is the half-wired kind.
+   */
+  describe("the project's page setup, not Letter portrait", () => {
+    const BOX: BBox = [-98.1, 40.9, -97.9, 41.1];
+
+    it("[BEHAVIORAL] landscape tiles a box differently from portrait", () => {
+      const portrait = estimatePages(BOX, usgs, 0, toPageSpec({ orientation: "Portrait" }));
+      const landscape = estimatePages(BOX, usgs, 0, toPageSpec({ orientation: "Landscape" }));
+
+      expect(portrait.pages).not.toBeNull();
+      expect(landscape.pages).not.toBeNull();
+      // Same ground, rotated sheet: the grid shape must change. If these are
+      // equal the spec never reached `pageGridSize`.
+      expect([landscape.columns, landscape.rows]).not.toEqual([portrait.columns, portrait.rows]);
+    });
+
+    it("[BEHAVIORAL] wider margins cost pages, because the map box shrinks", () => {
+      const tight = estimatePages(
+        BOX, usgs, 0,
+        toPageSpec({ margins: { top: 0.25, right: 0.25, bottom: 0.25, left: 0.25, gutter: 0 } }),
+      );
+      const wide = estimatePages(
+        BOX, usgs, 0,
+        toPageSpec({ margins: { top: 1.5, right: 1.5, bottom: 1.5, left: 1.5, gutter: 0 } }),
+      );
+
+      expect(wide.pages!).toBeGreaterThan(tight.pages!);
+    });
+
+    it("[BEHAVIORAL] a binder gutter costs pages on its own", () => {
+      const none = estimatePages(BOX, usgs, 0, toPageSpec({ margins: { gutter: 0 } }));
+      const bound = estimatePages(BOX, usgs, 0, toPageSpec({ margins: { gutter: 1 } }));
+
+      expect(bound.pages!).toBeGreaterThan(none.pages!);
+    });
+
+    /**
+     * [CONTROL] The default must not have moved. Every caller that passes no
+     * spec, and every existing assertion above, depends on this still being
+     * Letter portrait with the engine's default margins.
+     */
+    it("[CONTROL] defaults to Letter portrait when no setup is given", () => {
+      // `gutter` is spelled out here and left implicit in the engine's own
+      // constant; 0 is what `printableAreaInches` reads either way, and the
+      // estimate below is the assertion that actually matters.
+      expect(toPageSpec(null)).toEqual({ ...LETTER_PORTRAIT, margins: { ...LETTER_PORTRAIT.margins, gutter: 0 } });
+      expect(toPageSpec({})).toEqual(toPageSpec(null));
+      expect(estimatePages(BOX, usgs, 0)).toEqual(
+        estimatePages(BOX, usgs, 0, LETTER_PORTRAIT),
+      );
+      expect(estimatePages(BOX, usgs, 0)).toEqual(
+        estimatePages(BOX, usgs, 0, toPageSpec(null)),
+      );
+    });
+
+    /**
+     * [CONTROL] The API serialises its `PageOrientation` enum as
+     * "Portrait"/"Landscape"; the engine's union is lower-case. A comparison that
+     * forgot that is the bug that used to print every landscape project portrait.
+     */
+    it("[CONTROL] reads the API's capitalised orientation", () => {
+      expect(toPageSpec({ orientation: "Landscape" }).orientation).toBe("landscape");
+      expect(toPageSpec({ orientation: "landscape" }).orientation).toBe("landscape");
+      expect(toPageSpec({ orientation: "Portrait" }).orientation).toBe("portrait");
+      expect(toPageSpec({ orientation: null }).orientation).toBe("portrait");
+    });
   });
 });

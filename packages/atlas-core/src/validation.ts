@@ -96,10 +96,90 @@ export function validateAtlas(
     detail: `${contract.pages.length} page(s)`,
   });
 
+  // ── Sibling of `unique-page-ids`: the same class of defect ────────────────
+  //
+  // A duplicate page id used to be reported as a neighbour problem, because the
+  // check that could name it did not exist and the next check along was the one
+  // that noticed. The two below are the rest of that family — invariants whose
+  // breakage was already visible, but only ever as some OTHER check's failure,
+  // with a number that describes nothing.
+  //
+  // Measured against the validator as it stood, on real contracts:
+  //
+  //   bbox [NaN, 40.78, -96.68, 40.83]  -> `validateAtlas` THREW
+  //                                        `TypeError: coordinates must be
+  //                                        finite numbers` out of proj4, three
+  //                                        layers down. Not a failing report at
+  //                                        all: a crash in the tool whose job is
+  //                                        to answer the question.
+  //   west > east                       -> "scale-consistency: worst footprint
+  //                                        error 260.233%"
+  //   zero-area bbox                    -> "scale-consistency: 100.000%"
+  //   scale ratio 0                     -> "scale-consistency: Infinity%"
+  //
+  // Every one of those says the atlas prints at the wrong scale. None of them
+  // does. So: check the inputs first, name them for what they are, and keep the
+  // scale check for things that are actually about scale.
+
+  const malformed: string[] = [];
+  const wellFormed = new Set<string>();
+  for (const page of contract.pages) {
+    const bbox = page.bbox;
+    const finite = Array.isArray(bbox) && bbox.length === 4 && bbox.every((n) => Number.isFinite(n));
+    if (!finite) {
+      malformed.push(`${page.id}: bbox is not four finite numbers`);
+      continue;
+    }
+    const [west, south, east, north] = bbox;
+    if (west >= east || south >= north) {
+      malformed.push(`${page.id}: bbox is empty or inverted [${bbox.join(", ")}]`);
+      continue;
+    }
+    if (west < -180 || east > 180 || south < -90 || north > 90) {
+      malformed.push(`${page.id}: bbox is outside lng ±180 / lat ±90 [${bbox.join(", ")}]`);
+      continue;
+    }
+    wellFormed.add(page.id);
+  }
+  checks.push({
+    name: "well-formed-page-bboxes",
+    pass: malformed.length === 0,
+    detail:
+      malformed.length === 0
+        ? `${contract.pages.length} page bbox(es) well formed`
+        : malformed.join("; "),
+  });
+
+  // A ratio of 0 makes the scale-implied footprint 0, and every relative error
+  // Infinity; a negative one inverts the comparison. Neither is a scale error —
+  // it is a contract that does not carry a usable scale.
+  const badRatios: string[] = [];
+  for (const page of contract.pages) {
+    const scale = page.scale ?? contract.scale;
+    if (!Number.isFinite(scale.ratio) || scale.ratio <= 0) {
+      badRatios.push(`${page.id}: scale "${scale.id}" has ratio ${String(scale.ratio)}`);
+    }
+  }
+  checks.push({
+    name: "usable-scale-ratios",
+    pass: badRatios.length === 0,
+    detail: badRatios.length === 0 ? "every page has a positive scale ratio" : badRatios.join("; "),
+  });
+
   // Scale consistency: measured footprint ≈ scale-implied footprint.
+  //
+  // Only over pages that survived the two checks above. Comparing a footprint
+  // against a malformed bbox or a zero ratio is what produced the 260% and
+  // Infinity% readings; skipping them keeps this check's number meaningful. If
+  // that leaves NOTHING to compare, it is reported as UNMEASURED rather than
+  // passing — a check with no rows is not a check that passed, which is the
+  // mistake `printed-scale-fidelity` was already fixed for.
+  const measurable = contract.pages.filter(
+    (p) => wellFormed.has(p.id) && !badRatios.some((b) => b.startsWith(`${p.id}: `)),
+  );
   let scalePass = true;
   let worstRel = 0;
-  for (const page of contract.pages) {
+  for (const page of measurable) {
     const spec: PageSpec = {
       widthIn: 8.5,
       heightIn: 11,
@@ -115,11 +195,18 @@ export function validateAtlas(
     worstRel = Math.max(worstRel, relW, relH);
     if (relW > tolerance || relH > tolerance) scalePass = false;
   }
-  checks.push({
-    name: "scale-consistency",
-    pass: scalePass,
-    detail: `worst footprint error ${(worstRel * 100).toFixed(3)}% (tol ${(tolerance * 100).toFixed(2)}%)`,
-  });
+  if (contract.pages.length > 0 && measurable.length === 0) {
+    unmeasured.push("scale-consistency");
+  } else {
+    const skipped = contract.pages.length - measurable.length;
+    checks.push({
+      name: "scale-consistency",
+      pass: scalePass,
+      detail:
+        `worst footprint error ${(worstRel * 100).toFixed(3)}% (tol ${(tolerance * 100).toFixed(2)}%)` +
+        (skipped > 0 ? ` over ${measurable.length} page(s); ${skipped} not measurable` : ""),
+    });
+  }
 
   // Printed scale fidelity: the ground a page's bbox covers, measured
   // geodesically, over the paper that page's map is actually printed on,
@@ -134,7 +221,11 @@ export function validateAtlas(
     let printedPass = true;
     let worstPrinted = 0;
     const missing: string[] = [];
-    for (const page of contract.pages) {
+    // `measurable`, not every page: this also calls `pageGroundSize`, so a
+    // non-finite bbox would throw a proj4 TypeError out of the validator rather
+    // than produce a report — which is exactly what `well-formed-page-bboxes`
+    // was added to stop.
+    for (const page of measurable) {
       const box = printed[page.id];
       if (box === undefined) {
         missing.push(page.id);

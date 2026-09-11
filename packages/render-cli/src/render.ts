@@ -33,6 +33,7 @@ import {
   buildAtlasOverview,
   type PanelFormat,
 } from "@journeybook/map-sources";
+import { tileBaseUrlError } from "./tile-url.js";
 
 /** A saved location to render as its own fixed-scale page (L1, L2, …). */
 export interface RenderLocation {
@@ -272,11 +273,13 @@ function validateInput(input: RenderAtlasInput): void {
       throw new Error(`Invalid panelQuality ${String(input.panelQuality)}: must be an integer 1–100.`);
     }
   }
-  if (input.tileBaseUrl !== undefined && !/^https?:\/\//i.test(input.tileBaseUrl)) {
-    // Defense-in-depth against SSRF: only http(s) tile proxies, never file://,
-    // gopher://, etc. (the worker accepts tileBaseUrl from its request body).
-    throw new Error("Invalid tileBaseUrl: must be an http(s) URL.");
-  }
+  // Structural checks only — scheme, embedded credentials, base-path shape. The
+  // destination rules (non-routable hosts, operator allowlist) live at the
+  // WORKER's boundary, where the caller is untrusted; this engine's caller is
+  // whoever typed the command, and `--tile-base-url http://localhost:5180/api/tiles`
+  // is a documented local workflow. See `tile-url.ts`.
+  const tileUrlError = tileBaseUrlError(input.tileBaseUrl);
+  if (tileUrlError !== null) throw new Error(tileUrlError);
 }
 
 

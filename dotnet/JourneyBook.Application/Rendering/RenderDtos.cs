@@ -13,7 +13,30 @@ public record RenderProjectRequest(
     // stops"), prepended before the L# pages. Only meaningful for a project with
     // no saved extent - an extent already defines the grid, and the engine ignores
     // Cover in that case.
-    bool Cover = false);
+    bool Cover = false,
+    // ── Basemap knobs ────────────────────────────────────────────────────────
+    //
+    // The engine and `render-cli` have carried all four of these since Stage 1E
+    // (`--basemap`, `--panel-px`, `--panel-format`, `--panel-quality`); the API
+    // carried none, so a headless-first project's own UI could reach less than
+    // its CLI. `Basemap` in particular was not merely absent — it was HARDCODED
+    // `true` in the wire payload, so every API render did a full tile fetch, the
+    // slowest and most failure-prone part of the pipeline, with no way to ask for
+    // a fast line-art preview.
+    //
+    // Defaults reproduce the previous behaviour EXACTLY: basemap on, and the
+    // three panel knobs null so the engine keeps its own defaults (the per-preset
+    // `ScalePreset.panelWidthPx`, JPEG, quality 90). Nothing here changes what an
+    // existing caller gets; it only makes the trade-off reachable.
+    //
+    // PanelQuality/PanelFormat are the levers that actually move atlas size:
+    // panel width is quantised by the Web-Mercator zoom the engine picks, so
+    // raising it usually buys nothing until it crosses a zoom boundary and then
+    // costs ~4x. Quality and format are continuous.
+    bool Basemap = true,
+    int? PanelWidthPx = null,
+    string? PanelFormat = null,
+    int? PanelQuality = null);
 
 /// <summary>
 /// Render-accepted response (202): the record id, its status at the moment of
@@ -70,7 +93,17 @@ public record RenderWorkerRequest(
     bool Notes = true,
     // Cover extent: tile a grid over the box enclosing every location (camelCase
     // `cover` on the wire). Ignored by the engine when an extent/bbox is present.
-    bool Cover = false);
+    bool Cover = false,
+    // Basemap knobs (camelCase `basemap`/`panelWidthPx`/`panelFormat`/
+    // `panelQuality` on the wire). See RenderProjectRequest: `Basemap` used to be
+    // a hardcoded `true` in HttpRenderWorkerClient and the three panel fields had
+    // no member at all. The nullable ones are omitted from the wire entirely when
+    // null (WhenWritingNull), so the engine falls back to its own defaults and a
+    // payload built without them serializes byte-for-byte as it did before.
+    bool Basemap = true,
+    int? PanelWidthPx = null,
+    string? PanelFormat = null,
+    int? PanelQuality = null);
 
 /// <summary>A single landmark forwarded to the render worker.</summary>
 public record RenderLandmarkDto(double Longitude, double Latitude, string Name, string Category, double Score);

@@ -197,3 +197,153 @@ describe("unique-page-ids", () => {
     expect(check(report, "unique-page-ids").detail).toContain("duplicate page id(s): L1");
   });
 });
+
+/**
+ * The siblings of `unique-page-ids` — the rest of that family.
+ *
+ * Each of these invariants was already breakable, and each broke as some OTHER
+ * check's failure with a number that described nothing. Measured against the
+ * validator as it stood, before these checks existed:
+ *
+ *   bbox [NaN, …]  -> `validateAtlas` THREW `TypeError: coordinates must be
+ *                     finite numbers` out of proj4, three layers down. Not a
+ *                     failing report: a crash in the tool that answers the
+ *                     question.
+ *   west > east    -> "scale-consistency: worst footprint error 260.233%"
+ *   zero-area bbox -> "scale-consistency: 100.000%"
+ *   scale ratio 0  -> "scale-consistency: Infinity%"
+ *
+ * All four say the atlas prints at the wrong scale. None of them does.
+ */
+describe("validateAtlas — input invariants that used to surface as a scale error", () => {
+  const scale = SCALE_PRESETS[0]!;
+
+  function contractOf(pages: AtlasPage[], override?: Partial<AtlasContract>): AtlasContract {
+    return { version: 1, scale, margins: LETTER_PORTRAIT.margins, pages, ...override };
+  }
+
+  function soundPage(id = "A1"): AtlasPage {
+    return buildLocationPage({ lng: -98, lat: 41 }, scale, LETTER_PORTRAIT, id);
+  }
+
+  function check(report: ReturnType<typeof validateAtlas>, name: string) {
+    const found = report.checks.find((c) => c.name === name);
+    if (!found) throw new Error(`validateAtlas reported no "${name}" check`);
+    return found;
+  }
+
+  /**
+   * [CONTROL] The must-be-ACCEPTED half, and it is doing real work here: these
+   * guards sit in front of every other check, so one that is a notch too strict
+   * does not merely add a false failure — it stops `scale-consistency` and
+   * `printed-scale-fidelity` measuring anything at all.
+   */
+  it("[CONTROL] accepts a genuinely well-formed atlas", () => {
+    const grid = buildPageGrid({ bbox: bboxAround(center, 2, 2), scale: usgs, page: LETTER_PORTRAIT });
+    const report = validateAtlas(grid);
+
+    expect(check(report, "well-formed-page-bboxes").pass).toBe(true);
+    expect(check(report, "usable-scale-ratios").pass).toBe(true);
+    expect(check(report, "scale-consistency").pass).toBe(true);
+    expect(report.pass).toBe(true);
+    // And the scale check still measured every page, rather than quietly
+    // skipping some and passing on what was left.
+    expect(check(report, "scale-consistency").detail).not.toContain("not measurable");
+  });
+
+  it("[CONTROL] accepts pages at the coordinate extremes, which are legal", () => {
+    const page = soundPage();
+    page.bbox = [-180, -90, 180, 90];
+    const report = validateAtlas(contractOf([page]));
+    expect(check(report, "well-formed-page-bboxes").pass).toBe(true);
+  });
+
+  it("returns a report instead of throwing when a bbox is not finite", () => {
+    const page = soundPage();
+    page.bbox = [Number.NaN, 40.78, -96.68, 40.83];
+
+    // The first assertion is that this does not throw at all. It used to.
+    const report = validateAtlas(contractOf([page]));
+
+    expect(check(report, "well-formed-page-bboxes").pass).toBe(false);
+    expect(check(report, "well-formed-page-bboxes").detail).toContain("A1");
+    expect(check(report, "well-formed-page-bboxes").detail).toContain("finite");
+    expect(report.pass).toBe(false);
+  });
+
+  it("names an inverted bbox as an inverted bbox, not a 260% scale error", () => {
+    const page = soundPage();
+    page.bbox = [-96.6, 40.78, -96.75, 40.83]; // west > east
+
+    const report = validateAtlas(contractOf([page]));
+    const wellFormed = check(report, "well-formed-page-bboxes");
+
+    expect(wellFormed.pass).toBe(false);
+    expect(wellFormed.detail).toMatch(/empty or inverted/);
+    // And the scale check no longer claims a footprint error it cannot know.
+    expect(report.unmeasured).toContain("scale-consistency");
+  });
+
+  it("names a zero-area bbox rather than calling it a 100% footprint error", () => {
+    const page = soundPage();
+    page.bbox = [-96.7, 40.8, -96.7, 40.8];
+
+    const report = validateAtlas(contractOf([page]));
+    expect(check(report, "well-formed-page-bboxes").pass).toBe(false);
+    expect(check(report, "well-formed-page-bboxes").detail).toMatch(/empty or inverted/);
+  });
+
+  it("names an out-of-range bbox", () => {
+    const page = soundPage();
+    page.bbox = [-96.8, 40.7, -96.6, 91];
+
+    const report = validateAtlas(contractOf([page]));
+    expect(check(report, "well-formed-page-bboxes").pass).toBe(false);
+    expect(check(report, "well-formed-page-bboxes").detail).toContain("±90");
+  });
+
+  it("names a scale with no usable ratio, instead of reporting Infinity% error", () => {
+    const page = soundPage();
+    // `buildLocationPage` stamps the page with its own scale, which would shadow
+    // the broken contract-level one. This case is about the contract's scale, so
+    // the page has to actually fall back to it.
+    delete page.scale;
+
+    const report = validateAtlas(
+      contractOf([page], { scale: { id: "broken", label: "broken", ratio: 0, panelWidthPx: 1000 } }),
+    );
+
+    const ratios = check(report, "usable-scale-ratios");
+    expect(ratios.pass).toBe(false);
+    expect(ratios.detail).toContain("broken");
+    expect(report.unmeasured).toContain("scale-consistency");
+    expect(report.pass).toBe(false);
+  });
+
+  it("catches a per-page scale override with a broken ratio too", () => {
+    const bad = soundPage("L1");
+    bad.scale = { id: "per-page-broken", label: "x", ratio: -24000, panelWidthPx: 1000 };
+
+    const report = validateAtlas(contractOf([soundPage("A1"), bad]));
+    expect(check(report, "usable-scale-ratios").pass).toBe(false);
+    expect(check(report, "usable-scale-ratios").detail).toContain("L1");
+  });
+
+  /**
+   * A check with no rows is not a check that passed — the mistake
+   * `printed-scale-fidelity` was already fixed for. When every page is
+   * unmeasurable, `scale-consistency` must go to `unmeasured`; when only SOME
+   * are, it must measure the rest and say how many it skipped.
+   */
+  it("says how many pages it could not measure rather than passing on the rest silently", () => {
+    const good = soundPage("A1");
+    const broken = soundPage("A2");
+    broken.bbox = [Number.NaN, 40.78, -96.68, 40.83];
+
+    const report = validateAtlas(contractOf([good, broken]));
+    const scaleCheck = check(report, "scale-consistency");
+
+    expect(scaleCheck.detail).toContain("1 not measurable");
+    expect(report.pass).toBe(false);
+  });
+});

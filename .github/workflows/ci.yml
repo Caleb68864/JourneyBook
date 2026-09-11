@@ -98,6 +98,21 @@ jobs:
           dotnet-version: "10.0.x"
       - run: dotnet restore JourneyBook.slnx
       - run: dotnet build JourneyBook.slnx --no-restore
+
+      # EF Core ships one command that answers "does the model still match the
+      # migrations", and it ran nowhere — not here, not in the harness, not in a
+      # test. Nothing in this repository could tell you that an entity, a HasData
+      # seed or an IEntityTypeConfiguration had changed with no migration behind
+      # it. That does not fail a build; it fails a DEPLOY, where MigrateOnStartup
+      # applies every migration, reports success, and leaves the database a
+      # column or a seed row short of the code. This repo has already found one
+      # orphaned migration by hand.
+      #
+      # In dotnet-unit rather than dotnet-integration because it needs no
+      # database and no Docker — it reads the compiled model, not a server.
+      - name: The EF model has a migration behind it
+        run: bash harness/checks/migrations-current.sh
+
       # The same filter contributors use when they have no Docker daemon, so the
       # locally-runnable suite is itself gated.
       #
