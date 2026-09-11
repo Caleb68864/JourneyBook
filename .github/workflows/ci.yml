@@ -129,7 +129,13 @@ jobs:
 
       # Belt to the braces above: whatever the filter is, the two jobs must between
       # them run every test. If a rename ever puts a case in neither set — the exact
-      # failure that hid those four — this fails the build instead of losing it.
+      # failure that hid the AdminApiKeyGateTests cases — this fails the build
+      # instead of losing it.
+      #
+      # It READS the filter out of the step above rather than keeping a copy, so
+      # editing that line is the drift it catches rather than the drift it misses.
+      # It also asserts CLAUDE.md quotes the same filter, because that line is the
+      # command a contributor without Docker is told to run.
       - name: Every test is in exactly one of the two jobs
         run: bash harness/checks/test-filter-partitions.sh
 
