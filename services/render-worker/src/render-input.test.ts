@@ -58,11 +58,16 @@ function tempDir(tag: string): string {
   return dir;
 }
 
-async function worker(options: { generatedDir: string; cacheDir?: string }): Promise<FastifyInstance> {
+async function worker(options: {
+  generatedDir: string;
+  cacheDir?: string;
+  tileBaseUrlAllowlist?: readonly string[];
+}): Promise<FastifyInstance> {
   const app = Fastify();
   await app.register(renderRoute, {
     generatedDir: options.generatedDir,
     ...(options.cacheDir ? { cacheDir: options.cacheDir } : {}),
+    ...(options.tileBaseUrlAllowlist ? { tileBaseUrlAllowlist: options.tileBaseUrlAllowlist } : {}),
   });
   await app.ready();
   return app;
@@ -72,6 +77,19 @@ afterEach(() => {
   vi.unstubAllGlobals();
   for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
+
+/**
+ * A tile proxy base for the two cache tests below.
+ *
+ * A routable NAME, not the loopback literal these used to carry: the worker now
+ * refuses non-routable destinations from a request body outright, so
+ * `http://127.0.0.1:9/tiles` is a 400 before any tile is fetched and the
+ * `[CONTROL]` below stops seeing a tile write at all. It caught that when the
+ * guard landed, which is what it is for. These two tests are about where tiles
+ * are WRITTEN, not where they come from, and `fetch` is stubbed, so nothing
+ * leaves the process either way.
+ */
+const PROXY_BASE = "http://tiles.example.com/tiles";
 
 /** A minimal valid render, small enough to keep the stubbed tile count sane. */
 const validLocation = {
@@ -93,7 +111,7 @@ describe("render-worker POST /render — the tile cache root is the operator's, 
       await app.inject({
         method: "POST",
         url: "/render",
-        payload: { ...validLocation, basemap: true, tileBaseUrl: "http://127.0.0.1:9/tiles" },
+        payload: { ...validLocation, basemap: true, tileBaseUrl: PROXY_BASE },
       });
     } finally {
       await app.close();
@@ -118,7 +136,7 @@ describe("render-worker POST /render — the tile cache root is the operator's, 
         payload: {
           ...validLocation,
           basemap: true,
-          tileBaseUrl: "http://127.0.0.1:9/tiles",
+          tileBaseUrl: PROXY_BASE,
           cacheDir: callerChosen,
         },
       });
@@ -184,6 +202,12 @@ describe("render-worker POST /render — schema at the boundary", () => {
     cover: false,
     orientation: "portrait",
     margins: { top: 0.5, right: 0.5, bottom: 0.5, left: 0.5, gutter: 0 },
+    // Added to the C# wire payload alongside `basemap` (F08). Kept here because
+    // this fixture's whole job is to be the shape the real client emits — a copy
+    // that lags the client stops being a control the moment it does.
+    panelWidthPx: 1730,
+    panelFormat: "jpeg",
+    panelQuality: 90,
   };
 
   it("[CONTROL] accepts the exact payload the C# API sends", async () => {
@@ -255,6 +279,107 @@ describe("render-worker POST /render — schema at the boundary", () => {
       expect(res.statusCode).toBe(400);
     } finally {
       await app.close();
+    }
+  });
+});
+
+/**
+ * Where an unauthenticated request body may send this process.
+ *
+ * `tileBaseUrl` was guarded by `^https?://` alone, in the schema and in the
+ * engine. That admits every host reachable from the compose network —
+ * `http://db:5432/`, `http://api:8080/api/admin/...`,
+ * `http://169.254.169.254/latest/meta-data/` — and the only thing standing
+ * between a caller and those was that the worker's port is `expose`d rather
+ * than published. The audit is explicit that this is a deployment accident and
+ * not a control.
+ *
+ * Every refusal here is paired with an acceptance, and the acceptances are the
+ * load-bearing half: the worker's ONE real caller sends
+ * `http://api:8080/api/tiles`, a private hostname, and a guard tuned by
+ * "private means dangerous" would refuse it and take every tile-proxied render
+ * down.
+ */
+describe("render-worker POST /render — where the worker may fetch tiles from", () => {
+  /** Never actually fetched: every case below is decided before the render starts. */
+  const withTileBase = (tileBaseUrl: string) => ({ ...validLocation, basemap: true, tileBaseUrl });
+
+  async function post(
+    payload: Record<string, unknown>,
+    options: { tileBaseUrlAllowlist?: readonly string[] } = {},
+  ): Promise<{ statusCode: number; error: string }> {
+    const generatedDir = tempDir("gen");
+    stubTileFetch();
+    const app = await worker({ generatedDir, ...options });
+    try {
+      const res = await app.inject({ method: "POST", url: "/render", payload });
+      const body = res.body ? (JSON.parse(res.body) as { error?: string }) : {};
+      return { statusCode: res.statusCode, error: body.error ?? "" };
+    } finally {
+      await app.close();
+    }
+  }
+
+  it("[CONTROL] accepts the tile proxy the C# API actually sends", async () => {
+    // Not a 200 — the stubbed tile bytes are not an image, so the render itself
+    // fails downstream. What matters is that it was not refused at the boundary,
+    // which is what the message says.
+    const res = await post(withTileBase("http://api:8080/api/tiles"));
+    expect(res.error, `refused the API's own tile proxy: ${res.error}`).not.toContain("tileBaseUrl");
+  });
+
+  it("[CONTROL] accepts a public tile server", async () => {
+    const res = await post(withTileBase("https://basemap.nationalmap.gov/arcgis/rest/services"));
+    expect(res.error).not.toContain("tileBaseUrl");
+  });
+
+  it("refuses the cloud metadata address", async () => {
+    const res = await post(withTileBase("http://169.254.169.254/latest/meta-data/"));
+    expect(res.statusCode).toBe(400);
+    expect(res.error).toContain("non-routable");
+  });
+
+  it("refuses loopback however it is spelled", async () => {
+    for (const bad of [
+      "http://127.0.0.1:9/tiles",
+      "http://2130706433/tiles",
+      "http://0177.0.0.1/tiles",
+      "http://[::1]:9/tiles",
+      "http://localhost:5180/api/tiles",
+    ]) {
+      const res = await post(withTileBase(bad));
+      expect(res.statusCode, bad).toBe(400);
+      expect(res.error, bad).toContain("non-routable");
+    }
+  });
+
+  it("refuses another service on the private network by literal address", async () => {
+    const res = await post(withTileBase("http://10.0.0.7:5432/"));
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("refuses embedded credentials", async () => {
+    const res = await post(withTileBase("http://user:pass@tiles.example.com/t"));
+    expect(res.statusCode).toBe(400);
+    expect(res.error).toContain("credentials");
+  });
+
+  it("refuses a host the operator's allowlist does not name", async () => {
+    const res = await post(withTileBase("https://tiles.evil.example/t"), {
+      tileBaseUrlAllowlist: ["http://api:8080/api/tiles"],
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.error).toContain("allowlist");
+  });
+
+  it("[CONTROL] accepts what the allowlist does name, including a loopback proxy", async () => {
+    for (const [base, allowed] of [
+      ["http://api:8080/api/tiles", "http://api:8080/api/tiles"],
+      // The escape hatch has to work, or this is a deny-all with extra words.
+      ["http://127.0.0.1:5180/api/tiles", "http://127.0.0.1:5180/api/tiles"],
+    ] as const) {
+      const res = await post(withTileBase(base), { tileBaseUrlAllowlist: [allowed] });
+      expect(res.error, `${base} was refused: ${res.error}`).not.toContain("tileBaseUrl");
     }
   });
 });

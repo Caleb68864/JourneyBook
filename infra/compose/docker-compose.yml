@@ -75,6 +75,12 @@ services:
       dockerfile: infra/docker/render-worker.Dockerfile
     environment:
       GENERATED_DIR: /app/data/generated
+      # The only tile base URL the api ever sends (see Tiles__ProxyBaseUrl above).
+      # Without this the worker accepts any routable http(s) host in its request
+      # body, and the only thing stopping a caller from aiming it at another
+      # service on this network is that the port is `expose`d rather than
+      # published — a deployment accident, not a control.
+      TILE_BASE_URL_ALLOWLIST: "http://api:8080/api/tiles"
     # Port 8090 stays internal to the compose network; the unauthenticated
     # worker is not reachable from the host (expose, not host-published ports).
     expose:

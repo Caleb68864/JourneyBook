@@ -1,7 +1,7 @@
 import path from "node:path";
 import fs from "node:fs";
 import type { FastifyInstance, FastifyPluginOptions } from "fastify";
-import { renderAtlas } from "@journeybook/render-cli";
+import { renderAtlas, tileBaseUrlError } from "@journeybook/render-cli";
 import type { RenderAtlasInput } from "@journeybook/render-cli";
 
 interface RenderWorkerOptions extends FastifyPluginOptions {
@@ -17,6 +17,22 @@ interface RenderWorkerOptions extends FastifyPluginOptions {
    * a render parameter and it does not belong on the wire.
    */
   cacheDir?: string;
+  /**
+   * Base URLs this worker may be pointed at for basemap tiles, from
+   * `TILE_BASE_URL_ALLOWLIST`.
+   *
+   * Also an OPERATOR setting, for the same reason as {@link cacheDir}: which
+   * hosts this process may issue requests to is a deployment decision, and the
+   * request body is the one place it must not come from.
+   *
+   * Empty means "no allowlist configured" — NOT "permit nothing". The weaker
+   * rules in `tile-url.ts` (scheme, credentials, non-routable literals) still
+   * apply, and an operator who wants a real destination control sets this. The
+   * distinction matters: reading an unset variable as an empty allowlist would
+   * refuse every tile-proxied render on any deployment that had not yet been
+   * told about this setting, which is the whole failure mode of adding a guard.
+   */
+  tileBaseUrlAllowlist?: readonly string[];
 }
 
 /**
@@ -90,10 +106,13 @@ const renderBodySchema = {
     orientation: { type: "string", enum: ["portrait", "landscape"] },
     title: { type: "string" },
     basemap: { type: "boolean" },
-    // http(s) only, matching the engine's own SSRF guard. This is a scheme
-    // check, not a destination check: the worker can still be pointed at any
-    // http host reachable from its network, which is why it is deployed on a
-    // compose-internal `expose` rather than a published port.
+    // Cheap shape check here; the real judgement is `tileBaseUrlError` in the
+    // handler, which parses the URL (so every alternative spelling of an IP
+    // literal is normalised first), refuses embedded credentials and
+    // non-routable destinations, and applies the operator's allowlist. A JSON
+    // Schema pattern cannot do any of that, and this one used to be the ONLY
+    // check — which made the worker an open outbound fetch for anything that
+    // could reach it.
     tileBaseUrl: { type: "string", pattern: "^https?://" },
     tileSourceId: { type: "string", minLength: 1 },
     tileMaxZoom: { type: "integer", minimum: 0, maximum: 24 },
@@ -171,6 +190,7 @@ function isInputError(err: unknown): boolean {
 export async function renderRoute(app: FastifyInstance, opts: RenderWorkerOptions): Promise<void> {
   const generatedDir = path.resolve(opts.generatedDir);
   const cacheDir = opts.cacheDir ? path.resolve(opts.cacheDir) : undefined;
+  const tileBaseUrlAllowlist = opts.tileBaseUrlAllowlist ?? [];
 
   app.addHook("preValidation", async (req, reply) => {
     if (req.method !== "POST" || req.url.split("?")[0] !== "/render") return;
@@ -200,6 +220,17 @@ export async function renderRoute(app: FastifyInstance, opts: RenderWorkerOption
     }
     if (body.mode === "bbox" && !body.bbox) {
       return reply.status(400).send({ error: 'mode "bbox" requires bbox' });
+    }
+
+    // Where this process may issue an outbound request, judged before a single
+    // tile is fetched. `refuseNonRoutableHosts` is set HERE and nowhere else:
+    // the caller of this route is whoever can reach the port, not the operator.
+    const tileUrlError = tileBaseUrlError(body.tileBaseUrl, {
+      allowlist: tileBaseUrlAllowlist,
+      refuseNonRoutableHosts: true,
+    });
+    if (tileUrlError !== null) {
+      return reply.status(400).send({ error: tileUrlError });
     }
 
     // The schema makes outputPath required and non-empty; this narrows the type
