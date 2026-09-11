@@ -813,7 +813,18 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
                           ) : null}
                         </div>
                         {entry.detail && (
-                          <span className="break-words font-mono text-[10px] text-campfire-600">
+                          // Coloured by what the line IS, not by the fact that
+                          // there is one. The detail line used to be the failure
+                          // diagnostic and nothing else, so the alarm colour was
+                          // unconditional; it now also carries the retention
+                          // notice on a completed render, and painting "kept until
+                          // the 23rd" in the error colour would report a healthy
+                          // row as a broken one.
+                          <span
+                            className={`break-words font-mono text-[10px] ${
+                              entry.failed ? "text-campfire-600" : "text-bark-600"
+                            }`}
+                          >
                             {entry.detail}
                           </span>
                         )}
