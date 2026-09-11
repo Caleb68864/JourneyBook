@@ -1,18 +1,21 @@
 import { useEffect, useRef, useState } from "react";
-import type { MapTier } from "@journeybook/atlas-core";
 import { api } from "../api/client";
 import { waitForRender } from "../api/render-polling";
+import { toRenderRequestBody, type RenderOptionsState } from "../lib/render-options";
 
 interface GenerateButtonProps {
   projectId: string;
-  tier: MapTier;
-  route?: boolean;
-  cover?: boolean;
-  includeLandmarks?: boolean;
-  tableOfContents?: boolean;
-  overview?: boolean;
-  referenceGrid?: boolean;
-  notes?: boolean;
+  /**
+   * Every render-time choice, as one object.
+   *
+   * It used to be nine optional props, spread into the request at the call site.
+   * That shape is how a control gets added to the page and never reaches the
+   * wire: nothing fails when a prop is declared in the editor and not threaded
+   * through here. One state object with one tested mapping
+   * (`toRenderRequestBody`) means the set of things the UI can ask for and the
+   * set of things the request carries are the same list.
+   */
+  options: RenderOptionsState;
   disabled?: boolean;
 }
 
@@ -22,7 +25,7 @@ const WAITING_LABEL: Record<string, string> = {
   Rendering: "Rendering…",
 };
 
-export function GenerateButton({ projectId, tier, route, cover, includeLandmarks, tableOfContents, overview, referenceGrid, notes, disabled }: GenerateButtonProps) {
+export function GenerateButton({ projectId, options, disabled }: GenerateButtonProps) {
   const [status, setStatus] = useState<"idle" | "generating" | "done" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
@@ -46,7 +49,8 @@ export function GenerateButton({ projectId, tier, route, cover, includeLandmarks
     try {
       // 202: the render is accepted, not done. `downloadUrl` names a file that does
       // not exist yet, so opening it here would 404 — poll the record first.
-      const result = await api.render.start(projectId, tier, { route, cover, includeLandmarks, tableOfContents, overview, referenceGrid, notes });
+      const { tier, ...rest } = toRenderRequestBody(options);
+      const result = await api.render.start(projectId, tier, rest);
       const downloadUrl = result.downloadUrl || api.render.getContent(result.generatedPdfId);
 
       await waitForRender(result.generatedPdfId, {

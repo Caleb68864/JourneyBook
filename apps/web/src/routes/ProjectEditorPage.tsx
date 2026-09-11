@@ -7,7 +7,12 @@ import {
   enclosingBBox,
 } from "@journeybook/atlas-core";
 import type { BBox, LngLat, MapTier } from "@journeybook/atlas-core";
-import { estimatePages } from "../lib/page-estimate";
+import { estimatePages, toPageSpec } from "../lib/page-estimate";
+import {
+  DEFAULT_RENDER_OPTIONS,
+  type PanelFormat,
+  type RenderOptionsState,
+} from "../lib/render-options";
 import { describePdfHistoryEntry } from "../lib/pdf-history";
 import { api, type Location, type Project, type GeneratedPdf } from "../api/client";
 import { MapPreview } from "../components/MapPreview";
@@ -18,6 +23,8 @@ import { GeocodeSearch } from "../components/GeocodeSearch";
 import type { GeocodeResult } from "../api/client";
 import { GenerateButton } from "../components/GenerateButton";
 import { LandmarkImportControl } from "../components/LandmarkImportControl";
+import { PageSetup, type PageSetupValue } from "../components/PageSetup";
+import { BasemapOptions } from "../components/BasemapOptions";
 
 interface ProjectEditorPageProps {
   projectId: string;
@@ -55,6 +62,14 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
   const [overview, setOverview] = useState(true);
   const [referenceGrid, setReferenceGrid] = useState(true);
   const [notes, setNotes] = useState(true);
+  // Basemap knobs, chosen at render time like tier. `basemap` was hardcoded true
+  // on the wire until the API grew a member for it, so there was no way to ask
+  // for the fast line-art proof the CLI has always had. null format/quality mean
+  // "send nothing and let the engine decide", which is how the per-preset panel
+  // widths and the engine's own defaults stay reachable now a control exists.
+  const [basemap, setBasemap] = useState(DEFAULT_RENDER_OPTIONS.basemap);
+  const [panelFormat, setPanelFormat] = useState<PanelFormat | null>(DEFAULT_RENDER_OPTIONS.panelFormat);
+  const [panelQuality, setPanelQuality] = useState<number | null>(DEFAULT_RENDER_OPTIONS.panelQuality);
   // Render history (past generated PDFs).
   const [pdfHistory, setPdfHistory] = useState<GeneratedPdf[]>([]);
 
@@ -130,6 +145,32 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
     } catch (err) {
       setProject(previous);
       setError(err instanceof Error ? err.message : "Failed to save scale.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  /**
+   * Persist orientation / overlap / margins / gutter.
+   *
+   * Same shape as `handleScaleChange` and for the same reason: these live on the
+   * project's page grid, `PUT /api/projects/{id}` replaces every grid field, and
+   * `api.projects.patch` resends the ones this call is not changing. Applied
+   * optimistically so the page-count readout tracks the control, rolled back if
+   * the write fails — a setup the server did not accept must not sit in the form
+   * looking saved while the renderer uses the old one.
+   */
+  async function handlePageSetupChange(next: PageSetupValue) {
+    if (!project) return;
+    const previous = project;
+    setError(null);
+    setProject({ ...project, ...next });
+    setSaving(true);
+    try {
+      setProject(await api.projects.patch(previous, next));
+    } catch (err) {
+      setProject(previous);
+      setError(err instanceof Error ? err.message : "Failed to save page setup.");
     } finally {
       setSaving(false);
     }
@@ -361,8 +402,14 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
   // exactly the over-limit case the warning is for, making every flag below
   // provably false. `estimatePages` measures without building and without
   // throwing; `page-estimate.test.ts` pins that.
-  const pendingEstimate = estimatePages(pendingBbox, scale, project.overlap ?? 0);
-  const savedEstimate = estimatePages(project.extent, scale, project.overlap ?? 0);
+  //
+  // The page spec is the PROJECT's, not Letter portrait: margins, gutter and
+  // orientation are now reachable, and they move the printed map box. An
+  // estimate that ignored them would show the page count of a layout the user is
+  // not asking for — and it is the page count that gates Confirm and Generate.
+  const pageSpec = toPageSpec(project);
+  const pendingEstimate = estimatePages(pendingBbox, scale, project.overlap ?? 0, pageSpec);
+  const savedEstimate = estimatePages(project.extent, scale, project.overlap ?? 0, pageSpec);
   const pendingPageCount = pendingEstimate.pages;
   const pendingOverLimit = pendingEstimate.overLimit;
   const savedPageCount = savedEstimate.pages;
@@ -449,6 +496,32 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
                 pick is applied to the atlas when you click Generate.
               </p>
             </section>
+
+            {/* Page setup — orientation, margins, gutter, overlap. Persisted on
+                the project, and the one group of settings that changes the
+                printed footprint, so it changes scale and page count. */}
+            <PageSetup
+              value={{
+                orientation: project.orientation,
+                overlap: project.overlap ?? 0,
+                margins: project.margins,
+              }}
+              onChange={(next) => void handlePageSetupChange(next)}
+              disabled={saving}
+              // Derivation stays in the engine (ADR 0004). The component asks
+              // "how many pages would THIS setup cost", the editor answers with
+              // the real `pageGridSize`, measured on the extent the user has —
+              // not an average, which would be a statement about other people's
+              // boxes.
+              estimatePagesFor={(candidate) =>
+                estimatePages(
+                  project.extent,
+                  scale,
+                  candidate.overlap,
+                  toPageSpec(candidate),
+                ).pages
+              }
+            />
 
             {/* Bounding box */}
             <section className="flex flex-col gap-3 border-b border-bark-300 pb-5">
@@ -673,7 +746,33 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
                   </span>
                 </span>
               </label>
-              <GenerateButton projectId={projectId} tier={tier} route={route} cover={cover} includeLandmarks={includeLandmarks} tableOfContents={tableOfContents} overview={overview} referenceGrid={referenceGrid} notes={notes} disabled={!hasGeometry || savedOverLimit} />
+              <div className="mb-3">
+                <BasemapOptions
+                  value={{ basemap, panelFormat, panelQuality }}
+                  onChange={(next) => {
+                    setBasemap(next.basemap);
+                    setPanelFormat(next.panelFormat);
+                    setPanelQuality(next.panelQuality);
+                  }}
+                />
+              </div>
+              <GenerateButton
+                projectId={projectId}
+                options={{
+                  tier,
+                  route,
+                  cover,
+                  includeLandmarks,
+                  tableOfContents,
+                  overview,
+                  referenceGrid,
+                  notes,
+                  basemap,
+                  panelFormat,
+                  panelQuality,
+                } satisfies RenderOptionsState}
+                disabled={!hasGeometry || savedOverLimit}
+              />
               {!hasGeometry && (
                 <p className="mt-1 font-mono text-[10px] text-bark-500">
                   Set a bounding box or add a location to generate an atlas.

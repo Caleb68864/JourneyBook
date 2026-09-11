@@ -4,6 +4,8 @@ import {
   MAX_ATLAS_PAGES,
   pageGridSize,
   type BBox,
+  type PageMargins,
+  type PageSpec,
   type ScalePreset,
 } from "@journeybook/atlas-core";
 
@@ -40,21 +42,59 @@ export interface PageEstimate {
 
 const NO_ESTIMATE: PageEstimate = { pages: null, columns: null, rows: null, overLimit: false };
 
+/**
+ * The project's page setup as the engine's `PageSpec`.
+ *
+ * Letter is the only sheet the product supports, so only orientation and the
+ * margins vary — but they vary a lot: the printed map box is the printable area
+ * less the furniture, so a margin or a gutter MOVES THE PRINTED FOOTPRINT and
+ * with it the ground each page covers and how many pages a box tiles into.
+ * `orientation` is compared case-insensitively because the API's `PageOrientation`
+ * enum serialises as "Portrait"/"Landscape" while the engine's union is
+ * lower-case — the same mismatch that used to print every landscape project
+ * portrait.
+ */
+export function toPageSpec(setup?: {
+  orientation?: string | null;
+  margins?: Partial<PageMargins> | null;
+} | null): PageSpec {
+  const m = setup?.margins;
+  return {
+    widthIn: LETTER_PORTRAIT.widthIn,
+    heightIn: LETTER_PORTRAIT.heightIn,
+    orientation:
+      typeof setup?.orientation === "string" && setup.orientation.toLowerCase() === "landscape"
+        ? "landscape"
+        : "portrait",
+    margins: {
+      top: m?.top ?? LETTER_PORTRAIT.margins.top,
+      right: m?.right ?? LETTER_PORTRAIT.margins.right,
+      bottom: m?.bottom ?? LETTER_PORTRAIT.margins.bottom,
+      left: m?.left ?? LETTER_PORTRAIT.margins.left,
+      gutter: m?.gutter ?? LETTER_PORTRAIT.margins.gutter ?? 0,
+    },
+  };
+}
+
 export function estimatePages(
   bbox: BBox | null | undefined,
   scale: ScalePreset | null | undefined,
   overlap = 0,
+  // The project's page setup. Optional so every existing caller keeps working,
+  // and defaulted to Letter portrait — which is what this function USED to
+  // assume unconditionally, with a TODO saying so, because there was no control
+  // for margins or orientation anywhere in the app. There is now, and an
+  // estimate that ignored it would report the page count of a layout the user is
+  // not asking for: the one setting that changes printed scale, shown against
+  // the wrong scale.
+  page: PageSpec = LETTER_PORTRAIT,
 ): PageEstimate {
   if (!bbox || !scale) return NO_ESTIMATE;
 
   const size = pageGridSize({
     bbox,
     scale,
-    // TODO(F18): the project's own margins/orientation are on the type and are
-    // honoured by the renderer, but there is still no UI control for them, so the
-    // estimate uses the same Letter portrait the editor's copy assumed. When a
-    // control lands, this must take the project's PageSpec.
-    page: LETTER_PORTRAIT,
+    page,
     overlap,
     tier: DEFAULT_MAP_TIER,
   });

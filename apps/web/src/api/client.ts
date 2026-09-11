@@ -374,6 +374,19 @@ export const api = {
         notes?: boolean;
         /** Tile a grid over the box enclosing every location (projects with no extent). */
         cover?: boolean;
+        /**
+         * Basemap knobs. `basemap` was hardcoded `true` one layer down until the
+         * API gained a member for it, so a caller could not ask for the fast
+         * line-art preview the CLI has always had.
+         *
+         * `panelFormat`/`panelQuality` must be OMITTED, not sent as a default,
+         * when the caller has no opinion: the engine picks each page's panel
+         * width from its own scale preset and its own defaults, and a body that
+         * names them takes that decision away.
+         */
+        basemap?: boolean;
+        panelFormat?: "jpeg" | "png";
+        panelQuality?: number;
       },
     ) =>
       request<RenderResult>("POST", `/projects/${projectId}/render`, { tier, ...opts }),
