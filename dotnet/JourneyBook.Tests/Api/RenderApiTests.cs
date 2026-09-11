@@ -72,7 +72,23 @@ public sealed class FakeRenderWorkerClient(string generatedDir) : IRenderWorkerC
         Directory.CreateDirectory(generatedDir);
         var fullPath = Path.Combine(generatedDir, request.OutputFileName);
         await File.WriteAllBytesAsync(fullPath, "%PDF-1.4\n%%EOF\n"u8.ToArray(), ct);
-        return new RenderWorkerResult(request.OutputFileName, 1, Attribution);
+
+        // The page count this stub REPORTED, not a constant.
+        //
+        // It used to return 1 unconditionally while `Emits` announced a 12-page
+        // render — a stub that contradicts itself, which was invisible for as long
+        // as the count only ever reached the record through a progress write. Now
+        // that a finished render records its own authoritative count (a render
+        // completing inside one poll interval emits no progress at all, and used to
+        // reach `Completed` with no count), the two writes are both real and the
+        // second one is the truth. A fixture that reports 12 and returns 1 makes the
+        // honest behaviour look like a bug.
+        //
+        // The real worker cannot disagree with itself this way: `JobStore.complete`
+        // sets `record.pageCount` from the same render result the progress events
+        // counted towards.
+        var reported = Emits.Count > 0 && Emits[^1].PageCount > 0 ? Emits[^1].PageCount : 1;
+        return new RenderWorkerResult(request.OutputFileName, reported, Attribution);
     }
 }
 
@@ -314,10 +330,35 @@ public class RenderApiTests(RenderApiFactory factory) : IClassFixture<RenderApiF
 
             var final = await PollUntilTerminalAsync(body.GeneratedPdfId);
             Assert.Equal("Completed", final.Status);
-            // The row keeps the last position it was told about, and the denominator
-            // that makes it a fraction.
-            Assert.Equal(7, final.Progress);
-            Assert.Equal(12, final.PageCount);
+
+            // `Progress` can ONLY have come from the progress write — the completion
+            // write carries no progress — so this is the assertion that proves the
+            // reports arrived at all, and it must be read before the one below.
+            Assert.True(
+                final.Progress == 7,
+                $"Progress is {final.Progress?.ToString() ?? "null"}, expected 7. Only " +
+                "UpdateProgressAsync writes this field, so a null means no progress report " +
+                "reached the record (check the handler in RenderJobRunner and the distinct-position " +
+                "filter in HttpRenderWorkerClient); a different number means the wrong report " +
+                "was the last one written.");
+
+            // The denominator. TWO writers now carry a page count — the progress
+            // report, and the completion write with the finished render's own
+            // authoritative count — so a wrong value here has to say WHICH one
+            // produced it or the next reader is left with "12 versus 1".
+            Assert.True(
+                final.PageCount == 12,
+                $"PageCount is {final.PageCount?.ToString() ?? "null"}, expected 12 (the count " +
+                "this test's progress report announced).\n" +
+                $"  Progress on the same record is {final.Progress?.ToString() ?? "null"}, status is {final.Status}.\n" +
+                "  null  → neither writer ran: no progress report arrived AND the completion write " +
+                "did not carry a count.\n" +
+                "  1     → the COMPLETION write won, carrying FakeRenderWorkerClient's returned " +
+                "RenderWorkerResult.PageCount. That is correct behaviour against a stub that reports " +
+                "a 12-page render in Emits and then returns a 1-page result — fix the stub, not the " +
+                "runner. The real worker cannot disagree with itself: JobStore.complete sets " +
+                "record.pageCount from the same result the progress events counted towards.\n" +
+                "  other → the last progress report written was not the one this test emitted.");
             // …and NOT the phase. A terminal row that still says "panel" is a record
             // claiming to be doing something it finished doing.
             Assert.Null(final.Phase);
@@ -864,15 +905,37 @@ public class ProxiedRenderApiTests(ProxiedRenderApiFactory factory)
         return created.Id;
     }
 
+    /// <summary>
+    /// Poll until the record settles, asking <see cref="PdfStatusExtensions.IsTerminal"/>
+    /// rather than restating the set.
+    /// </summary>
+    /// <remarks>
+    /// Written here first as `r.Status is "Completed" or "Failed" or "Cancelled"` —
+    /// **a seventh hand-written copy of the terminal set, added by the sweep that was
+    /// hunting for exactly this**, four commits after the one that removed the other
+    /// six and recorded why. That copy is how `master` went red earlier today: the
+    /// poll and the record disagreed about "terminal", so a `Cancelled` record was
+    /// polled for the full 30 s and reported as a timeout that had not happened.
+    /// Shape 6, self-inflicted, and caught only by re-reading the diff.
+    /// </remarks>
     private async Task<GeneratedPdfResponse> PollUntilTerminalAsync(Guid id)
     {
         for (var i = 0; i < 200; i++)
         {
             var r = await _client.GetFromJsonAsync<GeneratedPdfResponse>($"/api/generated-pdfs/{id}");
-            if (r is not null && r.Status is "Completed" or "Failed" or "Cancelled") return r;
+            if (r is not null
+                && Enum.TryParse<PdfStatus>(r.Status, out var parsed)
+                && parsed.IsTerminal())
+            {
+                return r;
+            }
+
             await Task.Delay(50);
         }
-        throw new TimeoutException($"Generated PDF {id} never reached a terminal status.");
+
+        throw new TimeoutException(
+            $"Generated PDF {id} never reached a terminal status. Terminal is " +
+            $"{string.Join(", ", Enum.GetValues<PdfStatus>().Where(s => s.IsTerminal()))}.");
     }
 
     /// <summary>

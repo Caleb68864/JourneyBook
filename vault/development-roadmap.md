@@ -822,6 +822,33 @@ with the Docker-gated `Api` suites). The Docker-gated suites were **not run** �
 daemon on this machine; six new `Api` tests were written for CI's
 `dotnet-integration` job regardless.
 
+### Working rule for this repository: push the branch, read CI, *then* merge
+
+**Two consecutive merges to `master` went red on the same job — `.NET integration
+(Testcontainers PostGIS)` — and it is the one job that needs Docker and therefore
+cannot run on this machine at all.** Merging on the strength of "everything I can run
+locally is green" is exactly how a job nobody can run locally ends up being discovered
+by `master`.
+
+So, for anyone working in this repo:
+
+1. Push the working branch and let CI run **on the branch**.
+2. Read all four jobs — `Repo hygiene`, `TypeScript`, `.NET (unit, no Docker)`,
+   `.NET integration (Testcontainers PostGIS)`.
+3. Merge `--no-ff` only once the branch is green, then read the run on `master` too.
+
+That costs one CI round trip and removes the failure mode entirely. *"Merged and pushed
+is not done until the CI run has been read"* was always the rule; the correction is
+that for a job you cannot run locally, **reading it has to happen before the merge, not
+after.**
+
+And a companion rule the second failure earned: when a Docker-gated assertion fails,
+the message has to name *which* of the possible causes it is. `Expected: 12, Actual: 1`
+cost a round trip on its own, because the number alone cannot distinguish "no progress
+report arrived" from "a later writer overwrote it" from "the test read too early". Any
+assertion in the `Api` suites that a local run cannot reproduce should say what each
+plausible wrong value would mean.
+
 ## Phase 1: Print Geometry
 Build the Docker-hosted React/Vite/shadcn/Tailwind web app skeleton, define the outdoor field-guide visual system, accept bounding boxes, create page grid, generate overview and detail pages, and validate Letter-size PDF output from the preferred client-side React PDF path.
 
