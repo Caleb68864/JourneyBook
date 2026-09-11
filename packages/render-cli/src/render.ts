@@ -159,6 +159,87 @@ export interface RenderAtlasInput {
   panelFormat?: PanelFormat;
   /** JPEG quality 1–100 (ignored for PNG). Default 90. */
   panelQuality?: number;
+
+  // ── Not wire fields ──────────────────────────────────────────────────────
+  //
+  // The two below are in-process callbacks/objects, not JSON. They are listed in
+  // NON_WIRE_INPUT_FIELDS and deliberately absent from the render-worker's
+  // `POST /render` JSON schema; `render-worker/src/wire-contract.test.ts` asserts
+  // that correspondence in both directions, so adding a field here without
+  // deciding which side of the wire it is on fails a test rather than silently
+  // becoming a field the worker refuses.
+
+  /**
+   * Called as the render advances, so a caller that owns the job (the
+   * render-worker) can report "page 12 of 60" instead of "in progress".
+   *
+   * Emitted once per basemap panel, which is where the time actually goes: a
+   * 60-page atlas is 60 sequential tile fetches. With `basemap` off there are no
+   * panels and the render jumps from `contract` to `pdf`, which is honest — the
+   * work is the fetching.
+   */
+  onProgress?: (progress: RenderProgress) => void;
+
+  /**
+   * Cooperative cancellation, checked **between pages**.
+   *
+   * `renderMapPanel` is not interruptible, so the finest grain available is one
+   * page's tile mosaic; a cancel lands within one page's fetch rather than
+   * instantly. That is the whole reason the signal is honoured here and not only
+   * at the HTTP layer: aborting a request the worker has already dispatched
+   * leaves the worker rendering, which is a cancel button that does not cancel.
+   */
+  signal?: AbortSignal;
+}
+
+/**
+ * The fields of {@link RenderAtlasInput} that are **not** part of the worker's
+ * JSON wire contract, because they cannot be expressed in JSON.
+ *
+ * Named here rather than in the worker so there is one statement of it, next to
+ * the interface it qualifies. The parity test reads this list.
+ */
+export const NON_WIRE_INPUT_FIELDS: readonly string[] = ["onProgress", "signal", "cacheDir"];
+
+/** Where a render has got to. `page` is 0-based-exclusive: pages finished so far. */
+export interface RenderProgress {
+  /**
+   * `contract` — pages derived, nothing drawn yet.
+   * `panel` — one page's basemap panel finished.
+   * `overview` — the front-matter overview panel finished.
+   * `pdf` — all panels done, writing the PDF.
+   * `done` — the file is on disk.
+   */
+  phase: "contract" | "panel" | "overview" | "pdf" | "done";
+  /** Pages whose basemap panel is finished. */
+  page: number;
+  /** Total pages in the assembled contract. */
+  pageCount: number;
+  /** The page just finished, for `phase: "panel"`. */
+  pageId?: string;
+}
+
+/**
+ * A render stopped because its {@link RenderAtlasInput.signal} was aborted.
+ *
+ * A distinct type because the alternative is what this codebase has produced
+ * three times: one broken invariant reported as another's failure. The basemap
+ * loop wraps every throw as "Failed to fetch basemap tile panel for page X",
+ * which would have made a deliberate cancel indistinguishable from a tile
+ * source being down — and the worker's classifier maps that to 502, so a user
+ * pressing Cancel would have been told the map server was unreachable.
+ */
+export class RenderCancelledError extends Error {
+  /** Pages finished before the cancel was observed. */
+  readonly page: number;
+  readonly pageCount: number;
+
+  constructor(page: number, pageCount: number) {
+    super(`Render was cancelled after ${page} of ${pageCount} pages.`);
+    this.name = "RenderCancelledError";
+    this.page = page;
+    this.pageCount = pageCount;
+  }
 }
 
 export interface RenderAtlasResult {
@@ -515,6 +596,32 @@ export function assembleContract(input: RenderAtlasInput): AssembledAtlas {
 export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasResult> {
   const { contract, locationList, routePolyline } = assembleContract(input);
 
+  const totalPages = contract.pages.length;
+  let pagesDone = 0;
+  const report = (phase: RenderProgress["phase"], pageId?: string): void => {
+    input.onProgress?.({
+      phase,
+      page: pagesDone,
+      pageCount: totalPages,
+      ...(pageId ? { pageId } : {}),
+    });
+  };
+  /**
+   * Throws {@link RenderCancelledError} if the caller has aborted.
+   *
+   * Called between pages, never inside one: `renderMapPanel` has no signal, so a
+   * check inside it would be a lie about the grain.
+   */
+  const throwIfCancelled = (): void => {
+    if (input.signal?.aborted) throw new RenderCancelledError(pagesDone, totalPages);
+  };
+
+  // Emitted before any drawing so a poller learns the page count as soon as the
+  // engine knows it. Without this, "page 0 of 0" is the honest answer for the
+  // whole of the contract phase and a progress bar has nothing to scale to.
+  throwIfCancelled();
+  report("contract");
+
   const panelOptions = {
     ...(input.tileBaseUrl ? { tileBaseUrl: input.tileBaseUrl } : {}),
     ...(input.tileSourceId ? { sourceId: input.tileSourceId } : {}),
@@ -547,6 +654,16 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
     for (const page of contract.pages) {
       const pageWidthPx = panelWidthFor(page);
       try {
+        // Between pages, before the fetch starts. A cancel arriving mid-mosaic is
+        // observed here, one page later — the cost of renderMapPanel having no
+        // signal of its own, and the reason the message says how far it got.
+        //
+        // INSIDE the try on purpose. Outside it, the catch below could never see
+        // a RenderCancelledError, which makes its rethrow dead code and any test
+        // of that rethrow vacuous — measured: with the check outside, deleting
+        // the rethrow left the whole cancellation suite green. Here the wrapper
+        // genuinely has to tell a cancel from a tile failure.
+        throwIfCancelled();
         const panel = await renderMapPanel(page.bbox, pageWidthPx, undefined, panelOptions);
         panels[page.id] = `data:${panel.mimeType};base64,${panel.bytes.toString("base64")}`;
         if (panel.attribution && !attributions.includes(panel.attribution)) {
@@ -572,11 +689,22 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
           );
         }
       } catch (err) {
+        // A cancel is not a tile failure. Without this line the wrapper below
+        // would restate "the user pressed Cancel" as "Failed to fetch basemap
+        // tile panel for page A3", which the worker's classifier maps to 502 —
+        // the user would be told the map server was unreachable. Rethrow
+        // untouched so the one thing that actually happened is what is reported.
+        if (err instanceof RenderCancelledError) throw err;
         // Surface a clear, source-aware message so the worker can map a tile
         // failure to 502 (its classifier matches "tile"/"fetch") rather than 500.
         const detail = err instanceof Error ? err.message : String(err);
         throw new Error(`Failed to fetch basemap tile panel for page ${page.id}: ${detail}`);
       }
+      // After the page is genuinely on the pile, not before: a progress report
+      // that counts pages it has only started is a progress bar that reaches
+      // 100% with work outstanding.
+      pagesDone += 1;
+      report("panel", page.id);
     }
   }
 
@@ -660,10 +788,12 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
       stops: locationList.map((loc, i) => ({ center: loc.center, label: loc.label ?? `L${i + 1}`, pin: loc.pin })),
     });
     if (input.basemap) {
+      throwIfCancelled();
       try {
         const panel = await renderMapPanel(overview.bbox, overviewWidthPx, undefined, panelOptions);
         overviewPanel = `data:${panel.mimeType};base64,${panel.bytes.toString("base64")}`;
         stderr.write(`  overview panel (z${panel.zoom})\n`);
+        report("overview");
       } catch (err) {
         // Non-fatal: the overview still renders with page rectangles over a blank panel.
         stderr.write(`  overview panel skipped: ${err instanceof Error ? err.message : String(err)}\n`);
@@ -674,6 +804,13 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
   // One credit line for the PDF footer. Undefined when no basemap was rendered:
   // a page with no map data on it must not claim a map source.
   const attribution = attributions.length > 0 ? attributions.join(" · ") : undefined;
+
+  // The last place a cancel can be honoured. `renderAtlasPdfToFile` is one
+  // uninterruptible call, so past this point a cancel can only be reported after
+  // the PDF exists — and a cancel that silently produced the artifact anyway
+  // would be the third way of lying about what happened.
+  throwIfCancelled();
+  report("pdf");
 
   await renderAtlasPdfToFile({
     contract,
@@ -690,6 +827,8 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
     referenceGrid: input.referenceGrid ?? true,
     notes: input.notes ?? true,
   });
+
+  report("done");
 
   return {
     outputPath: input.outputPath,

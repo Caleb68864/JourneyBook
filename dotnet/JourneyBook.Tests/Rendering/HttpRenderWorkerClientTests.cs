@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using JourneyBook.Application.Rendering;
 using JourneyBook.Infrastructure.Rendering;
+using JourneyBook.Application.Common;
 
 namespace JourneyBook.Tests.Rendering;
 
@@ -16,31 +17,98 @@ namespace JourneyBook.Tests.Rendering;
 /// </summary>
 public class HttpRenderWorkerClientTests
 {
-    private sealed class CapturingHandler(string responseJson) : HttpMessageHandler
+    /// <summary>
+    /// A fake render worker speaking the ADR 0007 job protocol: <c>POST /render</c>
+    /// answers 202 with a job id, <c>GET /jobs/{id}</c> walks a scripted sequence of
+    /// records, <c>DELETE /jobs/{id}</c> is noted.
+    /// </summary>
+    /// <remarks>
+    /// The POST body is still what most of these tests are about — the wire contract
+    /// — so <see cref="CapturedBody"/> and <see cref="CapturedPath"/> record the
+    /// POST and nothing else. A handler that let the polls overwrite them would
+    /// leave every wire assertion in this file reading a <c>GET /jobs/…</c>, which is
+    /// a suite that passes while measuring the wrong request.
+    /// </remarks>
+    private sealed class FakeWorkerHandler : HttpMessageHandler
     {
+        private int _polls;
+
+        public FakeWorkerHandler(params string[] jobRecords)
+        {
+            JobRecords = jobRecords.Length > 0
+                ? jobRecords
+                : ["{\"id\":\"job-1\",\"state\":\"completed\",\"page\":1,\"pageCount\":1,\"phase\":\"done\",\"outputPath\":\"atlas-x.pdf\",\"attribution\":\"USGS\"}"];
+        }
+
+        /// <summary>The POST /render body, and only that.</summary>
         public string? CapturedBody { get; private set; }
         public string? CapturedPath { get; private set; }
+
+        /// <summary>Scripted <c>GET /jobs/{id}</c> answers; the last one repeats.</summary>
+        public IReadOnlyList<string> JobRecords { get; }
+
+        /// <summary>Status the POST answers with. 202 is the protocol; others test refusal.</summary>
+        public HttpStatusCode AcceptStatus { get; set; } = HttpStatusCode.Accepted;
+
+        /// <summary>Body the POST answers with when <see cref="AcceptStatus"/> is not 202.</summary>
+        public string AcceptErrorBody { get; set; } = "{\"error\":\"refused\"}";
+
+        /// <summary>Status every <c>GET /jobs/{id}</c> answers with.</summary>
+        public HttpStatusCode PollStatus { get; set; } = HttpStatusCode.OK;
+
+        /// <summary>True once the client has told the worker to stop.</summary>
+        public bool CancelledOnWorker { get; private set; }
+
+        public int Polls => _polls;
 
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            CapturedPath = request.RequestUri?.AbsolutePath;
-            CapturedBody = request.Content is null
-                ? null
-                : await request.Content.ReadAsStringAsync(cancellationToken);
-            return new HttpResponseMessage(HttpStatusCode.OK)
+            var path = request.RequestUri?.AbsolutePath ?? "";
+
+            if (request.Method == HttpMethod.Delete)
             {
-                Content = new StringContent(responseJson, Encoding.UTF8, "application/json"),
-            };
+                CancelledOnWorker = true;
+                return Json(HttpStatusCode.OK, "{\"id\":\"job-1\",\"state\":\"cancelled\",\"page\":0,\"pageCount\":0}");
+            }
+
+            if (request.Method == HttpMethod.Post)
+            {
+                CapturedPath = path;
+                CapturedBody = request.Content is null
+                    ? null
+                    : await request.Content.ReadAsStringAsync(cancellationToken);
+                return AcceptStatus == HttpStatusCode.Accepted
+                    ? Json(HttpStatusCode.Accepted,
+                        "{\"jobId\":\"job-1\",\"state\":\"rendering\",\"statusUrl\":\"/jobs/job-1\"}")
+                    : Json(AcceptStatus, AcceptErrorBody);
+            }
+
+            var index = Math.Min(_polls, JobRecords.Count - 1);
+            _polls++;
+            return PollStatus == HttpStatusCode.OK
+                ? Json(HttpStatusCode.OK, JobRecords[index])
+                : Json(PollStatus, "{\"error\":\"no such job\"}");
         }
+
+        private static HttpResponseMessage Json(HttpStatusCode status, string body) =>
+            new(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
     }
 
-    private static (HttpRenderWorkerClient client, CapturingHandler handler) Build()
+    /// <summary>A client whose poll interval is a millisecond, so the loop is testable.</summary>
+    private static HttpRenderWorkerClient ClientFor(FakeWorkerHandler handler, TimeSpan? timeout = null) =>
+        new(
+            new HttpClient(handler)
+            {
+                BaseAddress = new Uri("http://render-worker:8090"),
+                Timeout = timeout ?? TimeSpan.FromMinutes(15),
+            },
+            new RenderWorkerPollOptions(TimeSpan.FromMilliseconds(1)));
+
+    private static (HttpRenderWorkerClient client, FakeWorkerHandler handler) Build()
     {
-        var handler = new CapturingHandler(
-            "{\"outputPath\":\"atlas-x.pdf\",\"pageCount\":1,\"attribution\":\"USGS\"}");
-        var http = new HttpClient(handler) { BaseAddress = new Uri("http://render-worker:8090") };
-        return (new HttpRenderWorkerClient(http), handler);
+        var handler = new FakeWorkerHandler();
+        return (ClientFor(handler), handler);
     }
 
     [Fact]
@@ -53,7 +121,7 @@ public class HttpRenderWorkerClientTests
             Orientation: "Portrait",
             Overlap: 0.05,
             Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
-            Extent: new RenderBBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Extent: new BBoxDto(-96.75, 40.78, -96.65, 40.85),
             Locations: [],
             OutputFileName: "atlas-abc.pdf");
 
@@ -132,7 +200,7 @@ public class HttpRenderWorkerClientTests
             Orientation: "Portrait",
             Overlap: 0.05,
             Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
-            Extent: new RenderBBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Extent: new BBoxDto(-96.75, 40.78, -96.65, 40.85),
             Locations: [],
             OutputFileName: "atlas-route.pdf",
             Route: true);
@@ -229,7 +297,7 @@ public class HttpRenderWorkerClientTests
         await bboxClient.RenderAsync(new RenderWorkerRequest(
             ScalePresetId: "1-100000", Tier: 1, Orientation: "Portrait", Overlap: 0,
             Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
-            Extent: new RenderBBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Extent: new BBoxDto(-96.75, 40.78, -96.65, 40.85),
             Locations: [new RenderLocationDto(-96.70, 40.81, "Home")],
             OutputFileName: "atlas-cover-bbox.pdf",
             Cover: true));
@@ -267,7 +335,7 @@ public class HttpRenderWorkerClientTests
             // Four DIFFERENT sides plus a gutter: a payload that copied one value to
             // all four, or dropped the gutter, cannot pass this.
             Margins: new RenderMarginsDto(Top: 0.75, Right: 0.6, Bottom: 0.8, Left: 0.9, Gutter: 0.25),
-            Extent: new RenderBBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Extent: new BBoxDto(-96.75, 40.78, -96.65, 40.85),
             Locations: [],
             OutputFileName: "atlas-margins.pdf");
 
@@ -303,7 +371,7 @@ public class HttpRenderWorkerClientTests
         await client.RenderAsync(new RenderWorkerRequest(
             ScalePresetId: "usgs-7-5-min", Tier: 1, Orientation: csharp, Overlap: 0,
             Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
-            Extent: new RenderBBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Extent: new BBoxDto(-96.75, 40.78, -96.65, 40.85),
             Locations: [], OutputFileName: "atlas-orientation.pdf"));
 
         using var doc = JsonDocument.Parse(handler.CapturedBody!);
@@ -358,7 +426,7 @@ public class HttpRenderWorkerClientTests
         await bboxClient.RenderAsync(new RenderWorkerRequest(
             ScalePresetId: "usgs-7-5-min", Tier: 2, Orientation: "Portrait", Overlap: overlap,
             Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
-            Extent: new RenderBBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Extent: new BBoxDto(-96.75, 40.78, -96.65, 40.85),
             Locations: [], OutputFileName: "atlas-overlap-bbox.pdf"));
 
         using (var doc = JsonDocument.Parse(bboxHandler.CapturedBody!))
@@ -410,7 +478,7 @@ public class HttpRenderWorkerClientTests
         var req = new RenderWorkerRequest(
             ScalePresetId: "usgs-7-5-min", Tier: 1, Orientation: "Portrait", Overlap: 0,
             Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
-            Extent: new RenderBBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Extent: new BBoxDto(-96.75, 40.78, -96.65, 40.85),
             Locations: [], OutputFileName: "atlas-slow.pdf");
 
         // HttpClient signals its OWN timeout as TaskCanceledException — an
@@ -424,6 +492,160 @@ public class HttpRenderWorkerClientTests
         Assert.Contains("timed out", ex.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("RenderWorker:TimeoutSeconds", ex.Message, StringComparison.Ordinal);
         Assert.Contains("0.25", ex.Message, StringComparison.Ordinal);
+    }
+
+    // ── The job protocol (ADR 0007) ──────────────────────────────────────────
+
+    private static RenderWorkerRequest JobRequest(string name = "atlas-job.pdf") => new(
+        ScalePresetId: "usgs-7-5-min", Tier: 1, Orientation: "Portrait", Overlap: 0,
+        Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
+        Extent: new BBoxDto(-96.75, 40.78, -96.65, 40.85),
+        Locations: [], OutputFileName: name);
+
+    [Fact]
+    public async Task Follows_an_accepted_job_to_completion_and_returns_its_result()
+    {
+        var handler = new FakeWorkerHandler(
+            "{\"id\":\"job-1\",\"state\":\"rendering\",\"page\":0,\"pageCount\":3,\"phase\":\"contract\"}",
+            "{\"id\":\"job-1\",\"state\":\"rendering\",\"page\":2,\"pageCount\":3,\"phase\":\"panel\"}",
+            "{\"id\":\"job-1\",\"state\":\"completed\",\"page\":3,\"pageCount\":3,\"phase\":\"done\",\"outputPath\":\"atlas-job.pdf\",\"attribution\":\"USGS\"}");
+
+        var result = await ClientFor(handler).RenderAsync(JobRequest());
+
+        Assert.Equal("atlas-job.pdf", result.OutputPath);
+        Assert.Equal(3, result.PageCount);
+        Assert.Equal("USGS", result.Attribution);
+        // More than one poll: a client that read the record once and returned would
+        // have answered "rendering" as if it were a result.
+        Assert.True(handler.Polls >= 3, $"only polled {handler.Polls} times");
+    }
+
+    [Fact]
+    public async Task Reports_each_distinct_position_to_the_caller_exactly_once()
+    {
+        var handler = new FakeWorkerHandler(
+            "{\"id\":\"job-1\",\"state\":\"rendering\",\"page\":0,\"pageCount\":3,\"phase\":\"contract\"}",
+            "{\"id\":\"job-1\",\"state\":\"rendering\",\"page\":1,\"pageCount\":3,\"phase\":\"panel\"}",
+            // Deliberately repeated: the worker is polled faster than it renders, so
+            // most polls return the SAME position. Reporting each one would be a
+            // database write per poll rather than per page.
+            "{\"id\":\"job-1\",\"state\":\"rendering\",\"page\":1,\"pageCount\":3,\"phase\":\"panel\"}",
+            "{\"id\":\"job-1\",\"state\":\"rendering\",\"page\":2,\"pageCount\":3,\"phase\":\"panel\"}",
+            "{\"id\":\"job-1\",\"state\":\"completed\",\"page\":3,\"pageCount\":3,\"phase\":\"done\",\"outputPath\":\"atlas-job.pdf\"}");
+
+        var seen = new List<RenderProgressUpdate>();
+        await ClientFor(handler).RenderAsync(
+            JobRequest(),
+            (u, _) => { seen.Add(u); return Task.CompletedTask; });
+
+        Assert.Equal([0, 1, 2], seen.Select(u => u.Page));
+        Assert.All(seen, u => Assert.Equal(3, u.PageCount));
+        // The engine's own phase names, carried through rather than re-invented.
+        Assert.Equal(["contract", "panel", "panel"], seen.Select(u => u.Phase));
+    }
+
+    [Fact]
+    public async Task A_failed_job_throws_with_the_workers_own_diagnostic_and_its_kind()
+    {
+        var handler = new FakeWorkerHandler(
+            "{\"id\":\"job-1\",\"state\":\"failed\",\"page\":2,\"pageCount\":9,\"errorKind\":\"upstream\",\"error\":\"Failed to fetch basemap tile panel for page A3\"}");
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => ClientFor(handler).RenderAsync(JobRequest()));
+
+        Assert.Contains("Failed to fetch basemap tile panel", ex.Message, StringComparison.Ordinal);
+        // The kind is a field the worker recorded at the throw site, not a substring
+        // guessed here — that guessing is what once turned a timeout into a cancel.
+        Assert.Contains("upstream", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_cancelled_job_throws_a_cancellation_not_a_failure()
+    {
+        var handler = new FakeWorkerHandler(
+            "{\"id\":\"job-1\",\"state\":\"cancelled\",\"page\":4,\"pageCount\":12,\"errorKind\":\"cancelled\",\"error\":\"Render was cancelled after 4 of 12 pages.\"}");
+
+        var ex = await Assert.ThrowsAsync<RenderCancelledException>(
+            () => ClientFor(handler).RenderAsync(JobRequest()));
+
+        Assert.Contains("4 of 12", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_cancel_reaches_the_worker_rather_than_only_the_API()
+    {
+        // THE point of the whole protocol. Abandoning the API's own wait would leave
+        // the worker rendering to completion, still fetching every tile, for an atlas
+        // nobody can reach — a cancel button that cancels a progress bar.
+        var handler = new FakeWorkerHandler(
+            "{\"id\":\"job-1\",\"state\":\"rendering\",\"page\":1,\"pageCount\":50,\"phase\":\"panel\"}");
+        using var cts = new CancellationTokenSource();
+
+        var call = ClientFor(handler).RenderAsync(
+            JobRequest(),
+            (_, _) => { cts.Cancel(); return Task.CompletedTask; },
+            cts.Token);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => call);
+        Assert.True(handler.CancelledOnWorker, "the worker was never told to stop");
+    }
+
+    [Fact]
+    public async Task Control_a_completed_render_is_not_cancelled_on_the_worker()
+    {
+        // The acceptance control for the test above: a DELETE on the happy path
+        // would be a client that cancels every render it has just finished.
+        var (client, handler) = Build();
+        await client.RenderAsync(JobRequest());
+        Assert.False(handler.CancelledOnWorker);
+    }
+
+    [Fact]
+    public async Task Gives_up_at_its_deadline_and_stops_the_worker_rather_than_abandoning_it()
+    {
+        var handler = new FakeWorkerHandler(
+            "{\"id\":\"job-1\",\"state\":\"rendering\",\"page\":1,\"pageCount\":200,\"phase\":\"panel\"}");
+
+        var ex = await Assert.ThrowsAsync<TimeoutException>(
+            () => ClientFor(handler, TimeSpan.FromMilliseconds(1)).RenderAsync(JobRequest()));
+
+        // Says where the render had got to, which is the difference between "it is
+        // too slow" and "it is stuck".
+        Assert.Contains("page 1 of 200", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("RenderWorker:TimeoutSeconds", ex.Message, StringComparison.Ordinal);
+        Assert.True(handler.CancelledOnWorker, "the API gave up and left the worker rendering");
+    }
+
+    [Fact]
+    public async Task A_job_the_worker_has_forgotten_is_reported_as_gone_not_waited_on()
+    {
+        var handler = new FakeWorkerHandler { PollStatus = HttpStatusCode.NotFound };
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => ClientFor(handler).RenderAsync(JobRequest()));
+
+        // A worker restart loses its jobs (they are in memory, ADR 0007). Polling a
+        // job that no longer exists until the deadline would report the wrong reason
+        // fifteen minutes late.
+        Assert.Contains("restarted", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task A_refused_request_still_carries_the_workers_400_verbatim()
+    {
+        // Everything judgeable before a job exists still answers on the POST, and its
+        // wording is the only thing the user will see on the failed record.
+        var handler = new FakeWorkerHandler
+        {
+            AcceptStatus = HttpStatusCode.BadRequest,
+            AcceptErrorBody = "{\"error\":\"Invalid request: this extent produces 5256 pages\"}",
+        };
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => ClientFor(handler).RenderAsync(JobRequest()));
+
+        Assert.Contains("5256 pages", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("400", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -440,10 +662,10 @@ public class HttpRenderWorkerClientTests
         var req = new RenderWorkerRequest(
             ScalePresetId: "usgs-7-5-min", Tier: 1, Orientation: "Portrait", Overlap: 0,
             Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
-            Extent: new RenderBBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Extent: new BBoxDto(-96.75, 40.78, -96.65, 40.85),
             Locations: [], OutputFileName: "atlas-cancelled.pdf");
 
-        var call = client.RenderAsync(req, cts.Token);
+        var call = client.RenderAsync(req, null, cts.Token);
         await cts.CancelAsync();
 
         // Host shutdown must keep its own diagnosis: only a deadline the caller did
@@ -481,7 +703,7 @@ public class HttpRenderWorkerClientTests
         await bboxClient.RenderAsync(new RenderWorkerRequest(
             ScalePresetId: "1-50000", Tier: 2, Orientation: "Portrait", Overlap: 0,
             Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
-            Extent: new RenderBBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Extent: new BBoxDto(-96.75, 40.78, -96.65, 40.85),
             Locations: [], OutputFileName: "atlas-knobs-bbox.pdf",
             Basemap: false, PanelWidthPx: 2048, PanelFormat: "png", PanelQuality: 55));
 
@@ -535,7 +757,7 @@ public class HttpRenderWorkerClientTests
         await client.RenderAsync(new RenderWorkerRequest(
             ScalePresetId: "1-50000", Tier: 2, Orientation: "Portrait", Overlap: 0,
             Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
-            Extent: new RenderBBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Extent: new BBoxDto(-96.75, 40.78, -96.65, 40.85),
             Locations: [], OutputFileName: "atlas-default-knobs.pdf"));
 
         using var doc = JsonDocument.Parse(handler.CapturedBody!);
@@ -568,7 +790,7 @@ public class HttpRenderWorkerClientTests
         await client.RenderAsync(new RenderWorkerRequest(
             ScalePresetId: "1-50000", Tier: 1, Orientation: "Portrait", Overlap: 0,
             Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
-            Extent: new RenderBBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Extent: new BBoxDto(-96.75, 40.78, -96.65, 40.85),
             Locations: [], OutputFileName: "atlas-fmt.pdf",
             PanelFormat: input));
 

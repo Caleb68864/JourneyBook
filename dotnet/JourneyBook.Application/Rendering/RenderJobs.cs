@@ -45,8 +45,47 @@ public interface IRenderJobQueue
 }
 
 /// <summary>
+/// One cancellation token per accepted render, keyed by its <c>GeneratedPdf</c> id.
+/// </summary>
+/// <remarks>
+/// <para>
+/// A render is cancellable from the moment it is accepted, which is before anything
+/// is running: the job may be waiting in the queue, or the worker may already have
+/// it. One token covers both — the processor refuses to start a job whose token is
+/// already cancelled, and <c>HttpRenderWorkerClient</c> turns the same token into a
+/// <c>DELETE /jobs/{id}</c> on the worker.
+/// </para>
+/// <para>
+/// In memory, and a singleton, for the same reason the queue is (ADR 0006): a token
+/// is a handle on work happening in this process. Persisting it would let a
+/// restarted host "cancel" a render that is not happening, which is a worse answer
+/// than saying it is not running here.
+/// </para>
+/// </remarks>
+public interface IRenderCancellationRegistry
+{
+    /// <summary>Register a token for a newly accepted render and return it.</summary>
+    CancellationToken Register(Guid generatedPdfId);
+
+    /// <summary>
+    /// The token for a registered render, or <see cref="CancellationToken.None"/>
+    /// when this process has no job for it.
+    /// </summary>
+    CancellationToken TokenFor(Guid generatedPdfId);
+
+    /// <summary>
+    /// Cancel a registered render. Returns false when this process has no job for
+    /// it — which is a real answer, not a failure to try.
+    /// </summary>
+    bool Cancel(Guid generatedPdfId);
+
+    /// <summary>Drop a finished render's token. Safe to call more than once.</summary>
+    void Release(Guid generatedPdfId);
+}
+
+/// <summary>
 /// Performs one queued render: marks the lifecycle record <c>Rendering</c>, invokes the
-/// render worker, then marks it <c>Completed</c> or <c>Failed</c>.
+/// render worker, then marks it <c>Completed</c>, <c>Failed</c> or <c>Cancelled</c>.
 /// </summary>
 /// <remarks>
 /// Split out from the hosted background loop that drives it so the state machine

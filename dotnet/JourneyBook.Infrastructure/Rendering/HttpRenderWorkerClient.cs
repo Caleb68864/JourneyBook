@@ -17,8 +17,11 @@ namespace JourneyBook.Infrastructure.Rendering;
 /// decoupled. A project with a persisted extent renders as a bbox grid; otherwise it
 /// renders a single location page centred on the first saved location.
 /// </remarks>
-public class HttpRenderWorkerClient(HttpClient http) : IRenderWorkerClient
+public class HttpRenderWorkerClient(HttpClient http, RenderWorkerPollOptions? pollOptions = null)
+    : IRenderWorkerClient
 {
+    private readonly RenderWorkerPollOptions _poll = pollOptions ?? new RenderWorkerPollOptions();
+
     private static readonly JsonSerializerOptions s_readOptions =
         new() { PropertyNameCaseInsensitive = true };
 
@@ -226,10 +229,117 @@ public class HttpRenderWorkerClient(HttpClient http) : IRenderWorkerClient
             "Cannot render: the project has neither an extent (bbox) nor any saved locations.");
     }
 
-    public async Task<RenderWorkerResult> RenderAsync(RenderWorkerRequest request, CancellationToken ct = default)
+    /// <summary>The worker's job record, as <c>GET /jobs/{id}</c> returns it (ADR 0007).</summary>
+    private sealed record WorkerJob(
+        string Id,
+        string State,
+        int Page,
+        int PageCount,
+        string? Phase,
+        string? OutputPath,
+        string? Attribution,
+        string? Error,
+        string? ErrorKind);
+
+    /// <summary>The 202 body from <c>POST /render</c>.</summary>
+    private sealed record WorkerAccepted(string JobId, string State, string? StatusUrl);
+
+    public async Task<RenderWorkerResult> RenderAsync(
+        RenderWorkerRequest request,
+        RenderProgressHandler? onProgress = null,
+        CancellationToken ct = default)
     {
         var payload = ToWirePayload(request);
 
+        // The overall render deadline, read off the HttpClient this type was
+        // configured with rather than restated. Since the job protocol, no single
+        // HTTP call here lasts a render — the POST accepts and each GET is a status
+        // read — so without this the render would have no API-side bound at all.
+        // Taking it from `http.Timeout` keeps ONE number: the one
+        // `RenderWorker:TimeoutSeconds` sets, that `DependencyInjectionTests` pins
+        // against the web client's own patience.
+        var deadline = DateTimeOffset.UtcNow + http.Timeout;
+
+        var accepted = await AcceptJobAsync(payload, ct);
+
+        RenderProgressUpdate? lastReported = null;
+
+        while (true)
+        {
+            // Ask before sleeping, so a job that finished during the last interval
+            // is reported as finished rather than waited on again.
+            WorkerJob job;
+            try
+            {
+                job = await FetchJobAsync(accepted.JobId, ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                // Someone asked us to stop. Tell the WORKER, or the render carries
+                // on to completion and every tile it still needs is fetched for an
+                // atlas nobody will be able to reach. This is the difference between
+                // a cancel button and a button that hides the progress bar.
+                await TryCancelJobAsync(accepted.JobId);
+                throw;
+            }
+
+            switch (job.State)
+            {
+                case "completed":
+                    if (job.OutputPath is null)
+                        throw new InvalidOperationException(
+                            $"Render worker job {job.Id} reported completed with no output path.");
+                    return new RenderWorkerResult(job.OutputPath, job.PageCount, job.Attribution);
+
+                case "cancelled":
+                    // Its own exception type, not an OperationCanceledException: an
+                    // HttpClient deadline throws one of those too, and conflating
+                    // them is exactly how a timeout came to be reported to users as
+                    // a cancellation.
+                    throw new RenderCancelledException(
+                        job.Error ?? $"Render worker job {job.Id} was cancelled.");
+
+                case "failed":
+                    throw new InvalidOperationException(
+                        $"Render worker failed ({job.ErrorKind ?? "unknown"}): {job.Error ?? "no diagnostic"}");
+            }
+
+            if (onProgress is not null && job.PageCount > 0)
+            {
+                var update = new RenderProgressUpdate(job.Page, job.PageCount, job.Phase ?? "rendering");
+                if (update != lastReported)
+                {
+                    lastReported = update;
+                    // Awaited, not fired: see RenderProgressHandler. The handler
+                    // writes a row, and an unordered write racing the terminal
+                    // status is a record that says "Completed" and "page 12" at once.
+                    await onProgress(update, ct);
+                }
+            }
+
+            if (DateTimeOffset.UtcNow >= deadline)
+            {
+                await TryCancelJobAsync(accepted.JobId);
+                throw new TimeoutException(
+                    $"Render timed out: the render worker was still on page {job.Page} of {job.PageCount} " +
+                    $"after {http.Timeout.TotalSeconds:0.##}s, so the API stopped waiting and cancelled the job. " +
+                    "Raise RenderWorker:TimeoutSeconds (RenderWorker__TimeoutSeconds) if large atlases legitimately take longer.");
+            }
+
+            try
+            {
+                await Task.Delay(_poll.Interval, ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                await TryCancelJobAsync(accepted.JobId);
+                throw;
+            }
+        }
+    }
+
+    private async Task<WorkerAccepted> AcceptJobAsync(WorkerRenderPayload payload, CancellationToken ct)
+    {
         HttpResponseMessage response;
         try
         {
@@ -247,9 +357,9 @@ public class HttpRenderWorkerClient(HttpClient http) : IRenderWorkerClient
             // deadline. Name it, and say which knob moves it — this is the one place
             // that knows the number.
             throw new TimeoutException(
-                $"Render timed out: the render worker did not answer within {http.Timeout.TotalSeconds:0.##}s, " +
-                "so the API stopped waiting. The render may still be running inside the worker. " +
-                "Raise RenderWorker:TimeoutSeconds (RenderWorker__TimeoutSeconds) if large atlases legitimately take longer.");
+                $"Render timed out before it started: the render worker did not accept the job within " +
+                $"{http.Timeout.TotalSeconds:0.##}s, so the API stopped waiting. " +
+                "Raise RenderWorker:TimeoutSeconds (RenderWorker__TimeoutSeconds) if the worker is legitimately that slow to answer.");
         }
 
         using var owned = response;
@@ -258,16 +368,69 @@ public class HttpRenderWorkerClient(HttpClient http) : IRenderWorkerClient
         {
             // Preserve the worker's diagnostic (e.g. {"error":"outputPath traversal
             // rejected"}) instead of the opaque "Response status code does not
-            // indicate success" that EnsureSuccessStatusCode would throw.
+            // indicate success" that EnsureSuccessStatusCode would throw. Everything
+            // the worker can judge before a job exists still answers here — the
+            // schema, the tile-URL policy, outputPath confinement and the engine's
+            // own contract assembly (ADR 0007).
             var body = await response.Content.ReadAsStringAsync(ct);
             throw new InvalidOperationException(
                 $"Render worker returned {(int)response.StatusCode}: {body}");
         }
 
-        var result = await response.Content.ReadFromJsonAsync<RenderWorkerResult>(s_readOptions, ct);
-        if (result is null)
-            throw new InvalidOperationException("Render worker returned an empty or unparseable response.");
+        var accepted = await response.Content.ReadFromJsonAsync<WorkerAccepted>(s_readOptions, ct);
+        if (accepted is null || string.IsNullOrWhiteSpace(accepted.JobId))
+            throw new InvalidOperationException(
+                "Render worker accepted the render without returning a job id, so there is nothing to follow.");
 
-        return result;
+        return accepted;
+    }
+
+    private async Task<WorkerJob> FetchJobAsync(string jobId, CancellationToken ct)
+    {
+        using var response = await http.GetAsync($"/jobs/{jobId}", ct);
+
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            // The worker has no record of a job it accepted. It restarted, or the
+            // job outlived its retention. Either way the render is not happening and
+            // is not coming back — and saying so is the honest answer, where waiting
+            // would poll a job that no longer exists until the deadline.
+            throw new InvalidOperationException(
+                $"Render worker no longer has job {jobId}. The worker restarted, so the render is gone; generate the atlas again.");
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(ct);
+            throw new InvalidOperationException(
+                $"Render worker returned {(int)response.StatusCode} polling job {jobId}: {body}");
+        }
+
+        return await response.Content.ReadFromJsonAsync<WorkerJob>(s_readOptions, ct)
+            ?? throw new InvalidOperationException($"Render worker returned an unreadable record for job {jobId}.");
+    }
+
+    /// <summary>
+    /// Best-effort <c>DELETE /jobs/{id}</c>: stop the worker rendering something
+    /// nobody is waiting for any more.
+    /// </summary>
+    /// <remarks>
+    /// On <see cref="CancellationToken.None"/> deliberately — this runs precisely
+    /// when the caller's token has just been cancelled, and issuing the stop on that
+    /// token would cancel the stop. Failures are swallowed: we are already on the
+    /// way out, and an exception here would replace the real reason for stopping
+    /// with a secondary one, which is this codebase's recurring failure shape.
+    /// </remarks>
+    private async Task TryCancelJobAsync(string jobId)
+    {
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            using var _ = await http.DeleteAsync($"/jobs/{jobId}", cts.Token);
+        }
+        catch
+        {
+            // Best effort.
+        }
     }
 }

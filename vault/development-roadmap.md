@@ -546,6 +546,177 @@ source_urls:
 > — the single preset that passes — so a change to any other preset's print
 > resolution was invisible to the suite.
 
+> ### Brought current — 2026-09-11 (worker-owned progress and cancel; every number re-measured)
+>
+> The last update to this file was 2026-09-10. Ten commits have landed since. This
+> block records what closed, **re-measures every figure the file leans on rather than
+> carrying it forward**, and corrects the two that are still wrong. Each number below
+> was produced by running the real engine on this commit; where a figure came from an
+> earlier pass rather than from this one, it says so.
+>
+> #### Closed since 2026-09-10
+>
+> - **Worker-owned progress, and cancel — the largest user-facing gap on this
+>   roadmap.** `docs/decisions/0007-worker-owned-render-jobs.md`. The worker now owns
+>   the job (`POST /render` → 202 + job id, `GET`/`DELETE /jobs/{id}`), `renderAtlas`
+>   reports per-page progress and honours an `AbortSignal` between pages, the API
+>   proxies both onto the `GeneratedPdf` record (`progress`/`pageCount`, and
+>   `POST /api/generated-pdfs/{id}/cancel`), and the web app shows a real progress bar
+>   and a Cancel button that stops the *render*, not the polling. `PdfStatus` gains
+>   `Cancelled`, distinct from `Failed`. This closes the "What this does not deliver"
+>   section of ADR 0006.
+> - **The basemap knobs reach the API** (audit F08). `Basemap` was a hardcoded `true`
+>   in the wire payload and the three panel knobs had no member at all, so the web app
+>   could reach strictly less than `render-cli`.
+> - **The render worker is no longer an open outbound fetch.** `tileBaseUrl` is judged
+>   by a real URL parse with an operator allowlist, `cacheDir` is refused from the wire
+>   entirely, and `POST /render` has a JSON schema with an explicit accepted-field list.
+> - **CI gates the EF model against the migration history** (`harness/checks/migrations-current.sh`).
+> - **Every setting that changes printed scale now has a UI control** — orientation,
+>   the four margins, the gutter and overlap, plus basemap/format/quality. The item
+>   below that reads "there is no UI control for overlap" is now historical.
+> - **`validateAtlas` no longer reports a malformed contract as a scale error.** A
+>   `NaN` in a bbox used to throw out of `proj4` three frames down; `west > east` used
+>   to report "worst footprint error 260%".
+> - **The contract seams are pinned.** The render request existed three times with no
+>   shared schema; two parity tests now compare the engine's interface, the worker's
+>   JSON schema and the payload the API actually serializes. The disk tile cache's key
+>   layout and hit rule are pinned across both languages by one fixture.
+>
+> **The "Still open, and now the largest items" list above is stale.** Of its five,
+> the async render decision, the DPI ceiling and the unvalidated worker wire input are
+> closed. **Still open: the absent linter/formatter, and neither tile cache ever
+> evicting.** Add: ADRs 0001/0003/0004/0005 still have no text.
+>
+> #### Re-measured: the two follow-up figures hold
+>
+> Run on this commit against the real engine, not carried forward:
+>
+> - **`edgeLabelColumn` 54 → 38 is 447.00 × 549.00 pt, +7.71%.** Confirmed. And
+>   54 → 36 is 451.00 pt / **+8.67%** — which is where the retired "+8.7%" came from,
+>   as the correction above says. The table is right.
+> - **Overlap has no single rate.** Re-swept, square extents about 41°N / 98°W at
+>   1:24,000, `pageGridSize` so the 200-page cap does not truncate the sample:
+>
+> | sample set | sizes | aggregate | cost nothing | worst |
+> |---|---|---|---|---|
+> | 5–50 km, step 1 km | 46 | **+10.5%** | 17 (37%) | +50% |
+> | 5–60 km, step 1 km | 56 | +10.3% | 19 (34%) | +50% |
+> | 5–50 km, step 5 km | 10 | **+14.6%** | 3 (30%) | +33% |
+> | 10–40 km, step 1 km | 31 | +11.3% | 12 (39%) | +33% |
+> | 5–60 km, step 0.5 km | 111 | +10.1% | 39 (35%) | **+67%** |
+> | 5–60 km, step 0.25 km | 221 | +10.3% | 81 (37%) | **+67%** |
+>
+> Theory `(1/0.95)² − 1` = **+10.8%**. The 20 km headline is **30 → 35 = +16.7%**;
+> 40 km is 108 → 130. Every conclusion in the block above survives: quote it as a
+> **range with its drivers**, never as a rate — theory +10.8%, roughly a third of
+> extents free, worst +50% at 1 km sampling and +67% at 0.5 km, and the aggregate
+> inflated by a coarse sample (+14.6% from ten sizes).
+>
+> **One honest discrepancy, recorded rather than overwritten.** The table above this
+> one reports `+11.1%` and `18 (39%)` for the 5–50 km / 1 km set; this run gives
+> `+10.5%` and `17 (37%)` for the same nominal set. Both are right about what they
+> measured — the difference is the extent construction, which is exactly the
+> sensitivity the note above identifies when it shows a 20 km box landing 0.14% below
+> a `ceil()` boundary. It strengthens that conclusion rather than replacing it: if a
+> decision rests on one extent's page count, measure *that* extent.
+>
+> #### Corrected: "300 DPI is met at 1:24,000" is a 41°N fact, and the preset that is not raised cannot be
+>
+> The block below reports per-preset DPI **at 41°N** and correctly says so. What it
+> does not say is how much of the swing is latitude, and that matters because the
+> answer changes the remedy for one preset. Four presets now ship at
+> `PRINT_TARGET_PANEL_WIDTH_PX` (1730); **`usgs-7-5-min` still ships at 1000**, on the
+> reasoning that it already clears 300 DPI. Measured on this commit, every whole
+> degree 20°N–70°N, at each preset's own shipping target:
+>
+> | preset | shipping target | delivered DPI, 20–70°N | clamped |
+> |---|---|---|---|
+> | `usgs-7-5-min` | 1000 | **174.3 – 343.0** | never |
+> | `1-25000` | 1730 | 282.8 – 584.4 | 8 of 51 |
+> | `usgs-15-min` | 1730 | 304.8 – 593.7 | never |
+> | `1-50000` | 1730 | 301.0 – 596.5 | never |
+> | `1-100000` | 1730 | 301.1 – 596.8 | never |
+>
+> - **`usgs-7-5-min` — the default, and the land-nav scale — is below 300 DPI at 36 of
+>   those 51 latitudes.** Its 338 is the 41°N value and close to its best (343 at
+>   42°N); at **43°N it is 174.3**, a **1.97× cliff one degree north of the peak**.
+>   43°N is Nebraska's northern border.
+> - **Raising it to 1730 does not fix it.** At that target its worst case is
+>   **271.5 DPI at 20°N, and it is CLAMPED at z16** — the panel is already asking for
+>   more resolution than USGS Topo has. So the retired claim "reaching 300 DPI needs a
+>   deeper basemap, not a bigger number" — correctly called backwards for the other
+>   four — **is right for this one preset at low latitude.** Both statements are true
+>   of different presets, and the file previously carried only one of them.
+> - `1-25000` also clamps at 8 of the 51 latitudes and dips to 282.8 DPI.
+>
+> **What to put to the owner:** print resolution is not a property of this product. It
+> is where each preset's page happens to fall relative to a Web-Mercator zoom boundary,
+> and it moves with **latitude as well as scale**. The band across the whole menu and
+> the continental US is **174 – 597 DPI**. Nothing in the product asks for 300 except
+> the four raised presets, and the one that cannot be raised is the default.
+>
+> #### Recorded: what the size levers actually cost
+>
+> This settles a question the file has carried as an extrapolation. Measured through
+> `render-cli` on a **real 36-page 1:50,000 atlas** (a raised preset, 1730 px, z15,
+> live USGS tiles), each row refusing to report a number unless the page count parsed
+> off the render's own stdout and the DCTDecode stream count read out of the PDF both
+> agreed:
+>
+> | JPEG quality | atlas size |
+> |---|---|
+> | q5 | 1.06 MB |
+> | q30 | 7.74 MB |
+> | q50 | 12.50 MB |
+> | q60 | 15.03 MB |
+> | q70 | 18.99 MB |
+> | q80 | 26.33 MB |
+> | **q90 (default)** | **42.03 MB** |
+> | q95 | 61.75 MB |
+>
+> - **Quality is the lever.** It is continuous and it moves size by 58× across the
+>   range. Panel *width* does not: cost is quantised by the zoom the engine picks, so
+>   a wider request buys nothing until it crosses a boundary and then costs ~4×.
+> - **Format is a cost, not a lever.** Measured at Stage 9B on one dense page
+>   (1322×1766 @ z13): PNG 2883 KB against JPEG q90 478 KB — **6.0×** — and the whole
+>   34-page atlas went **110 MB → 18 MB (6.1×)** when JPEG became the default. PNG is
+>   available for a lossless panel and costs about six times the file.
+> - **The "~72 MB" figure in the block below is an extrapolation, and it is high.** It
+>   was 4× applied to a *different* atlas's 18 MB — a 34-page 1:24,000 book at the old
+>   panel width. The measured q90 size of a real raised-preset atlas is **42.03 MB**.
+>   It also belongs to an atlas built **entirely** from the four raised presets; one at
+>   the default 1:24,000 is unchanged, because that preset was not raised.
+> - So if a raised-preset atlas is too big to mail, the lever is `panelQuality` —
+>   **q70 is 18.99 MB, 0.45× the default, on the same pages** — and the API can now
+>   reach it (F08 closed above). It was not reachable when the 72 MB figure was written.
+>
+> #### Withdrawn, and why that matters as much as what was found
+>
+> - **The page-id collision (`vault/audit-2026-09-08/scan-1-architecture.md` F01) was
+>   already fixed when the audit re-verified it.** The finding says a 12-row grid emits
+>   a page literally named `L1`, colliding with the location namespace the renderer
+>   dispatches on. Checked on this commit: `ROW_LETTERS` in `grid.ts` is
+>   `"ABCDEFGHIJKMNOPQSTUVWXYZ"` — **base-24 with L and R removed**, so a generated row
+>   label cannot contain either letter in any position at any grid size. Measured: a
+>   tall narrow extent yielding **44 rows × 3 columns** produces ids `A1 … AV3`, of
+>   which **zero** match `/^[LR]\d/` and zero are duplicates. The finding describes
+>   code that no longer exists, and it was re-pinned to line numbers rather than
+>   re-run.
+> - **The lng/lat → panel-fraction misregistration was withdrawn by the pass that
+>   found it**, and correctly. Three implementations exist, two linear-in-degrees, but
+>   the maximum displacement on a 1:24,000 page at 41°N is **0.044 pt against a 5.4 pt
+>   landmark glyph** — a hundredth of a symbol. It reaches 3.2 pt only on a
+>   continental-extent overview page, which is explicitly schematic. The duplication is
+>   the finding; the misplacement is not. Recorded here so a later pass does not
+>   rediscover it as a bug.
+>
+> Suites after this pass: **444 TS** (atlas-core 100 · web 99 · pdf-client 38 ·
+> map-sources 79 · render-cli 102 · render-worker 35) and **199 .NET** non-Docker (287
+> with the Docker-gated `Api` suites). The
+> Docker-gated `Api` suites were **not run** — this machine has no daemon; CI's
+> `dotnet-integration` job is the only place they execute.
+
 ## Phase 1: Print Geometry
 Build the Docker-hosted React/Vite/shadcn/Tailwind web app skeleton, define the outdoor field-guide visual system, accept bounding boxes, create page grid, generate overview and detail pages, and validate Letter-size PDF output from the preferred client-side React PDF path.
 

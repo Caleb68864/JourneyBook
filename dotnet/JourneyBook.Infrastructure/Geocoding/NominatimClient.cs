@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using JourneyBook.Application.Geocoding;
 using JourneyBook.Application.Rendering;
+using JourneyBook.Application.Common;
 
 namespace JourneyBook.Infrastructure.Geocoding;
 
@@ -28,7 +29,7 @@ public class NominatimClient(HttpClient http) : IGeocodeClient
 
     public async Task<IReadOnlyList<GeocodeResultDto>> SearchAsync(
         string query,
-        RenderBBoxDto? viewbox = null,
+        BBoxDto? viewbox = null,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(query))
@@ -73,7 +74,7 @@ public class NominatimClient(HttpClient http) : IGeocodeClient
         }
     }
 
-    private static string BuildUrl(string query, RenderBBoxDto? viewbox)
+    private static string BuildUrl(string query, BBoxDto? viewbox)
     {
         var q = Uri.EscapeDataString(query.Trim());
         var url = $"/search?q={q}&format=jsonv2&addressdetails=0&limit={MaxResults}";

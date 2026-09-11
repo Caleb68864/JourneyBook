@@ -1,6 +1,7 @@
 using System.Threading.Channels;
 using JourneyBook.Application.Rendering;
 using JourneyBook.Infrastructure.Rendering;
+using JourneyBook.Application.Common;
 
 namespace JourneyBook.Tests.Rendering;
 
@@ -18,7 +19,7 @@ public class ChannelRenderJobQueueTests
             Orientation: "Portrait",
             Overlap: 0,
             Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
-            Extent: new RenderBBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Extent: new BBoxDto(-96.75, 40.78, -96.65, 40.85),
             Locations: [],
             OutputFileName: outputFileName));
 

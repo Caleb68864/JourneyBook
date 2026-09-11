@@ -1,5 +1,6 @@
 using JourneyBook.Application.Geocoding;
 using JourneyBook.Application.Rendering;
+using JourneyBook.Application.Common;
 
 namespace JourneyBook.Api.Endpoints;
 
@@ -25,9 +26,9 @@ public static class GeocodeEndpoints
                 return Results.BadRequest(new { error = "Query parameter 'q' is required." });
             }
 
-            RenderBBoxDto? viewbox =
+            BBoxDto? viewbox =
                 west is { } w && south is { } s && east is { } e && north is { } n
-                    ? new RenderBBoxDto(w, s, e, n)
+                    ? new BBoxDto(w, s, e, n)
                     : null;
 
             var results = await geocoder.SearchAsync(q, viewbox, ct);

@@ -1,4 +1,5 @@
 using JourneyBook.Application.GeneratedPdfs;
+using JourneyBook.Application.Rendering;
 using Microsoft.Extensions.Configuration;
 
 namespace JourneyBook.Api.Endpoints;
@@ -30,6 +31,35 @@ public static class GeneratedPdfEndpoints
 
         generatedPdfs.MapPost("/prune", async (IGeneratedPdfService service) =>
             Results.Ok(new PruneResult(await service.PruneExpiredAsync())));
+
+        // Stop a render that is queued or in flight (ADR 0007). 202, not 200: the
+        // cancel has been ASKED FOR, and the record reaches Cancelled when the render
+        // actually stops — which for a running job is one worker DELETE away. The
+        // client sees the transition on its next poll, through the same status
+        // resource it was already reading. Answering 200 "cancelled" here would put a
+        // status on the wire the record does not yet carry.
+        generatedPdfs.MapPost("/{id:guid}/cancel", async (Guid id, IRenderService renderService) =>
+        {
+            var result = await renderService.CancelRenderAsync(id);
+            return result.Outcome switch
+            {
+                CancelRenderOutcome.NotFound => Results.NotFound(),
+                // 409 for both of the remaining cases, with DIFFERENT text. They are
+                // different situations — one render is over, the other never started
+                // here — and collapsing them into one message is how a user ends up
+                // told something that is not true about their render.
+                CancelRenderOutcome.AlreadyFinished => Results.Conflict(new
+                {
+                    error = $"This render is already {result.Status}; there is nothing to cancel.",
+                }),
+                CancelRenderOutcome.NotRunningHere => Results.Conflict(new
+                {
+                    error = "This render is not running on this server. The service restarted after it " +
+                            "was queued, so it is not going to finish; generate the atlas again.",
+                }),
+                _ => Results.Accepted($"/api/generated-pdfs/{id}", new { generatedPdfId = id, status = "Cancelling" }),
+            };
+        });
 
         generatedPdfs.MapGet("/{id:guid}/content", async (
             Guid id,

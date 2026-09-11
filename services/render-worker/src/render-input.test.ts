@@ -91,6 +91,28 @@ afterEach(() => {
  */
 const PROXY_BASE = "http://tiles.example.com/tiles";
 
+/**
+ * Accept a render and wait for its job to leave `rendering`.
+ *
+ * Needed since the job protocol (ADR 0007): `POST /render` returns as soon as
+ * the job is accepted, so a test that asserts on what the render DID — tiles
+ * written, a PDF on disk — must wait for the render rather than for the reply.
+ * Without this the two cache tests below both "passed" by observing a render
+ * that had not started, which is a control reporting success on nothing.
+ */
+async function renderAndSettle(app: FastifyInstance, payload: object): Promise<void> {
+  const accepted = await app.inject({ method: "POST", url: "/render", payload });
+  if (accepted.statusCode !== 202) return;
+  const { jobId } = accepted.json();
+  for (let i = 0; i < 600; i++) {
+    const res = await app.inject({ method: "GET", url: `/jobs/${jobId}` });
+    if (res.statusCode !== 200) return;
+    if (res.json().state !== "rendering") return;
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  throw new Error(`job ${jobId} never settled`);
+}
+
 /** A minimal valid render, small enough to keep the stubbed tile count sane. */
 const validLocation = {
   mode: "location" as const,
@@ -108,11 +130,7 @@ describe("render-worker POST /render — the tile cache root is the operator's, 
 
     const app = await worker({ generatedDir, cacheDir });
     try {
-      await app.inject({
-        method: "POST",
-        url: "/render",
-        payload: { ...validLocation, basemap: true, tileBaseUrl: PROXY_BASE },
-      });
+      await renderAndSettle(app, { ...validLocation, basemap: true, tileBaseUrl: PROXY_BASE });
     } finally {
       await app.close();
     }
@@ -130,15 +148,11 @@ describe("render-worker POST /render — the tile cache root is the operator's, 
 
     const app = await worker({ generatedDir, cacheDir: operatorCache });
     try {
-      await app.inject({
-        method: "POST",
-        url: "/render",
-        payload: {
-          ...validLocation,
-          basemap: true,
-          tileBaseUrl: PROXY_BASE,
-          cacheDir: callerChosen,
-        },
+      await renderAndSettle(app, {
+        ...validLocation,
+        basemap: true,
+        tileBaseUrl: PROXY_BASE,
+        cacheDir: callerChosen,
       });
     } finally {
       await app.close();
@@ -215,7 +229,10 @@ describe("render-worker POST /render — schema at the boundary", () => {
     const app = await worker({ generatedDir });
     try {
       const res = await app.inject({ method: "POST", url: "/render", payload: apiWirePayload });
-      expect(res.statusCode, `rejected the real API payload: ${res.body}`).toBe(200);
+      // 202 since the job protocol (ADR 0007): the worker accepts the render
+      // and answers with a job id. The control is unchanged in what it proves —
+      // the real API payload is accepted, field for field.
+      expect(res.statusCode, `rejected the real API payload: ${res.body}`).toBe(202);
     } finally {
       await app.close();
     }

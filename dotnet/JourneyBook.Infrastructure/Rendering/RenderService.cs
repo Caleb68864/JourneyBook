@@ -4,6 +4,7 @@ using JourneyBook.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using JourneyBook.Application.Common;
 
 namespace JourneyBook.Infrastructure.Rendering;
 
@@ -24,6 +25,7 @@ public class RenderService(
     JourneyBookDbContext db,
     IGeneratedPdfService pdfService,
     IRenderJobQueue jobQueue,
+    IRenderCancellationRegistry cancellations,
     IConfiguration configuration,
     ILogger<RenderService> logger) : IRenderService
 {
@@ -82,11 +84,11 @@ public class RenderService(
         var outputFileName = $"atlas-{created.Id:N}.pdf";
 
         // 4. Build the worker request.
-        RenderBBoxDto? extent = null;
+        BBoxDto? extent = null;
         if (project.Extent?.Bounds is { } bounds)
         {
             var env = bounds.EnvelopeInternal;
-            extent = new RenderBBoxDto(env.MinX, env.MinY, env.MaxX, env.MaxY);
+            extent = new BBoxDto(env.MinX, env.MinY, env.MaxX, env.MaxY);
         }
 
         var locations = project.Locations
@@ -140,7 +142,14 @@ public class RenderService(
             PanelFormat: request.PanelFormat,
             PanelQuality: request.PanelQuality);
 
-        // 5. Queue it and answer. Deliberately CancellationToken.None: `ct` is the
+        // 5. Register the cancel channel BEFORE queueing, so there is no window in
+        //    which an accepted render cannot be cancelled. A job can wait behind
+        //    another for minutes; registering when the runner picks it up would
+        //    answer "not running here" for exactly the period a user is most likely
+        //    to change their mind.
+        cancellations.Register(created.Id);
+
+        // 6. Queue it and answer. Deliberately CancellationToken.None: `ct` is the
         //    HTTP request's, and the request is about to end — cancelling the enqueue
         //    on it would drop the job the client has just been told is accepted.
         //    (The unbounded channel never blocks, so this cannot hang.)
@@ -155,5 +164,33 @@ public class RenderService(
             "Pending",
             DownloadUrl: $"/api/generated-pdfs/{created.Id}/content",
             StatusUrl: $"/api/generated-pdfs/{created.Id}");
+    }
+
+    /// <inheritdoc />
+    public async Task<CancelRenderResult> CancelRenderAsync(Guid generatedPdfId, CancellationToken ct = default)
+    {
+        var record = await pdfService.GetAsync(generatedPdfId, ct);
+        if (record is null) return new CancelRenderResult(CancelRenderOutcome.NotFound);
+
+        // Already over. Answering "cancelled" here would be the same class of lie as
+        // reporting a timeout as a cancellation: nothing was stopped, and a client
+        // that is told otherwise will wait for a transition that never comes.
+        if (record.Status is "Completed" or "Failed" or "Cancelled")
+            return new CancelRenderResult(CancelRenderOutcome.AlreadyFinished, record.Status);
+
+        // The queue is in-process (ADR 0006), so a row claiming to be in flight with
+        // no registered job is wreckage from a previous process — which startup
+        // reconciliation should already have failed. Say that, rather than marking
+        // the row Cancelled and inventing an outcome for a render this host never saw.
+        if (!cancellations.Cancel(generatedPdfId))
+            return new CancelRenderResult(CancelRenderOutcome.NotRunningHere, record.Status);
+
+        logger.LogInformation("Cancel requested for render {GeneratedPdfId}", generatedPdfId);
+
+        // Requested, not done. The runner writes the terminal status when the render
+        // actually stops — for a running job that is one worker DELETE away, and the
+        // client sees it on its next poll. Reporting it as finished here would put a
+        // status on the wire that the record does not yet carry.
+        return new CancelRenderResult(CancelRenderOutcome.Requested, record.Status);
     }
 }

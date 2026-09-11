@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using JourneyBook.Application.Locations;
 using JourneyBook.Application.Projects;
+using JourneyBook.Application.Common;
 
 namespace JourneyBook.Tests.Api;
 

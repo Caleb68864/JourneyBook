@@ -1,10 +1,10 @@
+using JourneyBook.Application.Common;
+
 namespace JourneyBook.Application.Projects;
 
 /// <summary>Safe margins (inches) + optional binder gutter.</summary>
 public record MarginsDto(double Top, double Right, double Bottom, double Left, double Gutter = 0);
 
-/// <summary>WGS84 bounding box [west, south, east, north] in degrees.</summary>
-public record BBoxDto(double West, double South, double East, double North);
 
 public record CreateProjectRequest(
     string Name,

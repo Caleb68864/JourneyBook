@@ -1,4 +1,5 @@
 using JourneyBook.Application.Rendering;
+using JourneyBook.Application.Common;
 
 namespace JourneyBook.Application.Landmarks;
 
@@ -13,9 +14,9 @@ public interface IOverpassClient
 {
     /// <summary>
     /// Query Overpass for landmark points of interest within the given extent
-    /// (<see cref="RenderBBoxDto"/>, reusing the rendering extent contract).
+    /// (<see cref="BBoxDto"/>, reusing the rendering extent contract).
     /// Returns the raw <see cref="OverpassPoi"/> rows, or an empty list on
     /// failure (graceful — never throws for upstream errors).
     /// </summary>
-    Task<IReadOnlyList<OverpassPoi>> QueryLandmarksAsync(RenderBBoxDto bbox, CancellationToken ct = default);
+    Task<IReadOnlyList<OverpassPoi>> QueryLandmarksAsync(BBoxDto bbox, CancellationToken ct = default);
 }

@@ -110,6 +110,15 @@ public static class DependencyInjection
         // consumer (the hosted loop) have to share one channel; the runner is scoped
         // because it reaches a scoped DbContext through IGeneratedPdfService.
         services.AddSingleton<IRenderJobQueue, ChannelRenderJobQueue>();
+        // Also a singleton, and for the same reason: the request that accepts a
+        // render, the background loop that runs it and the later request that
+        // cancels it live in three different scopes, so nothing scoped can hold the
+        // token all three need (ADR 0007).
+        services.AddSingleton<IRenderCancellationRegistry, RenderCancellationRegistry>();
+        // How often the worker client asks a job where it has got to. One second,
+        // matching the web client's own poll cadence so a page's progress bar is
+        // never held back by a coarser interval behind it.
+        services.AddSingleton(new RenderWorkerPollOptions(TimeSpan.FromSeconds(1)));
         services.AddScoped<IRenderJobRunner, RenderJobRunner>();
         services.AddHostedService<RenderJobProcessor>();
 

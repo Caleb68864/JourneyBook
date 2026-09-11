@@ -1,3 +1,5 @@
+using JourneyBook.Application.Common;
+
 namespace JourneyBook.Application.Rendering;
 
 /// <summary>Request body for POST /api/projects/{id}/render.</summary>
@@ -54,6 +56,38 @@ public record RenderProjectResponse(Guid GeneratedPdfId, string Status, string D
 /// </remarks>
 public enum RenderOutcome { Accepted, ProjectNotFound, InvalidParameters }
 
+/// <summary>Outcome of <see cref="IRenderService.CancelRenderAsync"/>.</summary>
+/// <remarks>
+/// Four answers, not two, because "we could not cancel it" has three genuinely
+/// different causes and telling them apart is the whole point of the feature. A
+/// single false would produce the failure this codebase keeps finding: one
+/// condition reported as another's.
+/// </remarks>
+public enum CancelRenderOutcome
+{
+    /// <summary>The cancellation reached the job; the record will settle at <c>Cancelled</c>.</summary>
+    Requested,
+    /// <summary>No such <c>GeneratedPdf</c> record (→ 404).</summary>
+    NotFound,
+    /// <summary>The record is already <c>Completed</c>, <c>Failed</c> or <c>Cancelled</c> (→ 409).</summary>
+    AlreadyFinished,
+    /// <summary>
+    /// The record says it is in flight, but no job for it is registered in this
+    /// process (→ 409).
+    /// </summary>
+    /// <remarks>
+    /// The queue is in-process (ADR 0006), so a row that claims to be running with
+    /// no job behind it is wreckage from a previous process that startup
+    /// reconciliation should already have failed. Saying so is honest; silently
+    /// marking the row cancelled would invent an outcome for a render this host
+    /// never saw.
+    /// </remarks>
+    NotRunningHere,
+}
+
+/// <summary>Result of a cancel request, with the record's status if it was found.</summary>
+public record CancelRenderResult(CancelRenderOutcome Outcome, string? Status = null);
+
 /// <summary>Result returned by <see cref="IRenderService"/> to the endpoint handler.</summary>
 public record RenderServiceResult(
     RenderOutcome Outcome,
@@ -70,7 +104,7 @@ public record RenderWorkerRequest(
     string Orientation,
     double Overlap,
     RenderMarginsDto Margins,
-    RenderBBoxDto? Extent,
+    BBoxDto? Extent,
     IReadOnlyList<RenderLocationDto> Locations,
     string OutputFileName,
     // Optional tile-proxy routing: when set, the worker fetches basemap tiles via
@@ -111,8 +145,6 @@ public record RenderLandmarkDto(double Longitude, double Latitude, string Name, 
 /// <summary>Safe margins (inches) forwarded to the render worker.</summary>
 public record RenderMarginsDto(double Top, double Right, double Bottom, double Left, double Gutter = 0);
 
-/// <summary>WGS84 bounding box forwarded to the render worker.</summary>
-public record RenderBBoxDto(double West, double South, double East, double North);
 
 /// <summary>A single WGS84 coordinate forwarded to the render worker.</summary>
 public record RenderLocationDto(
