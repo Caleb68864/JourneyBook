@@ -450,4 +450,129 @@ public class HttpRenderWorkerClientTests
         // not ask for is a timeout.
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => call);
     }
+
+    // ── Basemap panel knobs (F08) ────────────────────────────────────────────
+
+    /// <summary>
+    /// The basemap knobs the CLI has always had reach the worker from the API.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>Basemap</c> was not absent here, it was <b>hardcoded <c>true</c></b> in
+    /// both payload branches, and <c>panelWidthPx</c>/<c>panelFormat</c>/
+    /// <c>panelQuality</c> had no member on the wire record at all. So every API
+    /// render did a full tile fetch at the engine's own defaults, and the web app
+    /// could reach strictly less than <c>render-cli</c>, which has exposed
+    /// <c>--basemap</c>, <c>--panel-px</c>, <c>--panel-format</c> and
+    /// <c>--panel-quality</c> since Stage 1E.
+    /// </para>
+    /// <para>
+    /// The values chosen here are all NON-default — basemap off, a width that is
+    /// neither 1000 nor 1730, png rather than jpeg, quality 55 rather than 90 —
+    /// because the whole shape of this class of bug is a test that supplies a
+    /// value the receiver was going to assume anyway. See the margins and overlap
+    /// tests above, which exist for exactly that reason.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Basemap_off_and_panel_knobs_reach_the_worker_in_both_payload_branches()
+    {
+        var (bboxClient, bboxHandler) = Build();
+        await bboxClient.RenderAsync(new RenderWorkerRequest(
+            ScalePresetId: "1-50000", Tier: 2, Orientation: "Portrait", Overlap: 0,
+            Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
+            Extent: new RenderBBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Locations: [], OutputFileName: "atlas-knobs-bbox.pdf",
+            Basemap: false, PanelWidthPx: 2048, PanelFormat: "png", PanelQuality: 55));
+
+        using (var doc = JsonDocument.Parse(bboxHandler.CapturedBody!))
+        {
+            var root = doc.RootElement;
+            Assert.False(root.GetProperty("basemap").GetBoolean());
+            Assert.Equal(2048, root.GetProperty("panelWidthPx").GetInt32());
+            Assert.Equal("png", root.GetProperty("panelFormat").GetString());
+            Assert.Equal(55, root.GetProperty("panelQuality").GetInt32());
+        }
+
+        // The location branch builds its payload separately — a fix applied to one
+        // branch only is a fix applied to half the product.
+        var (locClient, locHandler) = Build();
+        await locClient.RenderAsync(new RenderWorkerRequest(
+            ScalePresetId: "1-50000", Tier: 2, Orientation: "Portrait", Overlap: 0,
+            Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
+            Extent: null,
+            Locations: [new RenderLocationDto(-96.70, 40.81, "Home")],
+            OutputFileName: "atlas-knobs-loc.pdf",
+            Basemap: false, PanelWidthPx: 2048, PanelFormat: "png", PanelQuality: 55));
+
+        using (var doc = JsonDocument.Parse(locHandler.CapturedBody!))
+        {
+            var root = doc.RootElement;
+            Assert.False(root.GetProperty("basemap").GetBoolean());
+            Assert.Equal(2048, root.GetProperty("panelWidthPx").GetInt32());
+            Assert.Equal("png", root.GetProperty("panelFormat").GetString());
+            Assert.Equal(55, root.GetProperty("panelQuality").GetInt32());
+        }
+    }
+
+    /// <summary>
+    /// The must-be-ACCEPTED control for the change above: a request that sets no
+    /// knob must serialize exactly as it did before they existed.
+    /// </summary>
+    /// <remarks>
+    /// An unset panel knob has to be an ABSENT wire field, not a C# default. The
+    /// engine picks each page's width from its own scale preset
+    /// (<c>ScalePreset.panelWidthPx</c>, 1730 px for the four presets short of
+    /// 300 DPI), so a payload that always sent, say, <c>panelWidthPx: 1000</c>
+    /// because <c>int</c> cannot be null would silently flatten that per-preset
+    /// decision back to one global number — a regression invisible to every
+    /// assertion that only checks the knob "arrived".
+    /// </remarks>
+    [Fact]
+    public async Task Unset_panel_knobs_are_absent_from_the_wire_and_basemap_still_defaults_on()
+    {
+        var (client, handler) = Build();
+        await client.RenderAsync(new RenderWorkerRequest(
+            ScalePresetId: "1-50000", Tier: 2, Orientation: "Portrait", Overlap: 0,
+            Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
+            Extent: new RenderBBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Locations: [], OutputFileName: "atlas-default-knobs.pdf"));
+
+        using var doc = JsonDocument.Parse(handler.CapturedBody!);
+        var root = doc.RootElement;
+
+        Assert.True(root.GetProperty("basemap").GetBoolean());
+        Assert.False(root.TryGetProperty("panelWidthPx", out _));
+        Assert.False(root.TryGetProperty("panelFormat", out _));
+        Assert.False(root.TryGetProperty("panelQuality", out _));
+    }
+
+    /// <summary>
+    /// The format is lower-cased for the engine's <c>"jpeg" | "png"</c> union.
+    /// </summary>
+    /// <remarks>
+    /// The latent half of the orientation bug, on the very next field: the
+    /// worker's JSON schema is <c>enum: ["jpeg", "png"]</c> and
+    /// <c>validateInput</c> compares exactly, so forwarding "PNG" from a JSON body
+    /// or a query string would be a 400 from the worker for a value the API
+    /// accepted.
+    /// </remarks>
+    [Theory]
+    [InlineData("PNG", "png")]
+    [InlineData("png", "png")]
+    [InlineData("JPEG", "jpeg")]
+    [InlineData(" jpeg ", "jpeg")]
+    public async Task Panel_format_is_lower_cased_for_the_engines_union_type(string input, string wire)
+    {
+        var (client, handler) = Build();
+        await client.RenderAsync(new RenderWorkerRequest(
+            ScalePresetId: "1-50000", Tier: 1, Orientation: "Portrait", Overlap: 0,
+            Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
+            Extent: new RenderBBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Locations: [], OutputFileName: "atlas-fmt.pdf",
+            PanelFormat: input));
+
+        using var doc = JsonDocument.Parse(handler.CapturedBody!);
+        Assert.Equal(wire, doc.RootElement.GetProperty("panelFormat").GetString());
+    }
 }

@@ -68,7 +68,18 @@ public class HttpRenderWorkerClient(HttpClient http) : IRenderWorkerClient
         // `orientation === "landscape"` - so a raw ToString() would have made every
         // landscape project silently print portrait.
         string Orientation,
-        WorkerMargins Margins);
+        WorkerMargins Margins,
+        // Basemap panel knobs. These are nullable on purpose: `WhenWritingNull`
+        // drops them from the body entirely, so an unset knob is an ABSENT wire
+        // field and the engine applies its own default (the per-preset
+        // `ScalePreset.panelWidthPx`, JPEG, quality 90) rather than receiving a
+        // C# default that silently overrides it. Sending `panelWidthPx: 1000`
+        // because `int` has no null would have flattened the per-preset print
+        // widths added in `feat(atlas-core): give each scale preset the panel
+        // width its own print needs` back to one global number.
+        int? PanelWidthPx,
+        string? PanelFormat,
+        int? PanelQuality);
 
     private sealed record WorkerCenter(double Lng, double Lat);
 
@@ -105,6 +116,19 @@ public class HttpRenderWorkerClient(HttpClient http) : IRenderWorkerClient
 
     private static WorkerMargins ToWireMargins(RenderMarginsDto m) =>
         new(m.Top, m.Right, m.Bottom, m.Left, m.Gutter);
+
+    /// <summary>
+    /// The panel format as the engine's <c>PanelFormat</c> union member.
+    /// </summary>
+    /// <remarks>
+    /// Lower-cased for the same reason orientation is: the engine's union is
+    /// <c>"jpeg" | "png"</c> and both the worker's JSON schema and
+    /// <c>validateInput</c> compare exactly, so "JPEG" from a query string or a
+    /// JSON body would be refused at the boundary. Null stays null — an absent
+    /// field, not a default.
+    /// </remarks>
+    private static string? ToWirePanelFormat(string? format) =>
+        format is null ? null : format.Trim().ToLowerInvariant();
 
     /// <summary>
     /// Translate the C# <see cref="RenderWorkerRequest"/> into the worker's
@@ -150,7 +174,7 @@ public class HttpRenderWorkerClient(HttpClient http) : IRenderWorkerClient
                 ScalePresetId: request.ScalePresetId,
                 Tier: request.Tier,
                 Overlap: request.Overlap,
-                Basemap: true,
+                Basemap: request.Basemap,
                 OutputPath: request.OutputFileName,
                 TileBaseUrl: request.TileBaseUrl,
                 TileSourceId: request.TileSourceId,
@@ -163,7 +187,10 @@ public class HttpRenderWorkerClient(HttpClient http) : IRenderWorkerClient
                 // The extent IS the grid here; a cover extent would be redundant.
                 Cover: false,
                 Orientation: ToWireOrientation(request.Orientation),
-                Margins: ToWireMargins(request.Margins));
+                Margins: ToWireMargins(request.Margins),
+                PanelWidthPx: request.PanelWidthPx,
+                PanelFormat: ToWirePanelFormat(request.PanelFormat),
+                PanelQuality: request.PanelQuality);
         }
 
         if (request.Locations.Count > 0)
@@ -177,7 +204,7 @@ public class HttpRenderWorkerClient(HttpClient http) : IRenderWorkerClient
                 ScalePresetId: request.ScalePresetId,
                 Tier: request.Tier,
                 Overlap: request.Overlap,
-                Basemap: true,
+                Basemap: request.Basemap,
                 OutputPath: request.OutputFileName,
                 TileBaseUrl: request.TileBaseUrl,
                 TileSourceId: request.TileSourceId,
@@ -189,7 +216,10 @@ public class HttpRenderWorkerClient(HttpClient http) : IRenderWorkerClient
                 Notes: request.Notes,
                 Cover: request.Cover,
                 Orientation: ToWireOrientation(request.Orientation),
-                Margins: ToWireMargins(request.Margins));
+                Margins: ToWireMargins(request.Margins),
+                PanelWidthPx: request.PanelWidthPx,
+                PanelFormat: ToWirePanelFormat(request.PanelFormat),
+                PanelQuality: request.PanelQuality);
         }
 
         throw new InvalidOperationException(

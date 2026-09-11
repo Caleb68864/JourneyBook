@@ -23,8 +23,23 @@ public sealed class FakeRenderWorkerClient(string generatedDir) : IRenderWorkerC
     /// <summary>Held open to keep a render "in flight" while a test observes it.</summary>
     public TaskCompletionSource? Gate { get; set; }
 
+    /// <summary>
+    /// Every request this stub has been handed, keyed by its output file name.
+    /// </summary>
+    /// <remarks>
+    /// A single <c>LastRequest</c> would be wrong here and quietly so: the factory
+    /// is an <c>IClassFixture</c> shared by every test in the class, and the
+    /// render itself is performed by a BACKGROUND queue processor, so the request
+    /// that lands last is not necessarily the one the asserting test started.
+    /// Keying on <c>atlas-{generatedPdfId:N}.pdf</c> — which the caller knows from
+    /// the 202 body — makes each assertion about its own render.
+    /// </remarks>
+    public System.Collections.Concurrent.ConcurrentDictionary<string, RenderWorkerRequest> Requests { get; } = new();
+
     public async Task<RenderWorkerResult> RenderAsync(RenderWorkerRequest request, CancellationToken ct = default)
     {
+        Requests[request.OutputFileName] = request;
+
         if (Gate is not null)
             await Gate.Task.WaitAsync(TimeSpan.FromSeconds(30), ct);
 
@@ -318,5 +333,95 @@ public class RenderApiTests(RenderApiFactory factory) : IClassFixture<RenderApiF
 
         var resp = await _client.GetAsync($"/api/generated-pdfs/{pdf.Id}/content");
         Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
+    }
+
+    // ── Basemap panel knobs (F08) ────────────────────────────────────────────
+
+    /// <summary>
+    /// The knobs survive the whole API path: JSON body → <c>RenderProjectRequest</c>
+    /// → <c>RenderService</c> → the queued <c>RenderWorkerRequest</c>.
+    /// </summary>
+    /// <remarks>
+    /// <c>HttpRenderWorkerClientTests</c> proves the last hop (request → wire JSON);
+    /// this proves the hops before it, which is where <c>Basemap</c> was lost — it
+    /// existed nowhere on this path at all and the client simply hardcoded
+    /// <c>true</c>. Every value here is non-default, so a layer that drops one and
+    /// substitutes its own cannot pass.
+    /// </remarks>
+    [Fact]
+    public async Task Render_forwards_basemap_off_and_the_panel_knobs_to_the_worker_request()
+    {
+        factory.FakeClient.ShouldFail = false;
+        var projectId = await CreateProjectAsync("Panel Knob Project");
+
+        var resp = await _client.PostAsJsonAsync($"/api/projects/{projectId}/render",
+            new RenderProjectRequest(
+                Tier: 2, Basemap: false, PanelWidthPx: 2048, PanelFormat: "png", PanelQuality: 55));
+
+        Assert.Equal(HttpStatusCode.Accepted, resp.StatusCode);
+        var body = await resp.Content.ReadFromJsonAsync<RenderProjectResponse>();
+        Assert.NotNull(body);
+        await PollUntilTerminalAsync(body!.GeneratedPdfId);
+
+        // Keyed on THIS render's output name — the fixture and its queue are shared
+        // with every other test in the class.
+        var outputFileName = $"atlas-{body.GeneratedPdfId:N}.pdf";
+        Assert.True(
+            factory.FakeClient.Requests.TryGetValue(outputFileName, out var sent),
+            $"the worker was never handed a request for {outputFileName}");
+
+        Assert.False(sent!.Basemap);
+        Assert.Equal(2048, sent.PanelWidthPx);
+        Assert.Equal("png", sent.PanelFormat);
+        Assert.Equal(55, sent.PanelQuality);
+    }
+
+    /// <summary>
+    /// [CONTROL] A request that names no knob must reach the worker exactly as it
+    /// always did: basemap on, and the three panel fields unset so the engine keeps
+    /// its own per-preset defaults.
+    /// </summary>
+    [Fact]
+    public async Task Render_without_panel_knobs_still_asks_for_a_basemap_and_sets_nothing_else()
+    {
+        factory.FakeClient.ShouldFail = false;
+        var projectId = await CreateProjectAsync("Default Knob Project");
+
+        var resp = await _client.PostAsJsonAsync($"/api/projects/{projectId}/render",
+            new RenderProjectRequest(Tier: 1));
+
+        Assert.Equal(HttpStatusCode.Accepted, resp.StatusCode);
+        var body = await resp.Content.ReadFromJsonAsync<RenderProjectResponse>();
+        Assert.NotNull(body);
+        await PollUntilTerminalAsync(body!.GeneratedPdfId);
+
+        Assert.True(
+            factory.FakeClient.Requests.TryGetValue($"atlas-{body.GeneratedPdfId:N}.pdf", out var sent),
+            "the worker was never handed this render's request");
+
+        Assert.True(sent!.Basemap);
+        Assert.Null(sent.PanelWidthPx);
+        Assert.Null(sent.PanelFormat);
+        Assert.Null(sent.PanelQuality);
+    }
+
+    /// <summary>
+    /// A knob outside the engine's range is a 400 on the POST, not a queued job
+    /// that fails minutes later and leaves the user to go and read a Failed row.
+    /// </summary>
+    [Theory]
+    [InlineData(40000, null, null)]
+    [InlineData(null, "webp", null)]
+    [InlineData(null, null, 120)]
+    public async Task Render_with_an_out_of_range_panel_knob_returns_400(
+        int? widthPx, string? format, int? quality)
+    {
+        factory.FakeClient.ShouldFail = false;
+        var projectId = await CreateProjectAsync("Bad Knob Project");
+
+        var resp = await _client.PostAsJsonAsync($"/api/projects/{projectId}/render",
+            new RenderProjectRequest(PanelWidthPx: widthPx, PanelFormat: format, PanelQuality: quality));
+
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
     }
 }

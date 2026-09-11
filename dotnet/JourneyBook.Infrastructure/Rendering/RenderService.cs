@@ -37,6 +37,17 @@ public class RenderService(
             return new RenderServiceResult(RenderOutcome.InvalidParameters,
                 Error: $"Tier must be 1–4, got {request.Tier}.");
 
+        // 1b. Validate the basemap panel knobs against the SAME bounds the engine
+        //     and the worker's JSON schema use (render.ts validateInput /
+        //     renderBodySchema). Deliberately not stricter: three components with
+        //     three definitions of a valid request is how a legitimate input gets
+        //     refused by whichever one is tightest. Checked here, before the
+        //     Pending lifecycle record exists, so a typo is a 400 on the POST
+        //     rather than a queued job that fails minutes later and leaves a
+        //     Failed row the user has to go and read.
+        if (RenderPanelKnobs.Validate(request) is { } knobError)
+            return new RenderServiceResult(RenderOutcome.InvalidParameters, Error: knobError);
+
         // 2. Resolve project with PageGrid + Extent + Locations + Landmarks.
         var project = await db.Projects
             .Include(p => p.PageGrid)
@@ -119,7 +130,15 @@ public class RenderService(
             Overview: request.Overview,
             ReferenceGrid: request.ReferenceGrid,
             Notes: request.Notes,
-            Cover: request.Cover);
+            Cover: request.Cover,
+            // Basemap knobs straight through. `Basemap` was a hardcoded `true`
+            // one layer down, so an API caller could not ask for the fast
+            // no-tiles preview the CLI has had since Stage 1E; the three panel
+            // fields had no member anywhere on this path at all.
+            Basemap: request.Basemap,
+            PanelWidthPx: request.PanelWidthPx,
+            PanelFormat: request.PanelFormat,
+            PanelQuality: request.PanelQuality);
 
         // 5. Queue it and answer. Deliberately CancellationToken.None: `ct` is the
         //    HTTP request's, and the request is about to end — cancelling the enqueue
