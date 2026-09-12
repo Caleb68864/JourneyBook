@@ -70,8 +70,19 @@ export const PAGE_FURNITURE_PT = {
   neatlinePadding: 6,
   /** Map-panel border, per side (drawn just outside the map itself). */
   panelBorder: 1,
-  /** West/east CONTINUE-label column, per side. */
-  edgeLabelColumn: 54,
+  /**
+   * West/east CONTINUE-label column, per side.
+   *
+   * 38pt, narrowed from 54pt to give the map 7.7% more of the page. **Narrowing
+   * it alone halves the printed resolution between 38 and 42 degrees N**: the
+   * wider map box pushes the panel past a tile-zoom boundary, and at 41N the
+   * default preset falls from 338 DPI at z16 to 169 at z15. It is only safe
+   * paired with a proportional raise of the panel request, which is why
+   * DEFAULT_PANEL_WIDTH_PX moved with it. Changing this number back without
+   * moving that one costs a whole zoom level, and `docs/print-resolution.md`
+   * will say so when it is regenerated.
+   */
+  edgeLabelColumn: 38,
   /** Header row: book title, page subtitle, page id. */
   headerRow: 30,
   /** North/south CONTINUE-label row, per row. */

@@ -15,18 +15,18 @@ whenever that code changes. The scale picker in the app reads the same table.
 
 ## The short version
 
-- **7.5-minute (1:24,000)** asks for 173 DPI and prints at **174–343 DPI depending on latitude** — below 300 at 40 of 55 latitudes (18–31°N, 43–64°N and 69–72°N). A one-degree move can halve it: **343 DPI at 42°N, 174 at 43°N**.
+- **7.5-minute (1:24,000)** asks for 174 DPI and prints at **174–343 DPI depending on latitude** — below 300 at 40 of 55 latitudes (18–31°N, 43–64°N and 69–72°N). A one-degree move can halve it: **343 DPI at 42°N, 174 at 43°N**.
 - That swing comes from where the page falls against the tile zoom levels, not from panel width. Asking this preset for a full 300 DPI panel would lift its floor only to **268 DPI (18°N)**, because at 18–31°N the page would already need a finer tile zoom than USGS Topo has (z16 is its deepest) — it would still be under 300 DPI at 14 of 55 latitudes.
 - **15-minute (1:62,500), 1:50,000, 1:100,000** ask for 300 DPI and get it at every latitude in the table: 305–594, 301–596, 301–597 DPI respectively.
-- **1:25,000** asks for 300 DPI and gets it everywhere except 18–27°N, where its pages need a finer tile zoom than USGS Topo has and bottom out at **279 DPI (18°N)**. Elsewhere it prints at up to 585 DPI.
+- **1:25,000** asks for 300 DPI and gets it everywhere except 18–27°N, where its pages need a finer tile zoom than USGS Topo has and bottom out at **279 DPI (18°N)**. Elsewhere it prints at up to 584 DPI.
 
 | Preset | Panel request | Delivered DPI | Below 300 DPI | Needs a finer tile than exists | Floor at a 300 DPI request |
 |---|---|---|---|---|---|
-| 7.5-minute (1:24,000) | 1000 px (173 DPI) | **174–343** | 40 of 55 latitudes (18–31°N, 43–64°N and 69–72°N) | never | 268 |
-| 1:25,000 | 1730 px (300 DPI) | **279–585** | 10 of 55 latitudes (18–27°N) | 18–27°N | 279 |
-| 15-minute (1:62,500) | 1730 px (300 DPI) | **305–594** | never | never | 305 |
-| 1:50,000 | 1730 px (300 DPI) | **301–596** | never | never | 301 |
-| 1:100,000 | 1730 px (300 DPI) | **301–597** | never | never | 301 |
+| 7.5-minute (1:24,000) | 1078 px (174 DPI) | **174–343** | 40 of 55 latitudes (18–31°N, 43–64°N and 69–72°N) | never | 268 |
+| 1:25,000 | 1863 px (300 DPI) | **279–584** | 10 of 55 latitudes (18–27°N) | 18–27°N | 279 |
+| 15-minute (1:62,500) | 1863 px (300 DPI) | **305–594** | never | never | 305 |
+| 1:50,000 | 1863 px (300 DPI) | **301–596** | never | never | 301 |
+| 1:100,000 | 1863 px (300 DPI) | **301–597** | never | never | 301 |
 
 "Needs a finer tile than exists" means the page wanted a tile zoom deeper than
 USGS Topo's deepest (z16), so it was drawn at z16 and is softer than it asked for.
@@ -59,22 +59,22 @@ Delivered DPI for a page centred at each latitude. _Italic_: below 300 DPI.
 | 20°N | _272_ | _283\*_ | 354 | 566 | 566 |
 | 21°N | _273_ | _285\*_ | 356 | 569 | 570 |
 | 22°N | _275_ | _287\*_ | 358 | 573 | 574 |
-| 23°N | _277_ | _289\*_ | 361 | 578 | 578 |
+| 23°N | _277_ | _289\*_ | 361 | 577 | 578 |
 | 24°N | _279_ | _291\*_ | 364 | 582 | 582 |
-| 25°N | _281_ | _293\*_ | 367 | 587 | 587 |
+| 25°N | _281_ | _293\*_ | 367 | 586 | 587 |
 | 26°N | _284_ | _296\*_ | 370 | 591 | 592 |
 | 27°N | _286_ | _298\*_ | 373 | 596 | 597 |
 | 28°N | _289_ | 301 | 376 | 301 | 301 |
 | 29°N | _292_ | 304 | 380 | 304 | 304 |
 | 30°N | _294_ | 307 | 384 | 307 | 307 |
 | 31°N | _298_ | 310 | 388 | 310 | 310 |
-| 32°N | 301 | 313 | 392 | 313 | 314 |
+| 32°N | 301 | 313 | 392 | 313 | 313 |
 | 33°N | 304 | 317 | 396 | 317 | 317 |
-| 34°N | 308 | 320 | 401 | 320 | 321 |
-| 35°N | 311 | 324 | 405 | 324 | 324 |
-| 36°N | 315 | 328 | 410 | 328 | 329 |
+| 34°N | 308 | 320 | 401 | 321 | 321 |
+| 35°N | 311 | 324 | 405 | 324 | 325 |
+| 36°N | 315 | 328 | 411 | 328 | 329 |
 | 37°N | 319 | 333 | 416 | 333 | 333 |
-| 38°N | 324 | 337 | 421 | 337 | 337 |
+| 38°N | 324 | 337 | 422 | 337 | 337 |
 | 39°N | 328 | 342 | 427 | 342 | 342 |
 | 40°N | 333 | 347 | 434 | 347 | 347 |
 | 41°N | 338 | 352 | 440 | 352 | 352 |
@@ -86,7 +86,7 @@ Delivered DPI for a page centred at each latitude. _Italic_: below 300 DPI.
 | 47°N | _187_ | 389 | 487 | 389 | 390 |
 | 48°N | _190_ | 397 | 496 | 397 | 397 |
 | 49°N | _194_ | 405 | 506 | 405 | 405 |
-| 50°N | _198_ | 413 | 516 | 413 | 413 |
+| 50°N | _198_ | 413 | 517 | 413 | 413 |
 | 51°N | _202_ | 422 | 528 | 422 | 422 |
 | 52°N | _207_ | 431 | 539 | 431 | 432 |
 | 53°N | _212_ | 441 | 552 | 441 | 442 |
@@ -95,17 +95,17 @@ Delivered DPI for a page centred at each latitude. _Italic_: below 300 DPI.
 | 56°N | _228_ | 475 | 594 | 475 | 475 |
 | 57°N | _234_ | 487 | 305 | 488 | 488 |
 | 58°N | _240_ | 501 | 313 | 501 | 502 |
-| 59°N | _247_ | 515 | 322 | 515 | 516 |
+| 59°N | _247_ | 515 | 322 | 516 | 516 |
 | 60°N | _255_ | 531 | 332 | 531 | 532 |
 | 61°N | _263_ | 547 | 342 | 548 | 548 |
 | 62°N | _271_ | 565 | 354 | 566 | 566 |
-| 63°N | _281_ | 585 | 366 | 585 | 586 |
-| 64°N | _290_ | 303 | 379 | 303 | 303 |
+| 63°N | _281_ | 584 | 366 | 585 | 586 |
+| 64°N | _291_ | 303 | 379 | 303 | 303 |
 | 65°N | 301 | 314 | 393 | 314 | 315 |
-| 66°N | 313 | 326 | 408 | 327 | 327 |
-| 67°N | 326 | 340 | 425 | 340 | 340 |
-| 68°N | 340 | 354 | 443 | 354 | 355 |
-| 69°N | _178_ | 370 | 463 | 371 | 371 |
+| 66°N | 313 | 326 | 408 | 326 | 327 |
+| 67°N | 326 | 340 | 425 | 340 | 341 |
+| 68°N | 340 | 354 | 443 | 355 | 355 |
+| 69°N | _178_ | 370 | 463 | 370 | 371 |
 | 70°N | _186_ | 388 | 486 | 388 | 389 |
 | 71°N | _196_ | 408 | 510 | 408 | 409 |
 | 72°N | _206_ | 429 | 538 | 430 | 431 |
@@ -120,7 +120,7 @@ one to trust.
 
 ## What this table covers
 
-- **Page:** US Letter, portrait, default 0.5 in margins (map box 5.7639 in wide).
+- **Page:** US Letter, portrait, default 0.5 in margins (map box 6.2083 in wide).
   Each preset's panel request is rescaled to the page you actually print, so it
   asks for the same DPI on any page setup — but orientation, margins and gutter
   change how much ground a page covers, so the cliffs fall at different latitudes.

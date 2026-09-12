@@ -41,7 +41,7 @@ describe("scale presets carry their own print-resolution request", () => {
     expect(PRINT_TARGET_PANEL_WIDTH_PX).toBe(
       panelWidthPxForDpi(mapBoxInches(LETTER_PORTRAIT).widthIn, PRINT_DPI_TARGET),
     );
-    expect(PRINT_TARGET_PANEL_WIDTH_PX).toBe(1730);
+    expect(PRINT_TARGET_PANEL_WIDTH_PX).toBe(1863);
   });
 
   /**
@@ -55,11 +55,11 @@ describe("scale presets carry their own print-resolution request", () => {
    */
   it("[BEHAVIORAL] pins the panel width each preset asks for", () => {
     const expected: Record<string, number> = {
-      "usgs-7-5-min": 1000,
-      "1-25000": 1730,
-      "usgs-15-min": 1730,
-      "1-50000": 1730,
-      "1-100000": 1730,
+      "usgs-7-5-min": 1078,
+      "1-25000": 1863,
+      "usgs-15-min": 1863,
+      "1-50000": 1863,
+      "1-100000": 1863,
     };
     expect(SCALE_PRESETS.map((s) => s.id).sort()).toEqual(Object.keys(expected).sort());
     for (const scale of SCALE_PRESETS) {
@@ -87,18 +87,18 @@ describe("panelWidthPxFor — the request follows the map box, not the sheet som
   });
 
   /**
-   * Landscape swaps the sheet, so the map box goes 5.7639 in -> 8.2639 in. A flat
+   * Landscape swaps the sheet, so the map box goes 6.2083 in -> 8.7083 in. A flat
    * pixel count would be a 30% weaker DPI request there; measured across the USGS
-   * Topo latitude band, a flat 1730 px in landscape clears 300 DPI at NO preset.
+   * Topo latitude band, a flat 1863 px in landscape clears 300 DPI at NO preset.
    * Scaling by the box is what makes the preset's number mean dots per inch.
    */
   it("[BEHAVIORAL] scales the request to the landscape map box", () => {
     const expected: Record<string, number> = {
-      "usgs-7-5-min": 1434,
-      "1-25000": 2480,
-      "usgs-15-min": 2480,
-      "1-50000": 2480,
-      "1-100000": 2480,
+      "usgs-7-5-min": 1512,
+      "1-25000": 2613,
+      "usgs-15-min": 2613,
+      "1-50000": 2613,
+      "1-100000": 2613,
     };
     for (const scale of SCALE_PRESETS) {
       expect(panelWidthPxFor(scale, LETTER_LANDSCAPE), scale.id).toBe(expected[scale.id]);

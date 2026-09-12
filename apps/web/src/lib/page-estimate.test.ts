@@ -49,9 +49,11 @@ describe("estimatePages", () => {
     const without = estimatePages(box, usgs, 0);
     const heavy = estimatePages(box, usgs, 0.5);
 
-    expect(without.pages).toBe(64);
+    // 64 before the CONTINUE columns narrowed to 38pt: a wider map box covers
+    // more ground per page, so the same extent tiles into fewer of them.
+    expect(without.pages).toBe(56);
     expect(without.overLimit).toBe(false);
-    expect(heavy.pages).toBe(225);
+    expect(heavy.pages).toBe(210);
     expect(heavy.overLimit).toBe(true);
   });
 
