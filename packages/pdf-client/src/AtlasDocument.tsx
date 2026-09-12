@@ -99,6 +99,18 @@ const styles = StyleSheet.create({
   },
   small: { fontSize: 7, color: INK },
   attribution: { fontSize: 6, color: BARK, maxWidth: 280 },
+  /**
+   * The page's statement of its own print resolution, under the calibration
+   * tick. Deliberately in the tick's block and not the credit column: the credit
+   * is caller-supplied and wraps, so a line stacked on top of it would be pushed
+   * upward by a long attribution until it left the fixed footer row — and
+   * @react-pdf paints an overflowing line anyway, silently. The tick's block is a
+   * fixed 1-inch rule plus one fixed caption, so this line's distance from the
+   * foot of the page does not depend on anything a caller can lengthen.
+   */
+  printResolution: { fontSize: 6, color: BARK, marginTop: 1 },
+  /** Wraps the calibration tick and the resolution line into one centred block. */
+  printCheck: { alignItems: "center" },
   // Locations table of contents (front-matter page).
   tocHeading: { fontSize: 11, fontFamily: "Helvetica-Bold", color: FOREST, marginTop: 10, marginBottom: 8 },
   tocRow: {
@@ -292,6 +304,45 @@ function CalibrationTick() {
 
 function continuation(dir: string, id: string | undefined) {
   return id ? `CONTINUE ${dir} · ${id}` : "";
+}
+
+/**
+ * What one sheet says about the resolution it was printed at.
+ *
+ * The app knows this twice over — the scale picker says what a preset *would*
+ * deliver on a reference page, and the render history says what a finished atlas
+ * *did* deliver — and the printed page, which is the artefact someone actually
+ * navigates from and is usually detached from the app that made it, said
+ * nothing. `render-cli` measures the delivered resolution PER PANEL against the
+ * same map box the request was sized from, so a page can state its own figure
+ * rather than the book's range; in a zoom ladder the two are very different
+ * numbers.
+ *
+ * Only this. The scale is already on the page as a true-length bar, the source
+ * is already on it as a credit line, and the tick above this caption already
+ * proves the printer did not rescale the sheet. What was missing is the one
+ * thing a reader cannot recover by looking: whether a label that reads soft is
+ * soft in the source or soft because this page was delivered at half the
+ * resolution it asked for. That is actionable — re-render, or accept it — and a
+ * whole-number DPI is enough to act on. A date, a preset id or a tile zoom would
+ * be furniture nobody can do anything with.
+ *
+ * THREE ANSWERS, kept apart, exactly as the render history keeps them
+ * (`no-basemap` vs `not-recorded` in `apps/web/src/lib/pdf-history.ts`): a page
+ * drawn with no basemap has no resolution to report, a page drawn WITH one whose
+ * figure never reached the renderer has a missing measurement, and these are
+ * different facts about the sheet in your hand. Neither may print as a number,
+ * and neither may print as silence.
+ */
+export function printResolutionCaption(dpi: number | undefined, basemapDrawn: boolean): string {
+  if (!basemapDrawn) return "print resolution · no basemap drawn";
+  if (typeof dpi !== "number" || !Number.isFinite(dpi) || dpi <= 0) {
+    return "print resolution · not recorded";
+  }
+  // Whole DPI, rounded once — the same convention as the render history and the
+  // generated print-resolution table, so the figure on the paper and the figure
+  // on the screen are the same kind of number.
+  return `print resolution · ${Math.round(dpi)} dpi`;
 }
 
 /**
@@ -624,6 +675,7 @@ function AtlasPageView({
   referenceGrid,
   notes,
   attribution,
+  printDpi,
 }: {
   page: AtlasPage;
   contract: AtlasContract;
@@ -640,6 +692,8 @@ function AtlasPageView({
   notes?: boolean;
   /** Credit line for the tiles this page's panel was built from. */
   attribution?: string;
+  /** Resolution this page's panel was delivered at, as the renderer measured it. */
+  printDpi?: number;
 }) {
   const showTier2 = page.tier >= 2;
   const showTier3 = page.tier >= 3;
@@ -752,7 +806,16 @@ function AtlasPageView({
               {attribution ? `${attribution} — Journey Book` : "Journey Book"}
             </Text>
           </View>
-          <CalibrationTick />
+          <View style={styles.printCheck}>
+            <CalibrationTick />
+            {/* Clamped like every other furniture caption: the footer is a fixed
+                40 pt row, and a caption that wrapped would be painted outside it
+                (or clipped) without anything failing. `printResolution.test.ts`
+                measures the baseline off the produced PDF for exactly this. */}
+            <Text style={[styles.printResolution, CLAMP_ONE_LINE]}>
+              {printResolutionCaption(printDpi, panel !== undefined)}
+            </Text>
+          </View>
           {showTier2 ? <CompassRose /> : null}
           {showTier3 && grid ? <UsngCollar collar={grid.collar} /> : null}
           {pageNumber !== undefined ? (
@@ -942,6 +1005,7 @@ export function AtlasDocument({
   referenceGrid = true,
   notes = true,
   attribution,
+  printDpi,
 }: {
   contract: AtlasContract;
   title: string;
@@ -969,6 +1033,16 @@ export function AtlasDocument({
    * data to credit.
    */
   attribution?: string;
+  /**
+   * map pageId -> the print resolution (DPI) that page's panel was actually
+   * delivered at, as measured by `render-cli` against the page's map box.
+   *
+   * Keyed per page, and additive like `panels`/`grids`, because an atlas can mix
+   * scales: a zoom ladder puts 1:100,000 and 1:24,000 in one book and they print
+   * up to a whole zoom level — 2x — apart. A page with a panel but no entry here
+   * says so rather than printing a number; see {@link printResolutionCaption}.
+   */
+  printDpi?: Record<string, number>;
 }) {
   // Front matter (overview, then TOC) precedes the content pages and shifts their
   // physical page numbers. Both are computed from the same offset so the TOC, the
@@ -1015,6 +1089,7 @@ export function AtlasDocument({
           referenceGrid={referenceGrid}
           notes={notes}
           attribution={attribution}
+          printDpi={printDpi?.[page.id]}
         />
       ))}
     </Document>

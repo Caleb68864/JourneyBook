@@ -705,6 +705,14 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
   // Web-Mercator zoom boundary. Two presets 4% apart in scale can print 1.9x
   // apart in DPI, and nothing in the output said so.
   const deliveredDpi: number[] = [];
+  // The same measurement, kept per page, because the PDF prints it per page.
+  //
+  // The summary below is the atlas's range and is the honest answer for a whole
+  // render; it is NOT the answer for a sheet in someone's hand. A zoom ladder
+  // puts 1:100,000 and 1:24,000 in one book, so "169-338 dpi" is true of the book
+  // and of no page in it. Each footer states the figure its own panel was
+  // measured at.
+  const deliveredDpiByPage: Record<string, number> = {};
   // The summary that leaves this function on the result. Undefined until a panel
   // has actually been measured, so "no basemap" and "0 dpi" cannot be confused.
   let delivered: DeliveredDpi | undefined;
@@ -732,6 +740,7 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
         // from, so the reported DPI is the one the request was expressed in.
         const dpi = effectiveDpi(panel.widthPx, mapBoxInches(pageSpec).widthIn);
         deliveredDpi.push(dpi);
+        deliveredDpiByPage[page.id] = dpi;
         stderr.write(`  panel ${page.id} (z${panel.zoom}, ${Math.round(dpi)} dpi)\n`);
         // The source has no tiles below this zoom, so the panel is softer than
         // --panel-px asked for. Before the clamp this was not a warning: the
@@ -908,6 +917,10 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
     outputPath: input.outputPath,
     ...(input.title ? { title: input.title } : {}),
     ...(attribution ? { attribution } : {}),
+    // Per-page, so each printed sheet states the resolution it was drawn at
+    // instead of the book's range — and so a page whose panel was never measured
+    // says "not recorded" rather than borrowing another page's number.
+    printDpi: deliveredDpiByPage,
     panels,
     grids,
     routes,

@@ -815,4 +815,103 @@ describe("renderAtlas with a basemap", () => {
 
     expect(result.deliveredDpi).toBeUndefined();
   });
+
+  /**
+   * The same measurement again, on the PAPER.
+   *
+   * The result field above answers for a render to whoever holds the result
+   * object — the worker, the API, the browser. None of them is in the room six
+   * months later when someone unfolds the sheet in a truck. The printed page is
+   * the artefact, and it carried no statement of its own print resolution at all.
+   *
+   * These render for real and read the figure back out of the produced PDF, so
+   * the whole path is under test: measured per panel in the basemap loop, carried
+   * per page into `renderAtlasPdfToFile`, printed in that page's footer. The
+   * pdf-client suite owns where on the page it lands; this owns that it is the
+   * number the renderer actually measured for that page.
+   */
+  async function renderAndReadPages(input: ZoomProbeInput): Promise<{
+    result: Awaited<ReturnType<typeof renderAtlas>>;
+    /** All text shown on each PDF page, in stream order, concatenated. */
+    pageText: string[];
+  }> {
+    const fetchMock = vi.fn(async () => new Response(new Uint8Array(TILE_PNG), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const dir = mkdtempSync(join(tmpdir(), "jb-render-dpi-page-"));
+    try {
+      const out = join(dir, "out.pdf");
+      const result = await renderAtlas({
+        ...input,
+        outputPath: out,
+        tileBaseUrl: "http://127.0.0.1:1/tiles",
+        overview: false,
+      });
+      const pageText = measurePdfPages(readFileSync(out)).map((p) => p.texts.join(""));
+      return { result, pageText };
+    } finally {
+      vi.unstubAllGlobals();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it("[BEHAVIORAL] prints the measured resolution on the page it was measured for", async () => {
+    const { result, pageText } = await renderAndReadPages({
+      mode: "location",
+      center: { lng: -98, lat: 41 },
+      scalePresetId: "1-100000",
+      tier: 1,
+      basemap: true,
+    });
+
+    expect(pageText).toHaveLength(1);
+    // The figure on the paper is the figure on the result, rounded once — not a
+    // recomputation from the request, which (see above) is a different number.
+    expect(pageText[0]).toContain(`print resolution · ${Math.round(result.deliveredDpi!.min)} dpi`);
+  });
+
+  it("[BEHAVIORAL] gives each page of a mixed-scale atlas its own figure", async () => {
+    // A zoom ladder's pages print up to a whole zoom level apart. The book's
+    // range ("338-352 dpi") is true of the book and of no single sheet, so a
+    // sheet must not print it — nor may every sheet print the same constant.
+    const { result, pageText } = await renderAndReadPages({
+      mode: "location",
+      center: { lng: -98, lat: 41 },
+      scalePresetId: "usgs-7-5-min",
+      tier: 1,
+      basemap: true,
+      locations: [{ center: { lng: -98, lat: 41 } }],
+      zoomLevels: ["1-100000", "1-50000", "usgs-7-5-min"],
+      tableOfContents: false,
+    });
+
+    expect(pageText).toHaveLength(3);
+    const printed = pageText.map((text) => {
+      const match = /print resolution · (\d+) dpi/.exec(text);
+      expect(match, `no printed resolution on ${text.slice(0, 60)}`).not.toBeNull();
+      return Number(match![1]);
+    });
+
+    // The pages genuinely differ — a constant, or the atlas summary repeated on
+    // every sheet, fails here.
+    expect(new Set(printed).size).toBeGreaterThan(1);
+    expect(Math.min(...printed)).toBe(Math.round(result.deliveredDpi!.min));
+    expect(Math.max(...printed)).toBe(Math.round(result.deliveredDpi!.max));
+  });
+
+  it("[CONTROL] prints no basemap was drawn, rather than a number", async () => {
+    const { result, pageText } = await renderAndReadPages({
+      mode: "location",
+      center: { lng: -98, lat: 41 },
+      scalePresetId: "1-100000",
+      tier: 1,
+      basemap: false,
+    });
+
+    expect(result.deliveredDpi).toBeUndefined();
+    expect(pageText).toHaveLength(1);
+    // Neither a figure nor silence: there is no map on this sheet to have a
+    // resolution, which is a different fact from a missing measurement.
+    expect(pageText[0]).toContain("print resolution · no basemap drawn");
+    expect(pageText[0]).not.toMatch(/print resolution · \d/);
+  });
 });
