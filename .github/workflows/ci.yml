@@ -92,6 +92,13 @@ jobs:
       # users read is regenerated with it. Needs the build above (map-sources dist).
       - name: The print-resolution table users see still matches the engine
         run: pnpm check:print-resolution
+      # The page-count lever table. Same shape again: the answer to "how do I get
+      # fewer pages?" is measured from `pageGridSize` -- the counting a real
+      # render does -- rather than typed into prose. It had been measured once by
+      # hand and copied into a roadmap, where it drifted from the engine and
+      # overstated two levers. Needs the build above (atlas-core dist).
+      - name: The page-count lever table still matches the engine
+        run: pnpm check:page-count
       # Covers test files as well as src — see typecheck-covers-tests.sh.
       - run: pnpm -r typecheck
       - name: Test files are inside the typecheck program

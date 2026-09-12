@@ -9,7 +9,7 @@ import {
   type PinStyle,
   type ScalePreset,
 } from "./model.js";
-import { groundFootprintMeters, type PageSpec } from "./page.js";
+import { groundFootprintMeters, type PageFurniturePt, type PageSpec } from "./page.js";
 import { createProjector, pageBBoxAround } from "./projection.js";
 
 /**
@@ -89,6 +89,14 @@ export interface PageGridOptions {
   overlap?: number;
   /** Map tier applied to every page. Default Level 1 (road-atlas). */
   tier?: MapTier;
+  /**
+   * Page furniture to size the map box against. Defaults to the renderer's own
+   * {@link PAGE_FURNITURE_PT}, which is what every real render uses. Present so
+   * a what-if ("how many pages without the notes block?") is measured through
+   * this same counting rather than a second copy of it — see
+   * {@link PageFurniturePt}.
+   */
+  furniture?: PageFurniturePt;
 }
 
 /** How big a grid an extent tiles into, without materialising or rejecting it. */
@@ -119,7 +127,7 @@ export interface PageGridSize {
  * pages", used by both the guard and the warning.
  */
 export function pageGridSize(options: PageGridOptions): PageGridSize {
-  const { bbox, scale, page } = options;
+  const { bbox, scale, page, furniture } = options;
   const overlap = options.overlap ?? 0;
 
   const [west, south, east, north] = bbox;
@@ -138,7 +146,7 @@ export function pageGridSize(options: PageGridOptions): PageGridSize {
   const extentWidth = Math.max(...xs) - Math.min(...xs);
   const extentHeight = Math.max(...ys) - Math.min(...ys);
 
-  const fp = groundFootprintMeters(scale, page);
+  const fp = groundFootprintMeters(scale, page, furniture);
   const stepX = fp.widthMeters * (1 - overlap);
   const stepY = fp.heightMeters * (1 - overlap);
 
@@ -154,7 +162,7 @@ export function pageGridSize(options: PageGridOptions): PageGridSize {
  * the same ground footprint; row letters run north→south, columns west→east.
  */
 export function buildPageGrid(options: PageGridOptions): AtlasContract {
-  const { bbox, scale, page } = options;
+  const { bbox, scale, page, furniture } = options;
   const overlap = options.overlap ?? 0;
   const tier = options.tier ?? DEFAULT_MAP_TIER;
 
@@ -178,7 +186,7 @@ export function buildPageGrid(options: PageGridOptions): AtlasContract {
   const extentWidth = maxX - minX;
   const extentHeight = maxY - minY;
 
-  const fp = groundFootprintMeters(scale, page);
+  const fp = groundFootprintMeters(scale, page, furniture);
   const stepX = fp.widthMeters * (1 - overlap);
   const stepY = fp.heightMeters * (1 - overlap);
 

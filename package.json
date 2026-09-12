@@ -17,7 +17,9 @@
     "typecheck": "pnpm -r run typecheck",
     "check:fixture": "node scripts/regenerate-sample-atlas.mjs --check",
     "check:print-resolution": "node scripts/generate-print-resolution.mjs --check",
+  "check:page-count": "node scripts/generate-page-count.mjs --check",
     "generate:print-resolution": "node scripts/generate-print-resolution.mjs",
+  "generate:page-count": "node scripts/generate-page-count.mjs",
     "dev:web": "pnpm --filter @journeybook/web dev",
     "build:web": "pnpm --filter @journeybook/web build",
     "clean": "pnpm -r exec rimraf dist"
