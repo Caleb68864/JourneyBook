@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { SCALE_PRESETS } from "./index.js";
 import {
   LETTER_PORTRAIT,
+  PAGE_FURNITURE_PT,
   printableAreaInches,
   mapBoxInches,
   groundFootprintMeters,
@@ -56,6 +57,30 @@ describe("mapBoxInches", () => {
     const box = mapBoxInches(landscape);
     expect(box.widthIn * 72).toBeCloseTo(720 - 125, 9);
     expect(box.heightIn * 72).toBeCloseTo(540 - 171, 9);
+  });
+
+  // The furniture override exists so a what-if ("how many pages with no notes
+  // block?") is measured through this function instead of a copy of it. These
+  // two tests are the pair that keeps it honest: passing the real constants
+  // must be indistinguishable from passing nothing, and passing something else
+  // must actually move the box. Without the first, the override could quietly
+  // change every real render; without the second, it could be ignored entirely
+  // and the what-if table would report the baseline for every lever.
+  it("passing the renderer's own furniture is the same as passing none", () => {
+    const implicit = mapBoxInches(LETTER_PORTRAIT);
+    const explicit = mapBoxInches(LETTER_PORTRAIT, { ...PAGE_FURNITURE_PT });
+    expect(explicit).toEqual(implicit);
+  });
+
+  it("an overridden measurement changes the box by exactly that measurement", () => {
+    const base = mapBoxInches(LETTER_PORTRAIT);
+    const noNotes = mapBoxInches(LETTER_PORTRAIT, {
+      ...PAGE_FURNITURE_PT,
+      notesBlock: 0,
+    });
+    // The notes block is height only, so the width must not move at all.
+    expect(noNotes.widthIn).toBeCloseTo(base.widthIn, 9);
+    expect((noNotes.heightIn - base.heightIn) * 72).toBeCloseTo(PAGE_FURNITURE_PT.notesBlock, 9);
   });
 });
 

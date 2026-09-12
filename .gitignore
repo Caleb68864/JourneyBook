@@ -178,4 +178,5 @@ docs/*
 # picker, so it has to be in the repo for the link to resolve. `--check` in CI
 # keeps it matching the engine.
 !docs/print-resolution.md
+!docs/page-count.md
 pins-check.png

@@ -82,20 +82,37 @@ export const PAGE_FURNITURE_PT = {
   footerRow: 40,
 } as const;
 
+/**
+ * The shape of {@link PAGE_FURNITURE_PT}, with every measurement writable.
+ *
+ * This type exists so a *what-if* can be measured through the same arithmetic
+ * the renderer uses rather than through a second copy of it — "how many pages
+ * would this atlas be with no notes block?" is answered by passing a furniture
+ * record here, not by re-deriving the map box somewhere else. Nothing in the
+ * product supplies one: every real call takes the default.
+ */
+export type PageFurniturePt = { -readonly [K in keyof typeof PAGE_FURNITURE_PT]: number };
+
 /** Total furniture taken out of the printable width, in points. */
-const FURNITURE_WIDTH_PT =
-  2 * (PAGE_FURNITURE_PT.neatlineBorder + PAGE_FURNITURE_PT.neatlinePadding) +
-  2 * PAGE_FURNITURE_PT.edgeLabelColumn +
-  2 * PAGE_FURNITURE_PT.panelBorder;
+export function furnitureWidthPt(furniture: PageFurniturePt = PAGE_FURNITURE_PT): number {
+  return (
+    2 * (furniture.neatlineBorder + furniture.neatlinePadding) +
+    2 * furniture.edgeLabelColumn +
+    2 * furniture.panelBorder
+  );
+}
 
 /** Total furniture taken out of the printable height, in points. */
-const FURNITURE_HEIGHT_PT =
-  2 * (PAGE_FURNITURE_PT.neatlineBorder + PAGE_FURNITURE_PT.neatlinePadding) +
-  PAGE_FURNITURE_PT.headerRow +
-  2 * PAGE_FURNITURE_PT.edgeLabelRow +
-  PAGE_FURNITURE_PT.notesBlock +
-  PAGE_FURNITURE_PT.footerRow +
-  2 * PAGE_FURNITURE_PT.panelBorder;
+export function furnitureHeightPt(furniture: PageFurniturePt = PAGE_FURNITURE_PT): number {
+  return (
+    2 * (furniture.neatlineBorder + furniture.neatlinePadding) +
+    furniture.headerRow +
+    2 * furniture.edgeLabelRow +
+    furniture.notesBlock +
+    furniture.footerRow +
+    2 * furniture.panelBorder
+  );
+}
 
 /** PDF points per inch. Mirrors POINTS_PER_INCH in model.ts. */
 const PT = 72;
@@ -105,18 +122,28 @@ const PT = 72;
  * i.e. the printable area less {@link PAGE_FURNITURE_PT}. This, not
  * {@link printableAreaInches}, is what a page's ground footprint is measured
  * against; the renderer paints the map into precisely this box.
+ *
+ * `furniture` defaults to the renderer's own constants and should be left alone
+ * by product code; see {@link PageFurniturePt} for why it can be overridden.
  */
-export function mapBoxInches(page: PageSpec): InchSize {
+export function mapBoxInches(
+  page: PageSpec,
+  furniture: PageFurniturePt = PAGE_FURNITURE_PT,
+): InchSize {
   const area = printableAreaInches(page);
   return {
-    widthIn: (area.widthIn * PT - FURNITURE_WIDTH_PT) / PT,
-    heightIn: (area.heightIn * PT - FURNITURE_HEIGHT_PT) / PT,
+    widthIn: (area.widthIn * PT - furnitureWidthPt(furniture)) / PT,
+    heightIn: (area.heightIn * PT - furnitureHeightPt(furniture)) / PT,
   };
 }
 
 /** The ground footprint (metres) covered by one page's printed map box. */
-export function groundFootprintMeters(scale: ScalePreset, page: PageSpec): MeterSize {
-  const box = mapBoxInches(page);
+export function groundFootprintMeters(
+  scale: ScalePreset,
+  page: PageSpec,
+  furniture: PageFurniturePt = PAGE_FURNITURE_PT,
+): MeterSize {
+  const box = mapBoxInches(page, furniture);
   const mpi = metersPerInch(scale);
   return {
     widthMeters: box.widthIn * mpi,
