@@ -7,6 +7,7 @@ import {
   PRINT_RESOLUTION,
   PRINT_RESOLUTION_DOC_URL,
   describePresetResolution,
+  pageCaveat,
   latitudeRuns,
   optionResolutionLabel,
   presetResolution,
@@ -46,6 +47,31 @@ function fakeRow(overrides: Partial<PresetResolution> = {}): PresetResolution {
     ...overrides,
   };
 }
+
+describe("every description says which page it is for", () => {
+  /**
+   * Three DPI figures have reached the owner wrong by travelling without the
+   * condition they were measured under (a 41°N number quoted as universal). The
+   * page is the same kind of condition: orientation, margins and the gutter each
+   * move the cliffs to other latitudes. So every branch of the description has
+   * to carry it, not just the one somebody remembered.
+   */
+  it("[BEHAVIORAL] all three branches name the page geometry", () => {
+    const below = fakeRow();
+    const clears = fakeRow({ requestedDpi: 301, minDpi: 302, belowTargetLats: [], clampedLats: [] });
+    const short = fakeRow({ requestedDpi: 301, minDpi: 277, minDpiLat: 18, belowTargetLats: [18], clampedLats: [18] });
+    for (const row of [below, clears, short]) {
+      expect(describePresetResolution(row, 300).join(" ")).toContain(PRINT_RESOLUTION.page.description);
+    }
+  });
+
+  it("takes the page from the generated table rather than a copy of it", () => {
+    // The control that stops the sentence drifting from the measurement: it must
+    // quote the table's own words, whatever they are.
+    expect(pageCaveat()).toBe(`Figures are for ${PRINT_RESOLUTION.page.description}.`);
+    expect(PRINT_RESOLUTION.page.description).toMatch(/portrait|landscape/);
+  });
+});
 
 describe("describePresetResolution derives every figure from the row", () => {
   it("[BEHAVIORAL] a preset asking for less than the target: band, cliff and cause", () => {
