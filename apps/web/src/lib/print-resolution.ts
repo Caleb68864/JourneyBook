@@ -56,8 +56,17 @@ export const PRINT_RESOLUTION: PrintResolutionTable = generated;
  * same table. The repository is public, and the page is a Markdown file rather
  * than part of this app, so it is linked on GitHub; the path comes from the
  * table so the two cannot name different files.
+ *
+ * The base is overridable because this one is only correct for THIS repository.
+ * A fork — or a branch that renames the file — serves a link to somebody else's
+ * document, which is worse than no link: it looks authoritative and describes a
+ * different build. Set `VITE_DOCS_BASE_URL` to the raw-file base for the
+ * checkout being deployed (no trailing slash).
  */
-export const PRINT_RESOLUTION_DOC_URL = `https://github.com/Caleb68864/JourneyBook/blob/master/${PRINT_RESOLUTION.doc}`;
+const DOCS_BASE_URL =
+  import.meta.env?.VITE_DOCS_BASE_URL ?? "https://github.com/Caleb68864/JourneyBook/blob/master";
+
+export const PRINT_RESOLUTION_DOC_URL = `${DOCS_BASE_URL}/${PRINT_RESOLUTION.doc}`;
 
 export function presetResolution(id: string): PresetResolution | undefined {
   return PRINT_RESOLUTION.presets.find((p) => p.id === id);
@@ -100,6 +109,20 @@ export function latitudeRuns(lats: readonly number[], step: number): string {
  *    basemap's deepest zoom — named with where, not grouped with the ones that
  *    clear it everywhere.
  */
+/**
+ * Which page every figure above describes.
+ *
+ * The whole table is measured for one page geometry, and changing orientation,
+ * margins or the gutter moves the zoom cliffs to other latitudes — so a figure
+ * quoted without its page is the same class of half-truth as a DPI quoted
+ * without its latitude, which has already reached the owner wrong three times.
+ * The description comes from the generated table, not from prose here, so it
+ * cannot describe a page the figures were not measured for.
+ */
+export function pageCaveat(): string {
+  return `Figures are for ${PRINT_RESOLUTION.page.description}.`;
+}
+
 export function describePresetResolution(
   p: PresetResolution,
   targetDpi: number = PRINT_RESOLUTION.targetDpi,
@@ -116,15 +139,17 @@ export function describePresetResolution(
       `One degree can ${verb}: ${s.fromDpi} DPI at ${s.fromLat}°N, ${s.toDpi} at ${s.toLat}°N.`,
       `The cause is where the page falls against the map tiles' zoom levels, not panel width: ` +
         `a panel wide enough for ${targetDpi} DPI would still bottom out at ${t.minDpi} DPI (${t.minDpiLat}°N).`,
+      pageCaveat(),
     ];
   }
 
   if (p.belowTargetLats.length === 0) {
-    return [`Prints at ${band} — ${targetDpi} DPI or better at every latitude.`];
+    return [`Prints at ${band} — ${targetDpi} DPI or better at every latitude.`, pageCaveat()];
   }
 
   return [
     `Prints at ${band} — ${targetDpi} DPI or better except at ${latitudeRuns(p.belowTargetLats, step)}, ` +
       `where USGS has no finer tiles (${p.minDpi} at ${p.minDpiLat}°N).`,
+    pageCaveat(),
   ];
 }
