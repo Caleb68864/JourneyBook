@@ -295,14 +295,29 @@ describe("the printed page states its own print resolution", () => {
       printDpi: { L1a: 169.2, L1b: 338.4 },
       attribution: "USGS The National Map",
       tableOfContents: false,
-      overview: undefined,
       referenceGrid: false,
       notes: true,
     });
     const measured = measurePdfPages(pdf);
     expect(measured).toHaveLength(2);
-    expect(resolutionLine(paintedLines(measured[0]!)).text).toBe("print resolution · 169 dpi");
-    expect(resolutionLine(paintedLines(measured[1]!)).text).toBe("print resolution · 338 dpi");
+
+    // Each sheet is identified by the page id IT prints in its own header
+    // (`styles.pageId`, the only 16 pt text on an atlas page), not by its
+    // position in the returned array. The claim is "this page states its own
+    // figure", and pairing the two off the same sheet says exactly that — where
+    // an index would only say the two figures came back in some order. These
+    // two pages are identical apart from the id and the DPI, which is what made
+    // an index-based version of this test pass on one CI run and fail the next
+    // before `measurePdfPages` returned document order.
+    const byPageId = new Map(
+      measured.map((page) => {
+        const id = page.textItems.find((t) => t.size >= 15)?.text;
+        expect(id, "no page id in the header of a measured page").toBeDefined();
+        return [id!, resolutionLine(paintedLines(page)).text];
+      }),
+    );
+    expect(byPageId.get("L1a")).toBe("print resolution · 169 dpi");
+    expect(byPageId.get("L1b")).toBe("print resolution · 338 dpi");
   });
 
   it("says no basemap was drawn rather than printing a number", async () => {

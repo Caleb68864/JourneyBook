@@ -235,6 +235,79 @@ describe("measurePdfPages stream selection", () => {
   });
 });
 
+/**
+ * Pages come back in DOCUMENT order, not file order.
+ *
+ * These are not the same thing, and the difference is not theoretical: react-pdf
+ * writes a two-page document's content streams in either order, measured here at
+ * roughly 50/50 across 25 renders. Every caller that maps `measured[i]` to
+ * `contract.pages[i]` — `render-cli`'s `measurePrintedMapBoxes`, which feeds
+ * `validateAtlas`'s printed-scale-fidelity check, and the per-page tests in
+ * `print-resolution.test.ts` — was right by luck, and only because the pages it
+ * compared carried identical geometry. The first test to give two otherwise
+ * identical pages different text failed on one CI run and passed on the next.
+ *
+ * The fixtures below put the streams in the file in the OPPOSITE order to the
+ * `/Kids` array, so file order and document order cannot both be right.
+ */
+describe("measurePdfPages document order", () => {
+  /** `N 0 obj` wrapping a deflated page content stream. */
+  function contentObject(num: number, content: string, pageHeight = 800): string {
+    const body = deflateSync(Buffer.from(`1 0 0 -1 0 ${pageHeight} cm\n${content}`, "latin1"));
+    return `${num} 0 obj\n<< /Length ${body.length} /Filter /FlateDecode >>\nstream\n${body.toString("latin1")}\nendstream\nendobj\n`;
+  }
+
+  /**
+   * A two-page document whose content streams appear in the file in the reverse
+   * of the order `/Kids` puts the pages in.
+   */
+  function reversedDoc(): Buffer {
+    return Buffer.from(
+      "%PDF-1.7\n" +
+        // First in the FILE: the stream belonging to the SECOND page.
+        contentObject(6, "10 20 100 50 re\nf") +
+        contentObject(13, "5 5 10 10 re\nf") +
+        "8 0 obj\n<< /Type /Page /Parent 1 0 R /MediaBox [0 0 612 792] /Contents 13 0 R >>\nendobj\n" +
+        "15 0 obj\n<< /Type /Page /Parent 1 0 R /MediaBox [0 0 612 792] /Contents 6 0 R >>\nendobj\n" +
+        "1 0 obj\n<< /Type /Pages /Count 2 /Kids [8 0 R 15 0 R] >>\nendobj\n" +
+        "%%EOF\n",
+      "latin1",
+    );
+  }
+
+  it("returns pages in the order /Kids puts them, not the order the file stores them", () => {
+    const pages = measurePdfPages(reversedDoc());
+    expect(pages).toHaveLength(2);
+    // /Kids is [8, 15]; page 8's /Contents is object 13, the 10x10 rect, which
+    // is written SECOND in the file. File order would report 100 first.
+    expect(pages[0]!.rects[0]!.width).toBe(10);
+    expect(pages[1]!.rects[0]!.width).toBe(100);
+  });
+
+  it("falls back to file order for a document with no page tree", () => {
+    // The hand-written fixtures above are bare streams. Reading nothing rather
+    // than reading them wrongly is the whole point of the fallback.
+    const a = pageStream("10 20 100 50 re\nf");
+    const b = pageStream("5 5 10 10 re\nf", 600);
+    const pages = measurePdfPages(Buffer.concat([a, b]));
+    expect(pages.map((p) => p.rects[0]!.width)).toEqual([100, 10]);
+  });
+
+  it("falls back rather than dropping a page the tree does not account for", () => {
+    // A third measurable stream that no /Kids entry points at: ordering by the
+    // tree would silently return two pages for a three-page file.
+    const orphan = deflateSync(Buffer.from("1 0 0 -1 0 800 cm\n0 0 7 7 re\nf", "latin1"));
+    const doc = Buffer.concat([
+      reversedDoc().subarray(0, reversedDoc().length - "%%EOF\n".length),
+      Buffer.from("99 0 obj\n<< >>\nstream\n", "latin1"),
+      orphan,
+      Buffer.from("\nendstream\nendobj\n%%EOF\n", "latin1"),
+    ]);
+    const pages = measurePdfPages(doc);
+    expect(pages).toHaveLength(3);
+  });
+});
+
 describe("largestRect and mapBoxOf", () => {
   it("largestRect picks by area, not by width or by order", () => {
     const page = measureOne("0 0 300 10 re\nf\n20 20 100 100 re\nf");
