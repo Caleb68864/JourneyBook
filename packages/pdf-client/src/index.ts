@@ -42,6 +42,20 @@ export interface RenderPdfOptions {
    * footer names only the product.
    */
   attribution?: string;
+  /**
+   * map pageId -> the print resolution (DPI) that page's panel was delivered at.
+   *
+   * Printed in each page's footer, so the sheet someone navigates from states
+   * what it prints at without the app that made it. The figure is the renderer's
+   * own per-panel measurement (`render-cli`'s `deliveredDpi`, measured against
+   * `mapBoxInches(pageSpec).widthIn`), not a request: nothing resamples, so the
+   * requested width is a floor and the delivered panel is 1x-2x it.
+   *
+   * Omit an entry, or the whole map, and a page WITH a basemap prints "not
+   * recorded" — which is a different statement from the "no basemap drawn" a
+   * page with no panel prints, and both are different from printing a number.
+   */
+  printDpi?: Record<string, number>;
 }
 
 function documentElement(options: RenderPdfOptions) {
@@ -58,6 +72,7 @@ function documentElement(options: RenderPdfOptions) {
     referenceGrid: options.referenceGrid ?? true,
     notes: options.notes ?? true,
     attribution: options.attribution,
+    printDpi: options.printDpi,
   });
 }
 
@@ -74,7 +89,7 @@ export async function renderAtlasPdfToBuffer(options: RenderPdfOptions): Promise
   return renderToBuffer(documentElement(options));
 }
 
-export { AtlasDocument, type RouteOverlay } from "./AtlasDocument.js";
+export { AtlasDocument, printResolutionCaption, type RouteOverlay } from "./AtlasDocument.js";
 export {
   measurePdfPages,
   largestRect,
@@ -82,5 +97,6 @@ export {
   type MeasuredBox,
   type MeasuredLine,
   type MeasuredPage,
+  type MeasuredText,
 } from "./pdf-measure.js";
 export const PDF_CLIENT_VERSION = "0.0.0";

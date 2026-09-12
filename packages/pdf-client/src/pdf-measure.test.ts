@@ -124,6 +124,61 @@ describe("pdf-measure text", () => {
   });
 });
 
+/**
+ * Where a string landed, not just that it was shown.
+ *
+ * "The words are in the file" is not a claim about the printed page: @react-pdf
+ * paints a line that does not fit a fixed-height block anyway, outside the block,
+ * and nothing fails. The baseline is the only thing that tells the two apart, so
+ * it is read here on hand-written pages where the answer is known in advance.
+ */
+describe("pdf-measure text placement", () => {
+  it("reports the baseline a Tm put the string on, in top-down coordinates", () => {
+    // `pageStream` opens with react-pdf's flip, so the stream's own coordinates
+    // already read downward from the top: a baseline at Tm y=700 is 700 pt down.
+    // Reading it as 100 (the y-UP distance from the foot of an 800 pt sheet)
+    // would put every footer line near the top of the page.
+    const page = measureOne("BT\n1 0 0 1 40 700 Tm\n/F1 9 Tf\n<41> Tj\nET");
+    expect(page.textItems).toEqual([{ text: "A", x: 40, y: 700, size: 9 }]);
+  });
+
+  it("carries the graphics-state matrix into the baseline", () => {
+    // The furniture is drawn inside nested `cm` translations; a reading that
+    // ignored the CTM would report the text at its block-relative origin.
+    const page = measureOne("q\n1 0 0 1 10 20 cm\nBT\n1 0 0 1 5 700 Tm\n/F1 6 Tf\n<42> Tj\nET\nQ");
+    expect(page.textItems).toEqual([{ text: "B", x: 15, y: 720, size: 6 }]);
+  });
+
+  it("advances the baseline for Td, relative to the line matrix", () => {
+    const page = measureOne(
+      "BT\n1 0 0 1 0 700 Tm\n/F1 8 Tf\n<41> Tj\n0 -12 Td\n<42> Tj\nET",
+    );
+    expect(page.textItems.map((t) => [t.text, t.y])).toEqual([
+      ["A", 700],
+      ["B", 688],
+    ]);
+  });
+
+  it("resets the text matrix at each BT, so blocks do not accumulate", () => {
+    const page = measureOne(
+      "BT\n1 0 0 1 0 700 Tm\n/F1 8 Tf\n<41> Tj\nET\nBT\n1 0 0 1 0 600 Tm\n<42> Tj\nET",
+    );
+    expect(page.textItems.map((t) => t.y)).toEqual([700, 600]);
+  });
+
+  it("keeps the font size of the governing Tf", () => {
+    const page = measureOne(
+      "BT\n1 0 0 1 0 700 Tm\n/F1 11 Tf\n<41> Tj\n/F2 6 Tf\n<42> Tj\nET",
+    );
+    expect(page.textItems.map((t) => t.size)).toEqual([11, 6]);
+  });
+
+  it("keeps texts and textItems in step", () => {
+    const page = measureOne("BT\n1 0 0 1 0 700 Tm\n/F1 9 Tf\n<48> Tj\n<69> Tj\nET");
+    expect(page.texts).toEqual(page.textItems.map((t) => t.text));
+  });
+});
+
 describe("pdf-measure path classification", () => {
   it("treats a closed four-corner axis-aligned subpath as a rectangle", () => {
     const page = measureOne("10 20 m\n110 20 l\n110 70 l\n10 70 l\n10 20 l\nh\nf");
