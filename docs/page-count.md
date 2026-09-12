@@ -4,19 +4,19 @@
 # What actually changes an atlas's page count
 
 Of the settings the product has today, **10% overlap adds the most pages**
-(median +11.7%, up to +36.1% on the extents
+(median +11.9%, up to +34.6% on the extents
 below) and **margins 0.5in → 0.25in removes the most** (median
-−6.7%, down to −11.1%).
+−7.4%, down to −16.7%).
 
 Overlap is the lever with no compensation: it changes the page count while leaving the map area on each page exactly as it was (2.5% overlap, 5% overlap, 10% overlap all measure 0.0% area). Every other lever here trades paper for pages in one direction or the other, so its cost is visible on the page; overlap's cost is only ever in the page count.
 
 Trimming furniture does reduce the count — continue columns 54pt → 18pt is worth a median of
-−13.8% — but it is **not free and not reliable**: it buys
-+17.3% of map area per page, and its effect ranges from
-0.0% to −22.2% depending on the extent.
+−7.4% — but it is **not free and not reliable**: it buys
++8.9% of map area per page, and its effect ranges from
+0.0% to −16.7% depending on the extent.
 
 **Page counts are `ceil()`'d in each axis**, which is why a lever's median can be
-zero while it still removes a row from some atlases. Measured that way here: 2.5% overlap (median 0.0%, but +16.1% on one extent), no header row (median 0.0%, but −6.7% on one extent), no footer row (median 0.0%, but −6.7% on one extent). A single-extent measurement would report those as "changes nothing".
+zero while it still removes a row from some atlases. Measured that way here: 2.5% overlap (median 0.0%, but +16.7% on one extent), landscape instead of portrait (median 0.0%, but −25.0% on one extent), no header row (median 0.0%, but −6.7% on one extent), no footer row (median 0.0%, but −6.7% on one extent). A single-extent measurement would report those as "changes nothing".
 
 ## The levers, by how much they move the count
 
@@ -26,32 +26,32 @@ Map area is per page, and is the price of the lever, not its benefit.
 
 | Lever | Kind | Median pages | Range across extents | Map area per page |
 |---|---|---|---|---|
-| 10% overlap | real | **+11.7%** | 0.0% to +36.1% | 0.0% |
-| 5% overlap | real | **+7.5%** | 0.0% to +36.1% | 0.0% |
-| Landscape instead of portrait | real | **+5.5%** | −2.2% to +50.0% | −3.6% |
-| 2.5% overlap | real | **0.0%** | 0.0% to +16.1% | 0.0% |
+| 10% overlap | real | **+11.9%** | 0.0% to +34.6% | 0.0% |
+| 5% overlap | real | **+7.7%** | 0.0% to +16.7% | 0.0% |
+| 2.5% overlap | real | **0.0%** | 0.0% to +16.7% | 0.0% |
+| Landscape instead of portrait | real | **0.0%** | −25.0% to +15.4% | −5.7% |
 | No header row | what-if | **0.0%** | −6.7% to 0.0% | +5.5% |
 | No footer row | what-if | **0.0%** | −6.7% to 0.0% | +7.3% |
 | No notes block | what-if | **−4.2%** | −13.3% to 0.0% | +12.0% |
-| Margins 0.5in → 0.25in | real | **−6.7%** | −11.1% to 0.0% | +15.8% |
-| CONTINUE columns 54pt → 18pt | what-if | **−13.8%** | −22.2% to 0.0% | +17.3% |
-| No furniture at all | what-if | **−35.5%** | −46.7% to 0.0% | +61.4% |
+| Margins 0.5in → 0.25in | real | **−7.4%** | −16.7% to 0.0% | +15.1% |
+| CONTINUE columns 54pt → 18pt | what-if | **−7.4%** | −16.7% to 0.0% | +8.9% |
+| No furniture at all | what-if | **−30.6%** | −46.7% to 0.0% | +49.8% |
 
 ## Per extent
 
 The spread is the point. A lever that does nothing to a four-page park can add
 a row and a column to a county, because each axis rounds up independently.
 
-| Extent | Baseline pages | 10% overlap | 5% overlap | Landscape instead of portrait | 2.5% overlap | No header row | No footer row | No notes block | Margins 0.5in → 0.25in | CONTINUE columns 54pt → 18pt | No furniture at all |
+| Extent | Baseline pages | 10% overlap | 5% overlap | 2.5% overlap | Landscape instead of portrait | No header row | No footer row | No notes block | Margins 0.5in → 0.25in | CONTINUE columns 54pt → 18pt | No furniture at all |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| A park, 0.06° square | 4 | 4 | 4 | 6 | 4 | 4 | 4 | 4 | 4 | 4 | 4 |
-| A training area, 0.15° square | 16 | 16 | 16 | 18 | 16 | 16 | 16 | 16 | 16 | 16 | 9 |
-| A county, 0.5° square | 156 | 196 | 169 | 162 | 169 | 156 | 156 | 143 | 144 | 132 | 100 |
-| A wide corridor, 0.6° × 0.1° | 45 | 48 | 48 | 44 | 45 | 45 | 45 | 45 | 42 | 39 | 24 |
-| A tall corridor, 0.1° × 0.6° | 45 | 48 | 48 | 44 | 45 | 42 | 42 | 39 | 42 | 45 | 24 |
-| A county at 1:50,000 | 36 | 49 | 49 | 45 | 36 | 36 | 36 | 36 | 36 | 30 | 25 |
-| A county in the south, 30°N | 168 | 224 | 195 | 180 | 195 | 168 | 168 | 154 | 156 | 144 | 110 |
-| A county in the north, 60°N | 108 | 126 | 117 | 108 | 117 | 108 | 108 | 99 | 96 | 84 | 70 |
+| A park, 0.06° square | 4 | 4 | 4 | 4 | 3 | 4 | 4 | 4 | 4 | 4 | 4 |
+| A training area, 0.15° square | 16 | 16 | 16 | 16 | 18 | 16 | 16 | 16 | 16 | 16 | 9 |
+| A county, 0.5° square | 144 | 182 | 156 | 156 | 144 | 144 | 144 | 132 | 132 | 132 | 100 |
+| A wide corridor, 0.6° × 0.1° | 42 | 45 | 45 | 42 | 40 | 42 | 42 | 42 | 39 | 39 | 24 |
+| A tall corridor, 0.1° × 0.6° | 45 | 48 | 48 | 45 | 44 | 42 | 42 | 39 | 42 | 45 | 24 |
+| A county at 1:50,000 | 36 | 42 | 42 | 36 | 36 | 36 | 36 | 36 | 30 | 30 | 25 |
+| A county in the south, 30°N | 156 | 210 | 182 | 182 | 180 | 156 | 156 | 143 | 144 | 144 | 110 |
+| A county in the north, 60°N | 96 | 126 | 104 | 104 | 108 | 96 | 96 | 88 | 84 | 84 | 70 |
 
 ## Method
 

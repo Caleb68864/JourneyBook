@@ -101,7 +101,7 @@ describe("buildLocationPage", () => {
 
     // The map box (printable area less page furniture), not the printable area:
     // 5.7639in x 7.625in at 1:24,000.
-    expect(width).toBeCloseTo(3513.7, -1);
+    expect(width).toBeCloseTo(3785.8, -1);
     expect(height).toBeCloseTo(4648.2, -1);
     expect(midLng).toBeCloseTo(center.lng, 4);
     expect(midLat).toBeCloseTo(center.lat, 4);
@@ -133,7 +133,7 @@ describe("buildPageGrid", () => {
     for (const p of grid.pages) {
       const [w, s, e, n] = p.bbox;
       const width = geodesicDistanceMeters({ lng: w, lat: (s + n) / 2 }, { lng: e, lat: (s + n) / 2 });
-      expect(width).toBeCloseTo(3513.7, -1);
+      expect(width).toBeCloseTo(3785.8, -1);
     }
   });
 
@@ -300,7 +300,7 @@ describe("buildPageGrid", () => {
     expect(() => buildPageGrid(options)).toThrow(/exceeding the 200-page limit/);
 
     const size = pageGridSize(options);
-    expect(size.pages).toBe(1086537);
+    expect(size.pages).toBe(1008795);
     expect(size.columns * size.rows).toBe(size.pages);
     expect(size.overLimit).toBe(true);
   });
@@ -332,7 +332,7 @@ describe("buildPageGrid", () => {
     const started = Date.now();
     expect(() =>
       buildPageGrid({ bbox: [-125, 24, -66, 49], scale: usgs, page: LETTER_PORTRAIT }),
-    ).toThrow(/1086537 pages .*exceeding the 200-page limit/);
+    ).toThrow(/1008795 pages .*exceeding the 200-page limit/);
     expect(Date.now() - started).toBeLessThan(1000);
   });
 

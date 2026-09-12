@@ -90,7 +90,7 @@ export interface ScalePreset {
  * hand-typed statements of one measurement, over different ranges, checked by
  * nothing. Read the table; do not copy a figure out of it into prose.
  */
-export const DEFAULT_PANEL_WIDTH_PX = 1000;
+export const DEFAULT_PANEL_WIDTH_PX = 1078;
 
 /**
  * Panel width asking for {@link PRINT_DPI_TARGET} across the Letter-portrait map
@@ -101,7 +101,7 @@ export const DEFAULT_PANEL_WIDTH_PX = 1000;
  * every engine module imports from and cannot import the module that computes it
  * without an init cycle.
  */
-export const PRINT_TARGET_PANEL_WIDTH_PX = 1730;
+export const PRINT_TARGET_PANEL_WIDTH_PX = 1863;
 
 /**
  * Named presets. Choosing a scale fixes the ground footprint of every page,

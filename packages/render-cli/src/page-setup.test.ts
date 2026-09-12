@@ -144,8 +144,8 @@ describe("page setup reaches the printed PDF", () => {
       };
       const expected = mapBoxInches(spec);
 
-      // The default box is 415 x 549 pt; 1.25in margins make it 307 x 441.
-      expect(expected.widthIn * 72).toBeCloseTo(307, 6);
+      // The default box is 447 x 549 pt; 1.25in margins make it 339 x 441.
+      expect(expected.widthIn * 72).toBeCloseTo(339, 6);
       expect(expected.heightIn * 72).toBeCloseTo(441, 6);
 
       // Measuring the produced FILE is the only assertion that catches the engine

@@ -5,6 +5,7 @@ import type { BBox, LngLat } from "@journeybook/atlas-core";
 import {
   SCALE_PRESETS,
   LETTER_PORTRAIT,
+  DEFAULT_PANEL_WIDTH_PX as ENGINE_DEFAULT_PANEL_WIDTH_PX,
   mapBoxInches,
   buildLocationPage,
   effectiveDpi,
@@ -33,8 +34,16 @@ import type { PrintResolutionTable } from "./print-resolution.js";
  */
 const MAP_BOX_WIDTH_IN = mapBoxInches(LETTER_PORTRAIT).widthIn;
 
-/** The render pipeline's default `--panel-px` (`render.ts`). */
-const DEFAULT_PANEL_WIDTH_PX = 1000;
+/**
+ * The engine's own default panel width, imported rather than copied.
+ *
+ * This was `const DEFAULT_PANEL_WIDTH_PX = 1000` — a second copy of the
+ * constant, two lines under a comment explaining that the map box had just
+ * stopped being a copy. When the map box changed and the engine's default moved
+ * with it, this file went on asserting "at the default panel width" about a
+ * number nothing used any more.
+ */
+const DEFAULT_PANEL_WIDTH_PX = ENGINE_DEFAULT_PANEL_WIDTH_PX;
 
 describe("web mercator tile math", () => {
   it("centres (0,0) at z0", () => {
@@ -114,12 +123,20 @@ describe("web mercator tile math", () => {
      * The print-resolution number itself. `renderMapPanel` crops at native tile
      * resolution — it does not resample to `targetWidthPx` — so the delivered
      * panel is `widthPxAt(zoom)`, and the effective DPI is that over the printed
-     * map box (5.7639 in at Letter portrait). One zoom coarser halves it.
+     * map box (6.2083 in at Letter portrait). One zoom coarser halves it.
      */
     it("[BEHAVIORAL] a 1:24,000 Letter page at the default panel width lands on z16", () => {
-      const page: BBox = [-98.020888, 40.97907, -97.979112, 41.020926];
+      // Page and request are both DERIVED. As literals, they were a page the
+      // engine no longer produces and a request no preset makes, and the test
+      // would have gone on asserting z16 about neither.
+      const page: BBox = buildLocationPage(
+        { lng: -98, lat: 41 },
+        SCALE_PRESETS[0]!,
+        LETTER_PORTRAIT,
+        "L1",
+      ).bbox;
 
-      const zoom = zoomForBBox(page, 1000);
+      const zoom = zoomForBBox(page, DEFAULT_PANEL_WIDTH_PX);
       // Also the ceiling USGS Topo actually has tiles for (USGS_TOPO.maxZoom),
       // which is why the render has zero headroom here.
       expect(zoom).toBe(16);
@@ -154,7 +171,7 @@ describe("web mercator tile math", () => {
    * because its page falls 1.95x past one; 1:25,000, a 4% change in scale, drops
    * off a 1.92x cliff to 176.
    *
-   * The default of 1000 px over a 5.7639 in map box is a request for **173 DPI**.
+   * The default of 1078 px over a 6.2083 in map box is a request for **174 DPI**.
    * Nothing anywhere asked for 300.
    */
   describe("print resolution per scale preset", () => {
@@ -219,7 +236,7 @@ describe("web mercator tile math", () => {
     /**
      * The finding the roadmap had backwards. It said the 300 DPI target "needs a
      * deeper basemap, not a bigger number", scheduled against Stage 7. It needs a
-     * bigger number and no deeper basemap: `panelWidthPxForDpi(mapBox, 300)` = 1730
+     * bigger number and no deeper basemap: `panelWidthPxForDpi(mapBox, 300)` = 1863
      * clears 300 DPI at **every** preset, and every one of them still lands inside
      * USGS Topo's z16 ceiling — nothing is clamped, so no preset renders softer
      * than it asked for.
@@ -232,7 +249,7 @@ describe("web mercator tile math", () => {
      */
     it("[BEHAVIORAL] a 300 DPI target is reachable at every preset inside the z16 ceiling", () => {
       const target = panelWidthPxForDpi(MAP_BOX_WIDTH_IN, PRINT_DPI_TARGET);
-      expect(target).toBe(1730);
+      expect(target).toBe(1863);
 
       for (const scale of SCALE_PRESETS) {
         const got = delivered(scale, target);
@@ -312,7 +329,7 @@ describe("web mercator tile math", () => {
  *    41 degrees N. Its real band across the USGS Topo latitude range is in the
  *    generated table (`apps/web/src/generated/print-resolution.json`), and is
  *    deliberately NOT restated here — see the block at the end of this file.
- *  - **Orientation.** Landscape has an 8.2639 in map box instead of 5.7639 in, so
+ *  - **Orientation.** Landscape has an 8.7083 in map box instead of 6.2083 in, so
  *    a flat pixel count is a weaker DPI request there. That is why the preset's
  *    number goes through `panelWidthPxFor` rather than being used raw.
  */
@@ -384,11 +401,11 @@ describe("delivered print resolution at each preset's own panel width", () => {
    */
   it("[BEHAVIORAL] pins each preset's width, zoom and delivered DPI at 41N portrait", () => {
     const expected: Record<string, { target: number; zoom: number; dpi: number }> = {
-      "usgs-7-5-min": { target: 1000, zoom: 16, dpi: 338 },
-      "1-25000": { target: 1730, zoom: 16, dpi: 352 },
-      "usgs-15-min": { target: 1730, zoom: 15, dpi: 440 },
-      "1-50000": { target: 1730, zoom: 15, dpi: 352 },
-      "1-100000": { target: 1730, zoom: 14, dpi: 352 },
+      "usgs-7-5-min": { target: 1078, zoom: 16, dpi: 338 },
+      "1-25000": { target: 1863, zoom: 16, dpi: 352 },
+      "usgs-15-min": { target: 1863, zoom: 15, dpi: 440 },
+      "1-50000": { target: 1863, zoom: 15, dpi: 352 },
+      "1-100000": { target: 1863, zoom: 14, dpi: 352 },
     };
     for (const scale of SCALE_PRESETS) {
       const got = deliveredAt(scale, LETTER_PORTRAIT, 41);
@@ -399,12 +416,21 @@ describe("delivered print resolution at each preset's own panel width", () => {
     }
   });
 
-  it("1:24,000 still renders exactly as it did — same width, same zoom, same DPI", () => {
+  it("1:24,000 still asks for the same resolution, and still renders exactly as it did", () => {
     // Half two of the owner's decision, asserted on its own so a regression that
     // quietly widens the headline preset names itself.
-    const got = deliveredAt(SCALE_PRESETS[0]!, LETTER_PORTRAIT, 41);
-    expect(SCALE_PRESETS[0]!.id).toBe("usgs-7-5-min");
-    expect(got.target).toBe(1000);
+    //
+    // The pin is on the resolution it ASKS FOR, not on the pixel count. When the
+    // map box widened (CONTINUE columns 54pt -> 38pt), the request had to move
+    // with it — 1000 px over 5.7639 in and 1078 px over 6.2083 in are the same
+    // 173 DPI ask. A pixel-count pin would have called that a regression, while
+    // a genuine raise on a page whose box had shrunk would have slipped past it
+    // unnamed. What must not change is the ask, and what is delivered for it.
+    const scale = SCALE_PRESETS[0]!;
+    expect(scale.id).toBe("usgs-7-5-min");
+    expect(scale.panelWidthPx / MAP_BOX_WIDTH_IN, "the DPI 1:24,000 asks for").toBeCloseTo(173.5, 0);
+
+    const got = deliveredAt(scale, LETTER_PORTRAIT, 41);
     expect(got.zoom).toBe(16);
     expect(Math.round(got.dpi)).toBe(338);
   });

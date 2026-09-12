@@ -42,8 +42,8 @@ describe("mapBoxInches", () => {
     const box = mapBoxInches(LETTER_PORTRAIT);
 
     // 540pt printable width less 2x(1.5 border + 6 padding) neatline,
-    // 2x54pt edge-label columns and 2x1pt panel border = 415pt.
-    expect(box.widthIn * 72).toBeCloseTo(415, 9);
+    // 2x38pt edge-label columns and 2x1pt panel border = 447pt.
+    expect(box.widthIn * 72).toBeCloseTo(447, 9);
     // 720pt printable height less the same neatline, the 30pt header, two 9pt
     // continuation rows, the 66pt notes block, the 40pt footer and the border.
     expect(box.heightIn * 72).toBeCloseTo(549, 9);
@@ -55,7 +55,7 @@ describe("mapBoxInches", () => {
   it("landscape takes the same furniture off the swapped sheet", () => {
     const landscape: PageSpec = { ...LETTER_PORTRAIT, orientation: "landscape" };
     const box = mapBoxInches(landscape);
-    expect(box.widthIn * 72).toBeCloseTo(720 - 125, 9);
+    expect(box.widthIn * 72).toBeCloseTo(720 - 93, 9);
     expect(box.heightIn * 72).toBeCloseTo(540 - 171, 9);
   });
 
@@ -89,8 +89,8 @@ describe("groundFootprintMeters", () => {
     const fp = groundFootprintMeters(usgs, LETTER_PORTRAIT);
     const box = mapBoxInches(LETTER_PORTRAIT);
 
-    // 5.7639in x 7.625in of map at 1:24,000.
-    expect(fp.widthMeters).toBeCloseTo(3513.667, 3);
+    // 6.2083in x 7.625in of map at 1:24,000.
+    expect(fp.widthMeters).toBeCloseTo(3784.6, 3);
     expect(fp.heightMeters).toBeCloseTo(4648.2, 3);
 
     // The relation that makes the scale bar true: ground metres per printed inch
@@ -99,11 +99,11 @@ describe("groundFootprintMeters", () => {
     expect(fp.heightMeters / box.heightIn / 0.0254).toBeCloseTo(usgs.ratio, 6);
   });
 
-  it("is smaller than the printable area would imply — the ~30% print-scale defect", () => {
+  it("is smaller than the printable area would imply — the ~21% print-scale defect", () => {
     const fp = groundFootprintMeters(usgs, LETTER_PORTRAIT);
     const printable = printableAreaInches(LETTER_PORTRAIT);
     const wrong = printable.widthIn * usgs.ratio * 0.0254;
     expect(fp.widthMeters).toBeLessThan(wrong);
-    expect(wrong / fp.widthMeters).toBeCloseTo(1.301, 2);
+    expect(wrong / fp.widthMeters).toBeCloseTo(1.208, 2);
   });
 });
