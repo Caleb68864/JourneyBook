@@ -915,6 +915,23 @@ public class HttpRenderWorkerClientTests
         Assert.Equal("Pawnee Creek Land Nav", doc.RootElement.GetProperty("title").GetString());
     }
 
+    /// <summary>The title-page text reaches the wire, and text that was not set is absent.</summary>
+    [Fact]
+    public async Task Title_page_text_is_carried_on_the_wire_only_when_set()
+    {
+        var (client, handler) = Build();
+        await client.RenderAsync(new RenderWorkerRequest(
+            ScalePresetId: "usgs-7-5-min", Tier: 1, Orientation: "Portrait", Overlap: 0,
+            Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
+            Extent: new BBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Locations: [], OutputFileName: "atlas-title-page.pdf",
+            ExplorerName: "Ada"));
+
+        using var doc = JsonDocument.Parse(handler.CapturedBody!);
+        Assert.Equal("Ada", doc.RootElement.GetProperty("explorerName").GetString());
+        Assert.False(doc.RootElement.TryGetProperty("atlasDate", out _));
+    }
+
     /// <summary>
     /// No title means an ABSENT field, so the engine's own fallback applies.
     /// </summary>

@@ -99,6 +99,10 @@ jobs:
       # overstated two levers. Needs the build above (atlas-core dist).
       - name: The page-count lever table still matches the engine
         run: pnpm check:page-count
+      # The printable ruler page the web app links to, compared by what it draws.
+      - name: The web app's print-check PDF still matches the renderer
+        run: pnpm check:print-check
+      - run: pnpm lint
       # Covers test files as well as src — see typecheck-covers-tests.sh.
       - run: pnpm -r typecheck
       - name: Test files are inside the typecheck program

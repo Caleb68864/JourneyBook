@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { stdout } from "node:process";
@@ -132,5 +132,69 @@ describe("cli validate", () => {
     const text = out.join("");
     expect(text).toMatch(/\[SKIP\] printed-scale-fidelity/);
     expect(text).not.toMatch(/\[PASS\] printed-scale-fidelity/);
+  });
+});
+
+describe("cli title page flags", () => {
+  it("carries --explorer and --date, and sets neither when they are absent", () => {
+    const geometry = ["--location", "-96.7,40.8", "--scale", "usgs-7-5-min"];
+    const input = inputFromArgs([...geometry, "--explorer", "Ada", "--date", "Summer 2026"]);
+    expect(input.explorerName).toBe("Ada");
+    expect(input.atlasDate).toBe("Summer 2026");
+
+    const plain = inputFromArgs(geometry);
+    expect(plain).not.toHaveProperty("explorerName");
+    expect(plain).not.toHaveProperty("atlasDate");
+  });
+});
+
+describe("cli calibration", () => {
+  it("writes the one-page target, and refuses without --out", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jb-cli-"));
+    const stderrWrite = process.stderr.write.bind(process.stderr);
+    const stdoutWrite = stdout.write.bind(stdout);
+    process.stderr.write = (() => true) as typeof process.stderr.write;
+    stdout.write = (() => true) as typeof stdout.write;
+    try {
+      const out = join(dir, "check.pdf");
+      expect(await runCli(["calibration", "--out", out])).toBe(0);
+      expect(readFileSync(out).subarray(0, 5).toString()).toBe("%PDF-");
+      expect(await runCli(["calibration"])).toBe(2);
+    } finally {
+      process.stderr.write = stderrWrite;
+      stdout.write = stdoutWrite;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("cli cache-prune", () => {
+  it("prunes to the limit and refuses a missing or negative one", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jb-cli-"));
+    const stderrWrite = process.stderr.write.bind(process.stderr);
+    const out: string[] = [];
+    const stdoutWrite = stdout.write.bind(stdout);
+    process.stderr.write = (() => true) as typeof process.stderr.write;
+    stdout.write = ((s: string) => {
+      out.push(s);
+      return true;
+    }) as typeof stdout.write;
+    try {
+      mkdirSync(join(dir, "usgs/16/1"), { recursive: true });
+      writeFileSync(join(dir, "usgs/16/1/1.png"), Buffer.alloc(2048));
+
+      expect(await runCli(["cache-prune", "--dir", dir])).toBe(2);
+      expect(await runCli(["cache-prune", "--dir", dir, "--max-mb", "-1"])).toBe(2);
+      expect(await runCli(["cache-prune", "--max-mb", "1"])).toBe(2);
+      expect(existsSync(join(dir, "usgs/16/1/1.png"))).toBe(true);
+
+      expect(await runCli(["cache-prune", "--dir", dir, "--max-mb", "0"])).toBe(0);
+      expect(existsSync(join(dir, "usgs/16/1/1.png"))).toBe(false);
+      expect(out.join("")).toContain("Removed 1 tile(s)");
+    } finally {
+      process.stderr.write = stderrWrite;
+      stdout.write = stdoutWrite;
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

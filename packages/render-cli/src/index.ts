@@ -10,6 +10,7 @@ export { runCli } from "./cli.js";
 export {
   renderAtlas,
   assembleContract,
+  planAtlasRender,
   RenderCancelledError,
   NON_WIRE_INPUT_FIELDS,
   type RenderAtlasInput,
@@ -18,6 +19,8 @@ export {
   type RenderLocation,
   type RenderProgress,
   type AssembledAtlas,
+  type RenderPlan,
+  type RenderPlanPage,
 } from "./render.js";
 export { loadLocationsFile, parseLocationsCsv, parseLocationsJson } from "./locations.js";
 export {

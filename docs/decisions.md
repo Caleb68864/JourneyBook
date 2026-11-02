@@ -1127,3 +1127,80 @@ Each entry follows this shape:
 - Surfaces: packages/pdf-client/src/{pdf-measure.ts,pdf-measure.test.ts,print-resolution.test.ts}
 - Watch: the page-tree read assumes the FLAT `/Kids` array pdfkit emits. A nested page tree, or a cross-reference stream that hides the objects from a plain `N 0 obj` scan, falls back to file order — which is no worse than before, but is silent. If a future renderer emits either, the fallback is the thing to look at first. `objectsOf` also scans for `N 0 obj` across the whole file, so a byte sequence inside a compressed stream could in principle be read as an object header; it only matters if it also carries `/Type /Page` and a `/Contents` reference, and a bad read falls back rather than mis-orders.
 - Commit: (pending)
+
+## 2026-11-02 — Microsoft.OpenApi advisory, and the deferred PostGIS run
+- Symptom: `dotnet restore` reported NU1903 for `Microsoft.OpenApi` 2.0.0 (GHSA-v5pm-xwqc-g5wc). The integration suites had never run on this machine.
+- Fix: `Microsoft.AspNetCore.OpenApi` 10.0.8 → 10.0.14, which requires `Microsoft.OpenApi` `[2.12.2, 3.0.0)`. Bumping the parent means no pin to maintain. 3.x was not an option: the ASP.NET package excludes it.
+- The full suite on unmodified master passed, 319 of 319, so the run exposed nothing to fix. `OpenApiDocumentTests` was added because nothing requested the document, the package's only runtime use. It passes on the old version too: it guards the upgrade, and the before/after evidence is the restore warning.
+- Surfaces: apps/api/JourneyBook.Api.csproj, dotnet/JourneyBook.Tests/JourneyBook.Tests.csproj, dotnet/JourneyBook.Tests/Api/OpenApiDocumentTests.cs
+- Restore then still warned about `SSH.NET` 2025.1.0, test-only through Testcontainers, so `Testcontainers.PostgreSql` went 4.12.0 → 4.16.0, which resolves the patched 2026.0.0. All 335 tests pass on it.
+- Watch: None.
+- Commit: (pending)
+
+## 2026-11-02 — `render --dry-run`
+- Symptom: `journeybook grid ... | jq` was the only "how big will this be?" preview, and nothing estimated tiles.
+- Fix: `planAtlasRender` uses `assembleContract` and `planMapPanel`, the function `renderMapPanel` renders from. The width and overview choices were pulled out of `renderAtlas` into helpers both call, so the plan cannot make a different decision from the render.
+- Evidence: `dry-run.test.ts` compares the plan to real renders over stubbed tiles: fetch count, distinct URLs, page ids and PDF page count. Mutations fail it: not billing the overview (297 vs 327 tiles), not counting the contents page (4 vs 5 pages).
+- Surfaces: packages/render-cli/src/{render.ts,cli.ts,dry-run.test.ts}, planAtlasRender, formatRenderPlan
+- Watch: the tile figure assumes a cold cache and the source's zoom ceiling from `--tile-max-zoom` or USGS. Against a proxied source with a shallower ceiling and no flag, it overstates.
+- Commit: (pending)
+
+## 2026-11-02 — Overview labels a zoom ladder once
+- Symptom: a ladder's nested footprints share a centre, so their page numbers printed on top of each other and on top of the location's pin.
+- Fix: `overviewPageLabels` groups `L#a`, `L#b`... by location and prints one label, the page range, inside the top edge of the largest footprint. Pages that are not consecutive print as "4, 9" so a range never claims a page it lacks.
+- ASCII hyphen on purpose. An en dash came back from `pdf-measure` as "24" for "2–4" in the rendered test, so it could not be verified by the instrument every other printed claim rests on.
+- Surfaces: packages/pdf-client/src/{AtlasDocument.tsx,overview-page.test.ts}, overviewPageLabels
+- Watch: un-laddered location and grid pages still label at the centre, so a single location's number can still sit under its pin.
+- Commit: (pending)
+
+## 2026-11-02 — Location import takes a JSON backup; quoted line breaks in CSV
+- Symptom: the CLI's `--locations` took a project backup and the web's Import CSV did not. Separately, both CSV parsers split on line ends before reading quotes, so a spreadsheet's multi-line note became bad rows and failed the import.
+- Fix: `locationImportToCsv` converts JSON to import CSV in the browser, so a backup gets the one server importer's all-or-nothing validation rather than a second path. Both parsers now split records with quotes in view, and refuse an unterminated quote: once a field may span lines, an unclosed quote would otherwise swallow later rows and import fewer locations than the file holds, reporting success.
+- Evidence: two new cases in `data/fixtures/locations-csv-cases.json`. `line-break-in-a-quoted-field` failed on both parsers before the fix.
+- Surfaces: apps/web/src/lib/location-import.ts, apps/web/src/components/LocationList.tsx, packages/render-cli/src/locations.ts, dotnet/JourneyBook.Infrastructure/Locations/LocationCsv.cs, data/fixtures/locations-csv-cases.json
+- Watch: it imports locations only. A backup's project settings are ignored here, as they should be when adding to an existing project; the project list's Import is still how to restore a whole project. Field aliases are mirrored from `normalizeLocationEntry`, since the web cannot import `render-cli`.
+- Commit: (pending)
+
+## 2026-11-02 — Print check page
+- Symptom: every map page has a 1-inch tick, which shows a sheet was scaled, but nothing let someone check a printer before printing an atlas. Stages 1E and 9 both listed it.
+- Fix: `CalibrationDocument`, a page with 6-inch, 15-cm and 8-inch vertical rulers and a 2-inch square. `journeybook calibration --out`. The web links to a static `apps/web/public/print-check.pdf`, because the browser has no PDF renderer and a static file opens with the API down.
+- Evidence: `calibration.test.ts` reads ruler lengths and tick spacing back off the PDF, against numbers written out in points. `pnpm check:print-check` compares what the committed PDF draws, not its bytes, because the PDF embeds a creation time.
+- Surfaces: packages/pdf-client/src/{CalibrationDocument.tsx,calibration.test.ts}, scripts/generate-print-check.mjs, harness/checks/print-check.sh, apps/web/src/components/PrintCheckLink.tsx, .gitignore
+- Watch: nobody has held a real ruler to a printed copy yet. That is the part only a person can do.
+- Commit: (pending)
+
+## 2026-11-02 — Tile cache pruning, off by default
+- Symptom: neither tile cache ever deleted anything.
+- Fix: `TileCache.Prune` and `pruneTileCache` delete oldest-written first down to a byte limit, plus temp files over an hour old. `TileCachePruneService` applies `TileCache:MaxSizeMb`; `journeybook cache-prune` does it for a CLI cache. Files outside `{source}/{z}/{x}/{y}[.{ext}]` are never touched, so a root pointed at the wrong directory deletes nothing else.
+- Off by default (`MaxSizeMb: 0`). How long to keep tiles is listed as undecided in the staged roadmap, so the mechanism is here and the number is the owner's.
+- Oldest-WRITTEN, not least recently used. Access times are unreliable on `noatime` mounts, and updating a timestamp on every read was not worth it for a cache that re-fetches on a miss.
+- Evidence: `data/fixtures/tile-cache-prune.json` runs through both languages. Reversing the sort fails 2 TS cases.
+- Surfaces: dotnet/JourneyBook.Infrastructure/Tiles/{TileCache.cs,TileCachePruneService.cs}, dotnet/JourneyBook.Infrastructure/DependencyInjection.cs, packages/map-sources/src/tilecache.ts, packages/render-cli/src/cli.ts, apps/api/appsettings.json
+- Watch: the API prunes only its own `TileCache:CacheDir`. A worker cache directory elsewhere needs `cache-prune` run against it.
+- Commit: (pending)
+
+## 2026-11-02 — ESLint
+- Symptom: `harness/checks/lint.sh` said "typecheck stands in for lint (no eslint configured yet)".
+- Fix: `eslint.config.mjs` with `js` and `typescript-eslint` recommended and the two hook rules, as Skaldbok has. `pnpm lint`, a CI step and the harness check. A conditional `useState` in a probe file fails it.
+- Evidence: 22 errors on the first run, all fixed or covered by the leading-underscore convention the tree already used. One warning remains, deliberately: `exhaustive-deps` in `ProjectEditorPage.tsx`, on the effect keyed on `projectId`.
+- No formatter: a first run rewrites most of the tree and conflicts with any open branch, so that is left to the owner.
+- Surfaces: eslint.config.mjs, package.json, .github/workflows/ci.yml, harness/checks/lint.sh
+- Watch: None.
+- Commit: (pending)
+
+## 2026-11-02 — Removed the unreachable Hero and shadcn tree
+- Symptom: `Hero.tsx`, `HealthChip.tsx`, `MapFurniture.tsx`, `components/ui/*` and `lib/utils.ts` had no path from `App`, and `a11y.test.ts` and `theme-tokens.test.ts` were partly passing on code that never renders. The W3 sweep recorded this as the next candidate of its shape.
+- Fix: deleted them, `components.json`, the `@/*` TypeScript path, and the six dependencies only they used (`@radix-ui/react-dialog`, `@radix-ui/react-select`, `class-variance-authority`, `clsx`, `lucide-react`, `tailwind-merge`).
+- Surfaces: apps/web/package.json, apps/web/tsconfig.app.json, pnpm-lock.yaml
+- Watch: the "@" alias in `vite.config.ts` stays and is now unused. Restoring shadcn later means re-running its init.
+- Commit: (pending)
+
+## 2026-11-02 — Title page: explorer name and date
+- Symptom: Stage 9 listed explorer name and date as basic style settings and `vault/branding-theme.md` has a cover structure for them; the product had neither.
+- Fix: nullable `Project.ExplorerName` (120) and `Project.AtlasDate` (60), migration `AddProjectTitlePageFields`, carried through project DTOs, duplicate, export/import, the worker wire, `--explorer`/`--date` and `TitlePageFields` in the editor. A title page prints ahead of the overview when either is set, and front-matter page numbers count it.
+- A title page, not per-page furniture: the J15 entry above records that a date on every sheet is furniture nobody can act on, and a page of its own leaves the map box alone. An atlas with neither field set is unchanged.
+- The date is free text ("Summer 2026"), printed as given. It is what the user wants the book to say, not a timestamp.
+- Surfaces: packages/pdf-client/src/{AtlasDocument.tsx,title-page.test.ts}, packages/render-cli/src/{render.ts,cli.ts}, services/render-worker/src/render-route.ts, dotnet/JourneyBook.Infrastructure/Projects/ProjectService.cs, dotnet/JourneyBook.Infrastructure/Migrations/20261102173648_AddProjectTitlePageFields.cs, apps/web/src/components/TitlePageFields.tsx, apps/web/src/lib/project-transfer.ts
+- Watch: the fields save on blur, like `PageSetup`. The blur fires before a click on Generate but the save is asynchronous, so a render started in the same click can read the old value. The cover structure's "Challenge checklist" line is not built; it belongs to the education work.
+- Commit: (pending)
+

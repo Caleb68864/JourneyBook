@@ -7,7 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.8" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.14" />
     <!-- Kept in the startup project so `dotnet ef migrations` tooling works;
          the DbContext + Npgsql provider live in JourneyBook.Infrastructure. -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.9">

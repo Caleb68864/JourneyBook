@@ -2,8 +2,8 @@
  * Minimal Node-side disk tile cache, honoring the same `{source}/{z}/{x}/{y}.{ext}` key as the
  * C# proxy cache (so the headless CLI and the API share one cache directory). The store records
  * the real extension; the lookup discovers whichever `{y}.*` exists. Paths are confined to the
- * cache root (a `../` key resolves outside and is treated as a miss / skipped store). No TTL —
- * eviction is a Stage 7 concern.
+ * cache root (a `../` key resolves outside and is treated as a miss / skipped store). Nothing
+ * evicts on its own: {@link pruneTileCache} enforces a size limit when asked to.
  */
 
 import { promises as fs } from "node:fs";
@@ -127,4 +127,86 @@ export async function storeCachedTile(
   } catch {
     // best-effort: a cache write failure must not break rendering
   }
+}
+
+/** A temp file this old was abandoned by a crash; a newer one may be a write in progress. */
+const STALE_TEMP_FILE_MS = 60 * 60 * 1000;
+
+/** What a prune did. */
+export interface TileCachePruneResult {
+  removedTiles: number;
+  removedTempFiles: number;
+  /** Bytes of tiles still in the cache. */
+  bytesRemaining: number;
+}
+
+/**
+ * Bring the cache down to `maxBytes`, deleting the oldest-written tiles first, plus any
+ * abandoned temp file. Touches only files in the `{source}/{z}/{x}/{y}[.{ext}]` layout, so a
+ * cache root pointed at the wrong directory deletes nothing else. Mirrors `TileCache.Prune`
+ * in C#, since both can own one directory; `data/fixtures/tile-cache-prune.json` holds them
+ * together. A tile deleted under a concurrent reader is a miss, and is fetched again.
+ */
+export async function pruneTileCache(
+  cacheDir: string,
+  maxBytes: number,
+  now: number = Date.now(),
+): Promise<TileCachePruneResult> {
+  const root = path.resolve(cacheDir);
+  const tiles: { file: string; relative: string; size: number; mtimeMs: number }[] = [];
+  let removedTempFiles = 0;
+
+  const subdirectories = async (dir: string): Promise<string[]> => {
+    const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
+    return entries.filter((e) => e.isDirectory()).map((e) => e.name);
+  };
+  const isNumber = (name: string) => /^\d+$/.test(name);
+
+  for (const source of await subdirectories(root)) {
+    for (const z of (await subdirectories(path.join(root, source))).filter(isNumber)) {
+      for (const x of (await subdirectories(path.join(root, source, z))).filter(isNumber)) {
+        const dir = path.join(root, source, z, x);
+        for (const name of await fs.readdir(dir).catch(() => [])) {
+          const isTile = /^\d+(\.[A-Za-z0-9]+)?$/.test(name);
+          const isTemp = /^\d+(\.[A-Za-z0-9]+)?\.tmp-/.test(name);
+          if (!isTile && !isTemp) continue;
+          const file = path.join(dir, name);
+          const stat = await fs.stat(file).catch(() => null);
+          if (!stat?.isFile()) continue;
+          if (isTile) {
+            tiles.push({ file, relative: `${source}/${z}/${x}/${name}`, size: stat.size, mtimeMs: stat.mtimeMs });
+          } else if (now - stat.mtimeMs >= STALE_TEMP_FILE_MS) {
+            await fs.rm(file, { force: true }).catch(() => undefined);
+            removedTempFiles += 1;
+          }
+        }
+      }
+    }
+  }
+
+  tiles.sort((a, b) => a.mtimeMs - b.mtimeMs || (a.relative < b.relative ? -1 : 1));
+  let bytesRemaining = tiles.reduce((sum, t) => sum + t.size, 0);
+  let removedTiles = 0;
+  const touched = new Set<string>();
+  for (const tile of tiles) {
+    if (bytesRemaining <= maxBytes) break;
+    try {
+      await fs.rm(tile.file, { force: true });
+      bytesRemaining -= tile.size;
+      removedTiles += 1;
+      touched.add(path.dirname(tile.file));
+    } catch {
+      // Still on disk, so still counted; the next prune retries it.
+    }
+  }
+
+  // Emptied {x} and {z} directories; rmdir refuses one that is not empty, which is the check.
+  for (const dir of touched) {
+    await fs
+      .rmdir(dir)
+      .then(() => fs.rmdir(path.dirname(dir)))
+      .catch(() => undefined);
+  }
+
+  return { removedTiles, removedTempFiles, bytesRemaining };
 }

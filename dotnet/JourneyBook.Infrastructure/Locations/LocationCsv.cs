@@ -23,7 +23,7 @@ public record LocationCsvRow(
 /// <c>|</c>- or <c>;</c>-separated ladder of scale preset ids, coarse to fine.
 /// These are the same columns the headless render-cli reads, so one file drives
 /// both the web importer and a CLI render. Supports double-quoted fields
-/// (with <c>""</c> escaping) so notes may contain commas. Aggregates all row
+/// (with <c>""</c> escaping) so notes may contain commas and line breaks. Aggregates all row
 /// errors into one <see cref="LocationValidationException"/> (all-or-nothing).
 /// </summary>
 public static class LocationCsv
@@ -144,11 +144,35 @@ public static class LocationCsv
 
     private static string? NullIfEmpty(string s) => s.Length == 0 ? null : s;
 
-    /// <summary>Split into lines, dropping a leading BOM and skipping blank lines.</summary>
+    /// <summary>
+    /// Split into records, dropping a leading BOM and skipping blank lines. A line end
+    /// inside a double-quoted field belongs to the field, as RFC 4180 has it.
+    /// </summary>
     private static List<string> SplitLines(string csv)
     {
-        var normalized = (csv ?? string.Empty).Replace("\r\n", "\n").Replace("\r", "\n").TrimStart('﻿');
-        return normalized.Split('\n').Where(l => l.Trim().Length > 0).ToList();
+        var normalized = (csv ?? string.Empty).Replace("\r\n", "\n").Replace("\r", "\n").TrimStart('\uFEFF');
+        var records = new List<string>();
+        var sb = new System.Text.StringBuilder();
+        bool inQuotes = false;
+
+        foreach (char c in normalized)
+        {
+            // `""` toggles twice, so an escaped quote leaves the state where it was.
+            if (c == '"') inQuotes = !inQuotes;
+            if (c == '\n' && !inQuotes)
+            {
+                records.Add(sb.ToString());
+                sb.Clear();
+            }
+            else sb.Append(c);
+        }
+        // An open quote would otherwise absorb every later row into one field and
+        // import fewer locations than the file holds, reporting success.
+        if (inQuotes)
+            throw new LocationValidationException($"CSV has an unterminated quoted field in row {records.Count + 1}.");
+        records.Add(sb.ToString());
+
+        return records.Where(l => l.Trim().Length > 0).ToList();
     }
 
     /// <summary>Parse one CSV line into fields, honoring double-quoted fields with "" escaping.</summary>

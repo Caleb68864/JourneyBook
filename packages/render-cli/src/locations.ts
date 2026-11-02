@@ -98,6 +98,30 @@ export function parseZoomLevels(value: string | undefined, where: string): strin
   return ids.map((id) => assertScaleId(id, where));
 }
 
+/** Split CSV text into records. A line end inside a double-quoted field belongs to the field. */
+function splitCsvRecords(csv: string): string[] {
+  const records: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  for (const c of csv.replace(/\r\n/g, "\n")) {
+    // `""` toggles twice, so an escaped quote leaves the state where it was.
+    if (c === '"') inQuotes = !inQuotes;
+    if (c === "\n" && !inQuotes) {
+      records.push(current);
+      current = "";
+    } else {
+      current += c;
+    }
+  }
+  // An open quote would otherwise absorb every later row into one field and import
+  // fewer locations than the file holds, reporting success.
+  if (inQuotes) {
+    throw new Error(`Locations CSV has an unterminated quoted field in row ${records.length + 1}.`);
+  }
+  records.push(current);
+  return records;
+}
+
 /**
  * Parse locations CSV text. Columns are matched by name, case-insensitively:
  * `name`, `lng|longitude|lon`, `lat|latitude` (required); `notes|note`,
@@ -105,10 +129,7 @@ export function parseZoomLevels(value: string | undefined, where: string): strin
  * `zoom|zoomLevels|levels` (optional). Every bad row is reported; all-or-nothing.
  */
 export function parseLocationsCsv(csv: string): RenderLocation[] {
-  const lines = csv
-    .split(/\r?\n/)
-    .map((l) => l.replace(/^﻿/, ""))
-    .filter((l) => l.trim().length > 0);
+  const lines = splitCsvRecords(csv.replace(/^\uFEFF/, "")).filter((l) => l.trim().length > 0);
   if (lines.length === 0) {
     throw new Error("Locations CSV is empty — expected a header row and at least one location.");
   }
@@ -250,6 +271,6 @@ export function loadLocationsFile(path: string): RenderLocation[] {
   if (ext === ".json") return parseLocationsJson(text);
   if (ext === ".csv" || ext === ".txt") return parseLocationsCsv(text);
   // Sniff: a leading `[` or `{` is JSON, anything else is CSV.
-  const head = text.replace(/^﻿/, "").trimStart();
+  const head = text.replace(/^\uFEFF/, "").trimStart();
   return head.startsWith("[") || head.startsWith("{") ? parseLocationsJson(text) : parseLocationsCsv(text);
 }

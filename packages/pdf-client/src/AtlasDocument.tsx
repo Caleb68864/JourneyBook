@@ -46,6 +46,9 @@ const PARCHMENT = brand.parchment;
  * ~30% off its stated scale — so each block is fixed-height, non-shrinking, and
  * its text is clamped to fit.
  */
+/** Wide enough for a ladder range such as "100-102" at the label's 9 pt. */
+const OVERVIEW_LABEL_WIDTH_PT = 36;
+
 const styles = StyleSheet.create({
   page: { fontFamily: "Helvetica", fontSize: 9, color: INK },
   neatline: {
@@ -123,7 +126,7 @@ const styles = StyleSheet.create({
     borderStyle: "dotted",
   },
   pageNumber: { fontSize: 11, fontFamily: "Helvetica-Bold", color: FOREST, marginLeft: 8 },
-  overviewPageLabel: { fontSize: 9, fontFamily: "Helvetica-Bold", color: INK, textAlign: "center", width: 24 },
+  overviewPageLabel: { fontSize: 9, fontFamily: "Helvetica-Bold", color: INK, textAlign: "center", width: OVERVIEW_LABEL_WIDTH_PT },
   // Alphanumeric reference-grid border labels (write the cell coordinate for notes).
   gridLabel: {
     fontSize: 7,
@@ -828,6 +831,85 @@ function AtlasPageView({
 }
 
 /**
+ * The book's title page, from `vault/branding-theme.md`'s cover structure: product,
+ * adventure title, explorer name, date. Printed only when the user gave a name or a
+ * date; an atlas without them starts where it always has.
+ */
+function TitlePage({ title, explorerName, atlasDate }: { title: string; explorerName?: string; atlasDate?: string }) {
+  return (
+    <Page size="LETTER" orientation="portrait" style={[styles.page, { justifyContent: "center", alignItems: "center" }]}>
+      <Text style={{ fontSize: 14, fontFamily: "Helvetica-Bold", color: FOREST, letterSpacing: 3 }}>JOURNEY BOOK</Text>
+      <Text style={{ fontSize: 30, fontFamily: "Helvetica-Bold", color: INK, marginTop: 18, textAlign: "center" }}>{title}</Text>
+      {explorerName ? (
+        <Text style={{ fontSize: 16, color: INK, marginTop: 36, textAlign: "center" }}>{`Explorer: ${explorerName}`}</Text>
+      ) : null}
+      {atlasDate ? (
+        <Text style={{ fontSize: 12, color: BARK, marginTop: 10, textAlign: "center" }}>{atlasDate}</Text>
+      ) : null}
+    </Page>
+  );
+}
+
+/** One page-number label on the overview: normalized position and printed text. */
+export interface OverviewPageLabel {
+  id: string;
+  x: number;
+  y: number;
+  text: string;
+}
+
+/** `L1a` → `L1`: the location a zoom-ladder page belongs to; undefined for any other page. */
+function ladderLocation(pageId: string): string | undefined {
+  return /^(L\d+)[a-z]+$/.exec(pageId)?.[1];
+}
+
+/** "4-6" for consecutive pages, "4, 9" otherwise, so a range never claims a page it lacks. */
+function pageNumberText(numbers: number[]): string {
+  const sorted = [...numbers].sort((a, b) => a - b);
+  const consecutive = sorted.every((n, i) => i === 0 || n === sorted[i - 1]! + 1);
+  return consecutive && sorted.length > 1
+    ? `${sorted[0]}-${sorted[sorted.length - 1]}`
+    : sorted.join(", ");
+}
+
+/** How far below a footprint's top edge a ladder label sits: about 12 pt of the overview's 625 pt map box. */
+const OVERVIEW_LADDER_LABEL_INSET = 0.02;
+
+/**
+ * The overview's page-number labels. A zoom ladder's footprints are nested around one
+ * location, so a number per rectangle stacks them on the same spot; the ladder gets one
+ * label on its largest footprint, with its page range. Every other page keeps its own.
+ */
+export function overviewPageLabels(
+  pages: AtlasOverview["pages"],
+  pageNumbers: Record<string, number>,
+): OverviewPageLabel[] {
+  const ladders = new Map<string, AtlasOverview["pages"]>();
+  for (const page of pages) {
+    const location = ladderLocation(page.id);
+    if (location) ladders.set(location, [...(ladders.get(location) ?? []), page]);
+  }
+
+  const labels: OverviewPageLabel[] = [];
+  const labelled = new Set<string>();
+  for (const page of pages) {
+    const location = ladderLocation(page.id);
+    if (location && labelled.has(location)) continue;
+    if (location) labelled.add(location);
+    const group = location ? ladders.get(location)! : [page];
+    const largest = group.reduce((a, b) => (b.w * b.h > a.w * a.h ? b : a));
+    labels.push({
+      id: largest.id,
+      x: largest.x + largest.w / 2,
+      // A ladder's centre is its location's pin, so its label sits inside the top edge.
+      y: location ? largest.y + OVERVIEW_LADDER_LABEL_INSET : largest.y + largest.h / 2,
+      text: pageNumberText(group.flatMap((p) => pageNumbers[p.id] ?? [])),
+    });
+  }
+  return labels;
+}
+
+/**
  * Whole-atlas index/overview front-matter page: each content page's footprint
  * (with its id + PDF page number), the route, and the stops drawn over a
  * small-scale basemap of the whole trip. `pageNumbers` maps page id → physical
@@ -911,18 +993,18 @@ function OverviewPage({
               <LocationPin key={`os-${i}`} pin={s.pin} label={s.label} leftPct={s.x * 100} topPct={s.y * 100} size={22} />
             ))}
             {/* Page-number labels, positioned at each rectangle's centre (HTML layer for crisp text). */}
-            {overview.pages.map((r) => (
+            {overviewPageLabels(overview.pages, pageNumbers).map((label) => (
               <View
-                key={`pl-${r.id}`}
+                key={`pl-${label.id}`}
                 style={{
                   position: "absolute",
-                  left: `${(r.x + r.w / 2) * 100}%`,
-                  top: `${(r.y + r.h / 2) * 100}%`,
-                  marginLeft: -12,
+                  left: `${label.x * 100}%`,
+                  top: `${label.y * 100}%`,
+                  marginLeft: -OVERVIEW_LABEL_WIDTH_PT / 2,
                   marginTop: -6,
                 }}
               >
-                <Text style={styles.overviewPageLabel}>{pageNumbers[r.id] ?? ""}</Text>
+                <Text style={styles.overviewPageLabel}>{label.text}</Text>
               </View>
             ))}
           </View>
@@ -1006,6 +1088,8 @@ export function AtlasDocument({
   notes = true,
   attribution,
   printDpi,
+  explorerName,
+  atlasDate,
 }: {
   contract: AtlasContract;
   title: string;
@@ -1043,14 +1127,18 @@ export function AtlasDocument({
    * says so rather than printing a number; see {@link printResolutionCaption}.
    */
   printDpi?: Record<string, number>;
+  /** With `atlasDate`, prints a title page ahead of everything else when either is set. */
+  explorerName?: string;
+  atlasDate?: string;
 }) {
-  // Front matter (overview, then TOC) precedes the content pages and shifts their
+  // Front matter (title page, overview, then TOC) precedes the content pages and shifts their
   // physical page numbers. Both are computed from the same offset so the TOC, the
   // per-page footer numbers, and the overview's page labels all agree.
   const hasTitledPages = contract.pages.some((p) => typeof p.title === "string" && p.title.length > 0);
   const showToc = toc && hasTitledPages;
   const showOverview = !!overview && overview.pages.length > 0;
-  const frontMatter = (showOverview ? 1 : 0) + (showToc ? 1 : 0);
+  const showTitlePage = !!explorerName?.trim() || !!atlasDate?.trim();
+  const frontMatter = (showTitlePage ? 1 : 0) + (showOverview ? 1 : 0) + (showToc ? 1 : 0);
   // Physical PDF page number for the content page at contract index i.
   const physicalPage = (i: number) => frontMatter + i + 1;
 
@@ -1073,6 +1161,9 @@ export function AtlasDocument({
 
   return (
     <Document title={title}>
+      {showTitlePage && (
+        <TitlePage title={title} explorerName={explorerName?.trim()} atlasDate={atlasDate?.trim()} />
+      )}
       {showOverview && <OverviewPage title={title} overview={overview!} panel={overviewPanel} pageNumbers={pageNumbers} />}
       {showToc && <TableOfContents title={title} entries={tocEntries} />}
       {contract.pages.map((page, i) => (

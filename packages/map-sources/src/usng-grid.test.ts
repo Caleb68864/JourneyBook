@@ -71,7 +71,6 @@ describe("buildUsngGrid — georeference accuracy", () => {
     proj.forward({ lng: east, lat: north }),
   ];
   const eMin = Math.min(...corners.map(([e]) => e));
-  const eMax = Math.max(...corners.map(([e]) => e));
   const nMin = Math.min(...corners.map(([, n]) => n));
   const nMax = Math.max(...corners.map(([, n]) => n));
 

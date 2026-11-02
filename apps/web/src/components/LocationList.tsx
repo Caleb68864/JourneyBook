@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Location } from "../api/client";
+import { locationImportToCsv } from "../lib/location-import";
 import { PinEditor } from "./PinEditor";
 
 interface ScalePresetOption {
@@ -46,7 +47,7 @@ interface LocationListProps {
   onSetPin: (loc: Location, shape: string, color: string) => Promise<void>;
   /** Set (or clear) a location's zoom ladder. Empty selection → null. */
   onSetZoomLevels: (loc: Location, zoomLevels: string[] | null) => Promise<void>;
-  /** Bulk-import from CSV text; resolves to the number imported. */
+  /** Bulk-import from CSV text (a JSON backup is converted first); resolves to the number imported. */
   onImport: (csv: string) => Promise<number>;
   /** If true, user can click map to drop pin — communicated to parent */
   onStartDrop?: () => void;
@@ -99,11 +100,10 @@ export function LocationList({
     setError(null);
     setImporting(true);
     try {
-      const text = await file.text();
-      const count = await onImport(text);
+      const count = await onImport(locationImportToCsv(await file.text()));
       setImportMsg(`Imported ${count} location${count === 1 ? "" : "s"}.`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to import CSV.");
+      setError(err instanceof Error ? err.message : "Failed to import locations.");
     } finally {
       setImporting(false);
     }
@@ -143,10 +143,10 @@ export function LocationList({
               focusable, and a <label> is never in the tab order — CSV import could
               not be reached at all without a mouse. */}
           <label className="cursor-pointer font-mono text-[11px] uppercase tracking-widest text-forest-700 underline hover:text-forest-600 focus-within:ring-2 focus-within:ring-forest-700">
-            {importing ? "Importing…" : "Import CSV"}
+            {importing ? "Importing…" : "Import CSV or backup"}
             <input
               type="file"
-              accept=".csv,text/csv"
+              accept=".csv,text/csv,.json,application/json"
               onChange={(e) => void handleImportFile(e)}
               disabled={importing}
               className="sr-only"

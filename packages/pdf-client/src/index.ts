@@ -12,6 +12,7 @@ import { renderToBuffer, renderToFile } from "@react-pdf/renderer";
 import { createElement } from "react";
 import type { AtlasContract, AtlasOverview, PlacedLandmark, UsngGridOverlay } from "@journeybook/atlas-core";
 import { AtlasDocument, type RouteOverlay } from "./AtlasDocument.js";
+import { CalibrationDocument } from "./CalibrationDocument.js";
 
 export interface RenderPdfOptions {
   contract: AtlasContract;
@@ -42,6 +43,10 @@ export interface RenderPdfOptions {
    * footer names only the product.
    */
   attribution?: string;
+  /** Printed on a title page ahead of the atlas, with `atlasDate`, when either is set. */
+  explorerName?: string;
+  /** Free text ("Summer 2026"): what the user wants the book to say, not a timestamp. */
+  atlasDate?: string;
   /**
    * map pageId -> the print resolution (DPI) that page's panel was delivered at.
    *
@@ -73,6 +78,8 @@ function documentElement(options: RenderPdfOptions) {
     notes: options.notes ?? true,
     attribution: options.attribution,
     printDpi: options.printDpi,
+    explorerName: options.explorerName,
+    atlasDate: options.atlasDate,
   });
 }
 
@@ -87,6 +94,17 @@ export async function renderAtlasPdfToFile(
 /** Render the atlas to an in-memory PDF buffer. */
 export async function renderAtlasPdfToBuffer(options: RenderPdfOptions): Promise<Buffer> {
   return renderToBuffer(documentElement(options));
+}
+
+/** Render the one-page physical calibration target to a PDF buffer. */
+export async function renderCalibrationPdfToBuffer(): Promise<Buffer> {
+  return renderToBuffer(createElement(CalibrationDocument));
+}
+
+/** Render the one-page physical calibration target to a PDF file. */
+export async function renderCalibrationPdfToFile(outputPath: string): Promise<string> {
+  await renderToFile(createElement(CalibrationDocument), outputPath);
+  return outputPath;
 }
 
 export { AtlasDocument, printResolutionCaption, type RouteOverlay } from "./AtlasDocument.js";

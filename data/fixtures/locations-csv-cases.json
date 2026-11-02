@@ -15,6 +15,23 @@
   ],
   "cases": [
     {
+      "id": "line-break-in-a-quoted-field",
+      "why": "RFC 4180 allows it and spreadsheets write it. Both parsers split on line ends before looking at quotes, so one multi-line note became two bad rows and failed the whole import; the web's JSON-backup import goes through this format and a saved note can hold a line break.",
+      "csv": "name,lng,lat,notes\nTrailhead,-96.7,40.8,\"gate locked\nafter dark\"\nCamp,-96.6,40.9,\"crlf\r\nnote\"\n",
+      "expect": "accept",
+      "rows": [
+        { "name": "Trailhead", "lng": -96.7, "lat": 40.8, "notes": "gate locked\nafter dark" },
+        { "name": "Camp", "lng": -96.6, "lat": 40.9, "notes": "crlf\nnote" }
+      ]
+    },
+    {
+      "id": "unterminated-quote",
+      "why": "Once a quoted field may span lines, an unclosed quote would swallow every row after it into one note and import fewer locations than the file holds, reporting success. It has to be refused.",
+      "csv": "name,lng,lat,notes\nTrailhead,-96.7,40.8,\"oops\nCamp,-96.6,40.9,fine\n",
+      "expect": "reject",
+      "rejectContains": "unterminated"
+    },
+    {
       "id": "minimal",
       "why": "The baseline both sides must accept identically.",
       "csv": "name,lng,lat\nTrailhead,-96.7,40.8\n",

@@ -24,6 +24,8 @@ import type { GeocodeResult } from "../api/client";
 import { GenerateButton } from "../components/GenerateButton";
 import { LandmarkImportControl } from "../components/LandmarkImportControl";
 import { PageSetup, type PageSetupValue } from "../components/PageSetup";
+import { PrintCheckLink } from "../components/PrintCheckLink";
+import { TitlePageFields, type TitlePageValue } from "../components/TitlePageFields";
 import { BasemapOptions } from "../components/BasemapOptions";
 
 interface ProjectEditorPageProps {
@@ -160,7 +162,7 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
    * the write fails — a setup the server did not accept must not sit in the form
    * looking saved while the renderer uses the old one.
    */
-  async function handlePageSetupChange(next: PageSetupValue) {
+  async function handlePageSetupChange(next: PageSetupValue | TitlePageValue) {
     if (!project) return;
     const previous = project;
     setError(null);
@@ -502,6 +504,12 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
               </p>
             </section>
 
+            <TitlePageFields
+              value={{ explorerName: project.explorerName, atlasDate: project.atlasDate }}
+              onChange={(next) => void handlePageSetupChange(next)}
+              disabled={saving}
+            />
+
             {/* Page setup — orientation, margins, gutter, overlap. Persisted on
                 the project, and the one group of settings that changes the
                 printed footprint, so it changes scale and page count. */}
@@ -794,6 +802,7 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
                 tested (this page imports MapPreview, which jsdom cannot load),
                 including the resolution each finished atlas actually printed at. */}
             <RenderHistory pdfs={pdfHistory} onRefresh={() => void refreshPdfHistory()} />
+            <PrintCheckLink />
           </div>
         </aside>
       </div>

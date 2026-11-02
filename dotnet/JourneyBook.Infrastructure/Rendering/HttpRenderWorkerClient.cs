@@ -53,6 +53,9 @@ public class HttpRenderWorkerClient(HttpClient http, RenderWorkerPollOptions? po
         // gets the engine's "Journey Book" fallback exactly as before, rather than
         // an empty string printed as the book's name.
         string? Title,
+        // Omitted when null, so an atlas without them gets no title page.
+        string? ExplorerName,
+        string? AtlasDate,
         bool Route,
         // Optional additive landmark furniture (camelCase `landmarks`, omitted when
         // null). Forwarded only when the include-landmarks flag is set, like Route.
@@ -191,6 +194,8 @@ public class HttpRenderWorkerClient(HttpClient http, RenderWorkerPollOptions? po
                 TileSourceId: request.TileSourceId,
                 TileMaxZoom: request.TileMaxZoom,
                 Title: request.Title,
+                ExplorerName: request.ExplorerName,
+                AtlasDate: request.AtlasDate,
                 Route: request.Route,
                 Landmarks: landmarks,
                 TableOfContents: request.TableOfContents,
@@ -223,6 +228,8 @@ public class HttpRenderWorkerClient(HttpClient http, RenderWorkerPollOptions? po
                 TileSourceId: request.TileSourceId,
                 TileMaxZoom: request.TileMaxZoom,
                 Title: request.Title,
+                ExplorerName: request.ExplorerName,
+                AtlasDate: request.AtlasDate,
                 Route: request.Route,
                 Landmarks: landmarks,
                 TableOfContents: request.TableOfContents,

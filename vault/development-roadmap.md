@@ -946,6 +946,46 @@ Full write-ups in `docs/decisions.md`.
    `dotnet-integration` job is the one this machine cannot run at all, and it is the
    one that took `master` red twice before that rule existed.
 
+## Brought current — 2026-11-02
+
+Everything below was checked against the code first. Full write-ups are in
+`docs/decisions.md` under the same date.
+
+**Closed.**
+
+- **The Docker-gated suites have now run on this machine.** Unmodified `master`:
+  319 passed, 0 failed. Every "not run, no daemon" note above is history.
+- **`Microsoft.OpenApi` and `SSH.NET` advisories.** See Stage 9B. No project has a known
+  vulnerable package now.
+- **The absent linter.** ESLint with `typescript-eslint` and the rules of hooks, in
+  `pnpm lint`, CI and `harness/checks/lint.sh`. It found one real leftover import, one
+  unused test variable and two literal BOMs in regular expressions. One warning stands:
+  `react-hooks/exhaustive-deps` at `ProjectEditorPage.tsx:126`, harmless because the
+  function it names reads only the dependency that is already listed.
+- **Neither tile cache ever evicting.** `TileCache.Prune` and `pruneTileCache` delete the
+  oldest-written tiles down to a size limit, and abandoned temp files, touching nothing
+  outside the cache layout. One fixture holds both languages together. Off by default:
+  see below.
+- **The dead `Hero`/shadcn tree.** Removed. A build of the app no longer contains it, and
+  `a11y.test.ts` and `theme-tokens.test.ts` now cover only code that renders.
+- **Stage 9B's three nice-to-haves, the print check page and the title page.** See
+  `staged-build-roadmap.md`.
+
+**Still open, and the owner's to decide.**
+
+- **How much tile cache to keep.** `TileCache:MaxSizeMb` is 0, so nothing is deleted until
+  a number is chosen. A deleted tile costs a re-fetch from USGS.
+- **A formatter.** Not added. One run rewrites most of the tree, which conflicts with any
+  branch in flight, so when to take that hit is a scheduling call.
+- **The text of ADRs 0001/0003/0004/0005.** Writing them now would put words in the record
+  that nobody agreed to at the time, as `docs/decisions/README.md` says.
+- **`AtlasPage`.** Unused, but dropping it is a destructive migration, and the roadmap's
+  "plan for the deferred" principle may be why it exists.
+
+Suites at this point: **605 TS** (atlas-core 102 · pdf-client 71 · web 180 · map-sources 92 ·
+render-cli 123 · render-worker 37) and **335 .NET**, 237 of them without Docker and 98 in the
+`Api` suites.
+
 ## Phase 1: Print Geometry
 Build the Docker-hosted React/Vite/shadcn/Tailwind web app skeleton, define the outdoor field-guide visual system, accept bounding boxes, create page grid, generate overview and detail pages, and validate Letter-size PDF output from the preferred client-side React PDF path.
 

@@ -81,8 +81,8 @@ function tagsNamed(text: string, name: string): string[] {
  * The first version of this was `/className=["']([^"']*)["']/` — string literals
  * only. Any JSX-expression form yielded no match, and therefore no offender:
  * `` className={`hidden`} `` is the pre-fix defect with one brace changed, it
- * renders the identical DOM, and it passed. `cn(...)` is already imported and
- * used across `components/ui/*.tsx`, so the expression form is not contrived.
+ * renders the identical DOM, and it passed. A class-merging helper such as `cn(...)`
+ * is the usual way to write that expression, so the form is not contrived.
  *
  * A literal `"…"`/`'…'` value is returned as-is. An expression value is
  * brace-matched and every string/template run inside it is collected — so

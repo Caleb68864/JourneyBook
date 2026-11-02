@@ -96,6 +96,7 @@ export function ProjectListPage({ onOpen }: ProjectListPageProps) {
       // is restored with a follow-up PUT. Skipped entirely when the file predates
       // page-setup export: importing an absent overlap as 0 would be a silent edit.
       if (parsed.pageSetup) proj = await api.projects.patch(proj, parsed.pageSetup);
+      if (parsed.titlePage) proj = await api.projects.patch(proj, parsed.titlePage);
       if (parsed.extent) proj = await api.projects.setExtent(proj.id, parsed.extent);
       for (const l of parsed.locations) {
         const created = await api.locations.create(proj.id, l.name, l.lng, l.lat, l.notes ?? undefined, l.scalePresetId ?? undefined);
