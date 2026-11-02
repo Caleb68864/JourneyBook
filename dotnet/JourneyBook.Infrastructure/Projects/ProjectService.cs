@@ -20,6 +20,8 @@ public class ProjectService(JourneyBookDbContext db) : IProjectService
         var project = new Project
         {
             Name = request.Name,
+            ExplorerName = TitlePageText(request.ExplorerName, "Explorer name", ProjectLimits.ExplorerNameMaxLength),
+            AtlasDate = TitlePageText(request.AtlasDate, "Date", ProjectLimits.AtlasDateMaxLength),
             CreatedAt = now,
             UpdatedAt = now,
             PageGrid = new AtlasPageGrid
@@ -59,6 +61,8 @@ public class ProjectService(JourneyBookDbContext db) : IProjectService
         await EnsureScalePresetAsync(request.ScalePresetId, ct);
 
         project.Name = request.Name;
+        project.ExplorerName = TitlePageText(request.ExplorerName, "Explorer name", ProjectLimits.ExplorerNameMaxLength);
+        project.AtlasDate = TitlePageText(request.AtlasDate, "Date", ProjectLimits.AtlasDateMaxLength);
         project.UpdatedAt = DateTimeOffset.UtcNow;
         project.PageGrid ??= new AtlasPageGrid { ScalePresetId = request.ScalePresetId };
         project.PageGrid.ScalePresetId = request.ScalePresetId;
@@ -92,6 +96,8 @@ public class ProjectService(JourneyBookDbContext db) : IProjectService
         var copy = new Project
         {
             Name = $"{source.Name} (copy)",
+            ExplorerName = source.ExplorerName,
+            AtlasDate = source.AtlasDate,
             CreatedAt = now,
             UpdatedAt = now,
             PageGrid = source.PageGrid is null ? null : new AtlasPageGrid
@@ -170,6 +176,16 @@ public class ProjectService(JourneyBookDbContext db) : IProjectService
             ? o
             : throw new ProjectValidationException($"Invalid orientation '{value}'.");
 
+    /// <summary>Trimmed, with blank meaning absent; too long is a 400, not a database error.</summary>
+    private static string? TitlePageText(string? value, string field, int maxLength)
+    {
+        var trimmed = value?.Trim();
+        if (string.IsNullOrEmpty(trimmed)) return null;
+        return trimmed.Length <= maxLength
+            ? trimmed
+            : throw new ProjectValidationException($"{field} must be {maxLength} characters or fewer.");
+    }
+
     private static PageMargins CopyMargins(PageMargins m) =>
         new() { Top = m.Top, Right = m.Right, Bottom = m.Bottom, Left = m.Left, Gutter = m.Gutter };
 
@@ -212,6 +228,8 @@ public class ProjectService(JourneyBookDbContext db) : IProjectService
             new MarginsDto(margins.Top, margins.Right, margins.Bottom, margins.Left, margins.Gutter),
             extent,
             p.CreatedAt,
-            p.UpdatedAt);
+            p.UpdatedAt,
+            p.ExplorerName,
+            p.AtlasDate);
     }
 }

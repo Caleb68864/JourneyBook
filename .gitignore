@@ -153,6 +153,7 @@ data/map-packages/
 # Generated PDFs (allow tiny committed fixtures under **/fixtures/)
 *.pdf
 !**/fixtures/**/*.pdf
+!apps/web/public/print-check.pdf
 
 # Local DB dumps
 *.sql.gz

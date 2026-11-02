@@ -17,6 +17,8 @@ const PROJECT: Project = {
   scalePresetId: "usgs-7-5-min",
   orientation: "Portrait",
   overlap: 0.05,
+  explorerName: null,
+  atlasDate: null,
   margins: { top: 0.75, right: 0.6, bottom: 0.75, left: 0.9, gutter: 0.25 },
   extent: [-98, 41, -97, 42],
   createdAt: "2026-09-09T00:00:00Z",

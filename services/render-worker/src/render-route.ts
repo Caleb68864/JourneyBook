@@ -119,6 +119,8 @@ const renderBodySchema = {
     },
     orientation: { type: "string", enum: ["portrait", "landscape"] },
     title: { type: "string" },
+    explorerName: { type: "string" },
+    atlasDate: { type: "string" },
     basemap: { type: "boolean" },
     // Cheap shape check here; the real judgement is `tileBaseUrlError` in the
     // handler, which parses the URL (so every alternative spelling of an IP

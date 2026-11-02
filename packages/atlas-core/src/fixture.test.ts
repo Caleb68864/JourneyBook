@@ -63,7 +63,7 @@ const EXPECTED_BBOXES: Record<string, [number, number, number, number]> = {
 };
 
 function loadFixture(): AtlasContract {
-  return JSON.parse(readFileSync(FIXTURE, "utf8").replace(/^﻿/, "")) as AtlasContract;
+  return JSON.parse(readFileSync(FIXTURE, "utf8").replace(/^\uFEFF/, "")) as AtlasContract;
 }
 
 describe("golden fixture", () => {

@@ -9,6 +9,8 @@ public class ProjectConfiguration : IEntityTypeConfiguration<Project>
     public void Configure(EntityTypeBuilder<Project> builder)
     {
         builder.Property(p => p.Name).IsRequired().HasMaxLength(200);
+        builder.Property(p => p.ExplorerName).HasMaxLength(ProjectLimits.ExplorerNameMaxLength);
+        builder.Property(p => p.AtlasDate).HasMaxLength(ProjectLimits.AtlasDateMaxLength);
         builder.Property(p => p.CreatedAt).IsRequired();
         builder.Property(p => p.UpdatedAt).IsRequired();
 

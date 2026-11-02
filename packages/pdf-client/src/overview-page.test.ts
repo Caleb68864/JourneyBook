@@ -7,6 +7,7 @@ import {
   type AtlasContract,
   type AtlasOverview,
 } from "@journeybook/atlas-core";
+import { overviewPageLabels } from "./AtlasDocument.js";
 import { renderAtlasPdfToBuffer } from "./index.js";
 import { measurePdfPages, type MeasuredPage } from "./pdf-measure.js";
 
@@ -154,5 +155,74 @@ describe("overview page registration", () => {
     const want = { x: BOX.x, y: BOX.y, width: BOX.width, height: BOX.height / 2 };
     expectRect(few, want, "footprint on a 1-page overview");
     expectRect(many, want, "footprint on a 41-page overview");
+  });
+});
+
+describe("overview page labels", () => {
+  /** A ladder: three nested footprints of one location, coarse to fine. */
+  const ladder: AtlasOverview["pages"] = [
+    { id: "L1a", x: 0.1, y: 0.1, w: 0.4, h: 0.4 },
+    { id: "L1b", x: 0.2, y: 0.2, w: 0.2, h: 0.2 },
+    { id: "L1c", x: 0.28, y: 0.28, w: 0.04, h: 0.04 },
+  ];
+  const numbers = { A1: 3, L1a: 4, L1b: 5, L1c: 6, L2: 7, R1: 8, L3a: 9, L3b: 10 };
+
+  it("labels a ladder once, at its largest footprint, with its page range", () => {
+    const labels = overviewPageLabels(ladder, numbers);
+    expect(labels).toHaveLength(1);
+    expect(labels[0]).toMatchObject({ id: "L1a", text: "4-6" });
+    expect(labels[0]!.x).toBeCloseTo(0.3);
+    // Inside the largest footprint's top edge, clear of the pin at its centre.
+    expect(labels[0]!.y).toBeGreaterThan(0.1);
+    expect(labels[0]!.y).toBeLessThan(0.15);
+  });
+
+  it("[CONTROL] keeps one label per page for grid, route and un-laddered location pages", () => {
+    const pages: AtlasOverview["pages"] = [
+      { id: "A1", x: 0, y: 0, w: 0.2, h: 0.2 },
+      { id: "L2", x: 0.4, y: 0.4, w: 0.2, h: 0.2 },
+      { id: "R1", x: 0.8, y: 0.8, w: 0.2, h: 0.2 },
+    ];
+    expect(overviewPageLabels(pages, numbers).map((l) => l.text)).toEqual(["3", "7", "8"]);
+  });
+
+  it("keeps two locations' ladders apart, including L1 from L10", () => {
+    const pages: AtlasOverview["pages"] = [
+      ...ladder,
+      { id: "L3a", x: 0.6, y: 0.6, w: 0.2, h: 0.2 },
+      { id: "L3b", x: 0.65, y: 0.65, w: 0.1, h: 0.1 },
+      { id: "L10a", x: 0, y: 0.8, w: 0.1, h: 0.1 },
+      { id: "L10b", x: 0, y: 0.8, w: 0.05, h: 0.05 },
+    ];
+    expect(
+      overviewPageLabels(pages, { ...numbers, L10a: 11, L10b: 12 }).map((l) => l.text),
+    ).toEqual(["4-6", "9-10", "11-12"]);
+  });
+
+  it("never prints a range across a page it does not cover", () => {
+    expect(overviewPageLabels(ladder.slice(0, 2), { L1a: 4, L1b: 9 })[0]!.text).toBe("4, 9");
+  });
+
+  it("[BEHAVIORAL] prints the range and not the separate numbers on the rendered page", async () => {
+    const usgsPage = (id: string) => ({
+      ...buildLocationPage({ lng: -96.7026, lat: 40.8136 }, usgs, LETTER_PORTRAIT, id, 2),
+    });
+    const contract: AtlasContract = {
+      version: 1,
+      scale: usgs,
+      margins: DEFAULT_MARGINS,
+      pages: [usgsPage("L1a"), usgsPage("L1b"), usgsPage("L1c")],
+    };
+    const pdf = await renderAtlasPdfToBuffer({
+      contract,
+      overview: { bbox: [-97, 40, -96, 41], pages: ladder },
+      tableOfContents: false,
+      notes: false,
+    });
+    const overviewTexts = measurePdfPages(pdf)[0]!.texts;
+
+    expect(overviewTexts).toContain("2-4");
+    // Not "3": the caption's own "3 pages" prints that as a separate text run.
+    for (const single of ["2", "4"]) expect(overviewTexts).not.toContain(single);
   });
 });

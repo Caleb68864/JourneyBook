@@ -2,7 +2,6 @@ import {
   DEFAULT_MAP_TIER,
   MAX_ATLAS_PAGES,
   type AtlasPage,
-  type BBox,
   type LngLat,
   type MapTier,
   type ScalePreset,

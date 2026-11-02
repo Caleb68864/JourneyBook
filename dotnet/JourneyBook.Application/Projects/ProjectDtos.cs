@@ -11,14 +11,18 @@ public record CreateProjectRequest(
     string ScalePresetId,
     string Orientation = "Portrait",
     double Overlap = 0,
-    MarginsDto? Margins = null);
+    MarginsDto? Margins = null,
+    string? ExplorerName = null,
+    string? AtlasDate = null);
 
 public record UpdateProjectRequest(
     string Name,
     string ScalePresetId,
     string Orientation,
     double Overlap,
-    MarginsDto Margins);
+    MarginsDto Margins,
+    string? ExplorerName = null,
+    string? AtlasDate = null);
 
 public record ProjectResponse(
     Guid Id,
@@ -29,4 +33,6 @@ public record ProjectResponse(
     MarginsDto Margins,
     BBoxDto? Extent,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    string? ExplorerName = null,
+    string? AtlasDate = null);

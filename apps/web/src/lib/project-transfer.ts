@@ -23,6 +23,8 @@ export interface ProjectExport {
     overlap: number;
     margins: Margins;
     extent: BBox | null;
+    explorerName?: string | null;
+    atlasDate?: string | null;
   };
   locations: ExportedLocation[];
 }
@@ -50,6 +52,8 @@ export function buildProjectExport(project: Project, locations: Location[]): Pro
       // the one the export did not carry.
       margins: project.margins,
       extent: project.extent,
+      explorerName: project.explorerName,
+      atlasDate: project.atlasDate,
     },
     locations: locations.map((l) => ({
       name: l.name,
@@ -71,6 +75,8 @@ export interface ParsedProjectImport {
   extent: BBox | null;
   /** Page setup, present only when the file carried it (older exports did not). */
   pageSetup: { orientation?: string; overlap?: number; margins?: Margins } | null;
+  /** Title-page text, present only when the file carried it. */
+  titlePage: { explorerName: string | null; atlasDate: string | null } | null;
   locations: ExportedLocation[];
 }
 
@@ -109,6 +115,9 @@ export function parseProjectImport(raw: unknown): ParsedProjectImport {
       : undefined;
   const margins = asMargins(p.margins);
 
+  const explorerName = typeof p.explorerName === "string" && p.explorerName.trim() ? p.explorerName : null;
+  const atlasDate = typeof p.atlasDate === "string" && p.atlasDate.trim() ? p.atlasDate : null;
+
   const extent = Array.isArray(p.extent) && p.extent.length === 4 && p.extent.every((n) => typeof n === "number")
     ? (p.extent as BBox)
     : null;
@@ -127,6 +136,7 @@ export function parseProjectImport(raw: unknown): ParsedProjectImport {
             ...(overlap !== undefined ? { overlap } : {}),
             ...(margins !== undefined ? { margins } : {}),
           },
+    titlePage: explorerName === null && atlasDate === null ? null : { explorerName, atlasDate },
     locations: Array.isArray(data.locations) ? (data.locations as ExportedLocation[]) : [],
   };
 }

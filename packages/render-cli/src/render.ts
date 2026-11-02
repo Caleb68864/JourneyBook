@@ -33,7 +33,10 @@ import {
   renderMapPanel,
   buildUsngGrid,
   buildAtlasOverview,
+  planMapPanel,
+  USGS_TOPO,
   type PanelFormat,
+  type PanelPlan,
 } from "@journeybook/map-sources";
 import { tileBaseUrlError } from "./tile-url.js";
 
@@ -170,6 +173,11 @@ export interface RenderAtlasInput {
   // that correspondence in both directions, so adding a field here without
   // deciding which side of the wire it is on fails a test rather than silently
   // becoming a field the worker refuses.
+
+  /** Printed on a title page ahead of the atlas, with `atlasDate`, when either is set. */
+  explorerName?: string;
+  /** Free text ("Summer 2026"), printed as given. */
+  atlasDate?: string;
 
   /**
    * Called as the render advances, so a caller that owns the job (the
@@ -482,6 +490,132 @@ export interface AssembledAtlas {
   coverBBox?: BBox;
 }
 
+/** The panel width a page asks for: its scale's default, unless the caller set one. */
+function panelWidthForPage(input: RenderAtlasInput, contract: AtlasContract, page: AtlasPage): number {
+  return input.panelWidthPx ?? panelWidthPxFor(page.scale ?? contract.scale, pageSpecOf(input));
+}
+
+/**
+ * The overview is an index, not a sheet anyone navigates from: it shows the whole
+ * trip at a scale no preset describes, so it keeps the historic default rather than
+ * paying a print-resolution bill for a thumbnail of the atlas.
+ */
+function overviewPanelWidthPx(input: RenderAtlasInput): number {
+  return input.panelWidthPx ?? DEFAULT_PANEL_WIDTH_PX;
+}
+
+/** The front-matter overview (default on for multi-page atlases), or undefined. */
+function overviewFor(input: RenderAtlasInput, atlas: AssembledAtlas): AtlasOverview | undefined {
+  if (!(input.overview ?? true) || atlas.contract.pages.length < 2) return undefined;
+  return buildAtlasOverview(atlas.contract.pages, {
+    route: atlas.routePolyline,
+    stops: atlas.locationList.map((loc, i) => ({
+      center: loc.center,
+      label: loc.label ?? `L${i + 1}`,
+      pin: loc.pin,
+    })),
+  });
+}
+
+/** One content page of a {@link RenderPlan}. */
+export interface RenderPlanPage {
+  id: string;
+  /** The label of the scale this page prints at. */
+  scale: string;
+  /** Present only when the render would fetch a basemap panel for this page. */
+  panel?: {
+    zoom: number;
+    zoomClamped: boolean;
+    tiles: number;
+    /** The DPI this panel would deliver, by the arithmetic the render itself uses. */
+    dpi: number;
+  };
+}
+
+/** What a render would produce and fetch, decided before anything happens. */
+export interface RenderPlan {
+  pages: RenderPlanPage[];
+  /** Pages in the finished PDF: `pages`, plus the title page, overview and contents when present. */
+  pdfPages: number;
+  titlePage: boolean;
+  overview: boolean;
+  tableOfContents: boolean;
+  /** Tile requests the render would make with no cache: every page plus the overview. */
+  tiles: number;
+  /** Distinct tiles among those — what a warm start needs from the source at most. */
+  uniqueTiles: number;
+}
+
+function tileCount(plan: PanelPlan): number {
+  const { minX, maxX, minY, maxY } = plan.range;
+  return (maxX - minX + 1) * (maxY - minY + 1);
+}
+
+/**
+ * The page plan and tile bill for a render, with no network and no file written.
+ *
+ * Reuses the render's own decisions rather than estimating alongside them:
+ * `assembleContract` for the pages, `planMapPanel` — the function `renderMapPanel`
+ * renders from — for every panel. `dry-run.test.ts` holds this to the fetch count
+ * and page count of a real render.
+ */
+export function planAtlasRender(input: RenderAtlasInput): RenderPlan {
+  const atlas = assembleContract(input);
+  const { contract } = atlas;
+  const mapBoxWidthIn = mapBoxInches(pageSpecOf(input)).widthIn;
+  const maxZoom = input.tileMaxZoom ?? USGS_TOPO.maxZoom;
+
+  const seen = new Set<string>();
+  let tiles = 0;
+  const bill = (plan: PanelPlan): number => {
+    const { minX, maxX, minY, maxY } = plan.range;
+    for (let x = minX; x <= maxX; x++) {
+      for (let y = minY; y <= maxY; y++) seen.add(`${plan.zoom}/${x}/${y}`);
+    }
+    const count = tileCount(plan);
+    tiles += count;
+    return count;
+  };
+
+  const pages = contract.pages.map((page): RenderPlanPage => {
+    const scale = (page.scale ?? contract.scale).label;
+    if (!input.basemap) return { id: page.id, scale };
+    const plan = planMapPanel(page.bbox, panelWidthForPage(input, contract, page), maxZoom);
+    return {
+      id: page.id,
+      scale,
+      panel: {
+        zoom: plan.zoom,
+        zoomClamped: plan.zoomClamped,
+        tiles: bill(plan),
+        dpi: effectiveDpi(plan.crop.width, mapBoxWidthIn),
+      },
+    };
+  });
+
+  const overview = overviewFor(input, atlas);
+  if (overview && input.basemap) {
+    bill(planMapPanel(overview.bbox, overviewPanelWidthPx(input), maxZoom));
+  }
+
+  // The contents page exists only when there is something to list, as in AtlasDocument.
+  const tableOfContents =
+    (input.tableOfContents ?? true) &&
+    contract.pages.some((p) => typeof p.title === "string" && p.title.length > 0);
+
+  const titlePage = !!input.explorerName?.trim() || !!input.atlasDate?.trim();
+
+  return {
+    pages,
+    pdfPages: pages.length + (titlePage ? 1 : 0) + (overview ? 1 : 0) + (tableOfContents ? 1 : 0),
+    titlePage,
+    overview: overview !== undefined,
+    tableOfContents,
+    tiles,
+    uniqueTiles: seen.size,
+  };
+}
+
 /**
  * Build the page contract (cover/bbox grid → L# location pages, each possibly a
  * zoom ladder → R# corridor pages) without rendering anything. Shared by
@@ -675,12 +809,8 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
   // 1:100,000 and 1:24,000 in the same book). An explicit --panel-px still wins
   // for every page: the caller asked for a specific resolution.
   const pageSpec = pageSpecOf(input);
-  const panelWidthFor = (page: AtlasPage): number =>
-    input.panelWidthPx ?? panelWidthPxFor(page.scale ?? contract.scale, pageSpec);
-  // The overview is an index, not a sheet anyone navigates from: it shows the
-  // whole trip at a scale no preset describes, so it keeps the historic default
-  // rather than paying a print-resolution bill for a thumbnail of the atlas.
-  const overviewWidthPx = input.panelWidthPx ?? DEFAULT_PANEL_WIDTH_PX;
+  const panelWidthFor = (page: AtlasPage): number => panelWidthForPage(input, contract, page);
+  const overviewWidthPx = overviewPanelWidthPx(input);
 
   let panels: Record<string, string> | undefined;
   // Credit lines for the tiles actually fetched, in first-seen order. Collected
@@ -879,14 +1009,9 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
   // Whole-atlas index/overview front-matter page (default on for multi-page atlases):
   // every page's footprint, the route, and the stops over a small-scale basemap of
   // the whole trip. Built from the same Web-Mercator mapping as the panels.
-  let overview: AtlasOverview | undefined;
+  const overview = overviewFor(input, { contract, locationList, routePolyline });
   let overviewPanel: string | undefined;
-  const wantOverview = (input.overview ?? true) && contract.pages.length >= 2;
-  if (wantOverview) {
-    overview = buildAtlasOverview(contract.pages, {
-      route: routePolyline,
-      stops: locationList.map((loc, i) => ({ center: loc.center, label: loc.label ?? `L${i + 1}`, pin: loc.pin })),
-    });
+  if (overview) {
     if (input.basemap) {
       throwIfCancelled();
       try {
@@ -917,6 +1042,8 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
     outputPath: input.outputPath,
     ...(input.title ? { title: input.title } : {}),
     ...(attribution ? { attribution } : {}),
+    ...(input.explorerName ? { explorerName: input.explorerName } : {}),
+    ...(input.atlasDate ? { atlasDate: input.atlasDate } : {}),
     // Per-page, so each printed sheet states the resolution it was drawn at
     // instead of the book's range — and so a page whose panel was never measured
     // says "not recorded" rather than borrowing another page's number.

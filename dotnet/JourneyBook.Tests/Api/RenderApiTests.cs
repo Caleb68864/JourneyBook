@@ -809,6 +809,26 @@ public class RenderApiTests(RenderApiFactory factory) : IClassFixture<RenderApiF
         Assert.NotEqual("Journey Book", sent.Title);
     }
 
+    [Fact]
+    public async Task Render_carries_the_projects_title_page_text()
+    {
+        factory.FakeClient.ShouldFail = false;
+        var projectId = await CreateProjectAsync("Title Page Render");
+        var project = (await _client.GetFromJsonAsync<ProjectResponse>($"/api/projects/{projectId}"))!;
+        await _client.PutAsJsonAsync($"/api/projects/{projectId}", new UpdateProjectRequest(
+            project.Name, project.ScalePresetId, project.Orientation, project.Overlap, project.Margins,
+            ExplorerName: "Ada", AtlasDate: "Summer 2026"));
+
+        var resp = await _client.PostAsJsonAsync($"/api/projects/{projectId}/render",
+            new RenderProjectRequest(Tier: 1));
+        var body = await resp.Content.ReadFromJsonAsync<RenderProjectResponse>();
+        await PollUntilTerminalAsync(body!.GeneratedPdfId);
+
+        Assert.True(factory.FakeClient.Requests.TryGetValue($"atlas-{body.GeneratedPdfId:N}.pdf", out var sent));
+        Assert.Equal("Ada", sent!.ExplorerName);
+        Assert.Equal("Summer 2026", sent.AtlasDate);
+    }
+
     /// <summary>
     /// A name that is only whitespace stays null, so the engine's own fallback
     /// applies rather than an atlas titled with a blank line.

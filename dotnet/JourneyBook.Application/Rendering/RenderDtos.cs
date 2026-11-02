@@ -127,6 +127,9 @@ public record RenderWorkerRequest(
     // member for it here, so `renderAtlasPdfToFile`'s `?? "Journey Book"` fallback
     // applied to every atlas the API has ever produced.
     string? Title = null,
+    // Printed on the book's title page, which exists only when one of these is set.
+    string? ExplorerName = null,
+    string? AtlasDate = null,
     bool Route = false,
     // Persisted landmarks forwarded as additive vector furniture (camelCase
     // `landmarks` on the wire), gated by the include flag like Route.

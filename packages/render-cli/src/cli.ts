@@ -29,9 +29,21 @@ import {
   type MapTier,
   type PrintedMapBox,
 } from "@journeybook/atlas-core";
-import { mapBoxOf, measurePdfPages, renderAtlasPdfToBuffer } from "@journeybook/pdf-client";
-import type { PanelFormat } from "@journeybook/map-sources";
-import { assembleContract, renderAtlas, type RenderAtlasInput, type RenderLocation } from "./render.js";
+import {
+  mapBoxOf,
+  measurePdfPages,
+  renderAtlasPdfToBuffer,
+  renderCalibrationPdfToFile,
+} from "@journeybook/pdf-client";
+import { pruneTileCache, type PanelFormat } from "@journeybook/map-sources";
+import {
+  assembleContract,
+  planAtlasRender,
+  renderAtlas,
+  type RenderAtlasInput,
+  type RenderLocation,
+  type RenderPlan,
+} from "./render.js";
 import { loadLocationsFile } from "./locations.js";
 
 const HELP = `journeybook — headless atlas renderer
@@ -40,6 +52,9 @@ Usage:
   journeybook grid     <geometry> --scale <preset> [options]
   journeybook validate <geometry> --scale <preset> [options]
   journeybook render   <geometry> --scale <preset> --out <file.pdf> [options] [--basemap]
+  journeybook render   <geometry> --scale <preset> --dry-run [options] [--basemap]
+  journeybook calibration --out <file.pdf>   one-page ruler target to check a printer's scale
+  journeybook cache-prune --dir <dir> --max-mb <n>   delete a tile cache's oldest tiles down to n MB
 
 Geometry (combine freely; at least one of --bbox / --locations / --location):
   --bbox W,S,E,N              tile a page grid over this extent at --scale
@@ -55,6 +70,8 @@ Options:
   --tier 1..4                 map furniture level (default ${DEFAULT_MAP_TIER})
   --overlap 0..1              fractional page overlap for grids (default 0)
   --title <text>              book title printed in every page header
+  --explorer <name>           print a title page naming the explorer
+  --date <text>               print a title page with this date, as given ("Summer 2026")
   --no-toc / --no-overview    suppress the locations contents page / the overview page
   --no-notes / --no-reference-grid
                               suppress the foot-of-page notes area / the A–F×1–8 grid
@@ -73,6 +90,7 @@ Options:
   --tile-max-zoom <n>         deepest zoom the source has (default: the basemap's own;
                               USGS topo is z16, so --panel-px above ~1000 is clamped there)
   --landmarks <file.json>     JSON array of LandmarkMarker objects placed as per-page furniture
+  --dry-run                   (render) print the page plan and tile count; fetch and write nothing
   --no-print-check            (validate) skip rendering the atlas to measure the printed map
                               box; the printed-scale check is then reported SKIP, not PASS
 
@@ -292,6 +310,8 @@ export function inputFromArgs(args: readonly string[]): Omit<RenderAtlasInput, "
     tier,
     ...(overlap !== undefined ? { overlap } : {}),
     ...(title ? { title } : {}),
+    ...(valueOf(flags, "explorer") ? { explorerName: valueOf(flags, "explorer") } : {}),
+    ...(valueOf(flags, "date") ? { atlasDate: valueOf(flags, "date") } : {}),
     basemap: flags.has("basemap"),
     route: flags.has("route"),
     ...(panelWidthPx !== undefined ? { panelWidthPx } : {}),
@@ -310,6 +330,35 @@ export function inputFromArgs(args: readonly string[]): Omit<RenderAtlasInput, "
     referenceGrid: !flags.has("no-reference-grid"),
     notes: !flags.has("no-notes"),
   };
+}
+
+/** The `render --dry-run` report: one line per page, then the totals. */
+export function formatRenderPlan(plan: RenderPlan): string {
+  const frontMatter = [
+    ...(plan.titlePage ? ["title page"] : []),
+    ...(plan.overview ? ["overview"] : []),
+    ...(plan.tableOfContents ? ["contents"] : []),
+  ];
+  const lines = [
+    "Dry run: nothing fetched, nothing written.",
+    `${plan.pages.length} map page(s), ${plan.pdfPages} PDF page(s)` +
+      (frontMatter.length > 0 ? ` (with ${frontMatter.join(" and ")})` : ""),
+  ];
+  const idWidth = Math.max(...plan.pages.map((p) => p.id.length));
+  for (const page of plan.pages) {
+    const panel = page.panel
+      ? `  z${page.panel.zoom}${page.panel.zoomClamped ? " (source ceiling)" : ""}` +
+        `  ${page.panel.tiles} tiles  ~${Math.round(page.panel.dpi)} dpi`
+      : "";
+    lines.push(`  ${page.id.padEnd(idWidth)}  ${page.scale}${panel}`);
+  }
+  lines.push(
+    plan.pages.some((p) => p.panel)
+      ? `Estimated tiles: ${plan.tiles} requests, ${plan.uniqueTiles} distinct` +
+          (plan.overview ? " (includes the overview panel)" : "")
+      : "Estimated tiles: 0 (no --basemap)",
+  );
+  return `${lines.join("\n")}\n`;
 }
 
 /** Build an AtlasContract from CLI args (grid/validate) — same assembly as render. */
@@ -337,9 +386,44 @@ export async function runCli(args: readonly string[]): Promise<number> {
       return 2;
     }
   }
-  if (cmd === "render") {
+  if (cmd === "cache-prune") {
+    try {
+      const flags = parseFlags(rest);
+      const dir = valueOf(flags, "dir");
+      const maxMb = Number(valueOf(flags, "max-mb"));
+      if (!dir) throw new Error("cache-prune needs --dir <tile cache directory>");
+      if (!Number.isFinite(maxMb) || maxMb < 0) throw new Error("cache-prune needs --max-mb <number ≥ 0>");
+      const result = await pruneTileCache(dir, maxMb * 1024 * 1024);
+      stdout.write(
+        `Removed ${result.removedTiles} tile(s) and ${result.removedTempFiles} abandoned temp file(s); ` +
+          `${(result.bytesRemaining / (1024 * 1024)).toFixed(1)} MB remain.\n`,
+      );
+      return 0;
+    } catch (err) {
+      stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
+      return 2;
+    }
+  }
+  if (cmd === "calibration") {
     try {
       const out = valueOf(parseFlags(rest), "out");
+      if (!out) throw new Error("calibration needs --out <file.pdf>");
+      await renderCalibrationPdfToFile(out);
+      stdout.write(`Wrote the print check to ${out}. Print it at 100% and hold a ruler to it.\n`);
+      return 0;
+    } catch (err) {
+      stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
+      return 2;
+    }
+  }
+  if (cmd === "render") {
+    try {
+      const flags = parseFlags(rest);
+      if (flags.has("dry-run")) {
+        stdout.write(formatRenderPlan(planAtlasRender({ ...inputFromArgs(rest), outputPath: "" })));
+        return 0;
+      }
+      const out = valueOf(flags, "out");
       if (!out) throw new Error("render needs --out <file.pdf>");
 
       const result = await renderAtlas({ ...inputFromArgs(rest), outputPath: out });

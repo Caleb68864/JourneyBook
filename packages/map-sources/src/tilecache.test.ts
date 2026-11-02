@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
   getCachedTile,
+  pruneTileCache,
   storeCachedTile,
   tileExtensionForContentType,
   contentTypeForTileExtension,
@@ -122,5 +123,68 @@ describe("tile media types (shared with the C# proxy cache)", () => {
     expect(tileExtensionForContentType("image/jpeg; charset=binary")).toBe("jpg");
     expect(tileExtensionForContentType("IMAGE/JPEG")).toBe("jpg");
     expect(tileExtensionForContentType(null)).toBe("png");
+  });
+});
+
+describe("pruneTileCache", () => {
+  const fixture = JSON.parse(
+    readFileSync(fileURLToPath(new URL("../../../data/fixtures/tile-cache-prune.json", import.meta.url)), "utf8"),
+  ) as {
+    cases: {
+      id: string;
+      why: string;
+      maxBytes: number;
+      files: { path: string; size: number; ageHours: number }[];
+      kept: string[];
+    }[];
+  };
+
+  async function listFiles(root: string): Promise<string[]> {
+    const entries = await fs.readdir(root, { recursive: true, withFileTypes: true });
+    return entries
+      .filter((e) => e.isFile())
+      .map((e) => path.relative(root, path.join(e.parentPath, e.name)).split(path.sep).join("/"))
+      .sort();
+  }
+
+  for (const c of fixture.cases) {
+    it(`${c.id}: ${c.why}`, async () => {
+      const root = await tmpRoot();
+      const now = Date.now();
+      for (const f of c.files) {
+        const file = path.join(root, f.path);
+        await fs.mkdir(path.dirname(file), { recursive: true });
+        await fs.writeFile(file, Buffer.alloc(f.size));
+        const when = new Date(now - f.ageHours * 3_600_000);
+        await fs.utimes(file, when, when);
+      }
+
+      await pruneTileCache(root, c.maxBytes, now);
+
+      expect(await listFiles(root)).toEqual([...c.kept].sort());
+    });
+  }
+
+  it("reports what it did and removes directories it emptied", async () => {
+    const root = await tmpRoot();
+    await storeCachedTile(root, "usgs", 16, 1, 1, "png", Buffer.alloc(100));
+    await storeCachedTile(root, "usgs", 15, 2, 1, "png", Buffer.alloc(100));
+    const old = new Date(Date.now() - 3_600_000);
+    await fs.utimes(path.join(root, "usgs/16/1/1.png"), old, old);
+
+    const result = await pruneTileCache(root, 100);
+
+    expect(result).toEqual({ removedTiles: 1, removedTempFiles: 0, bytesRemaining: 100 });
+    await expect(fs.stat(path.join(root, "usgs/16"))).rejects.toThrow();
+    expect(await getCachedTile(root, "usgs", 15, 2, 1)).not.toBeNull();
+  });
+
+  it("[CONTROL] treats a missing cache directory as an empty one", async () => {
+    const root = await tmpRoot();
+    expect(await pruneTileCache(path.join(root, "nope"), 0)).toEqual({
+      removedTiles: 0,
+      removedTempFiles: 0,
+      bytesRemaining: 0,
+    });
   });
 });

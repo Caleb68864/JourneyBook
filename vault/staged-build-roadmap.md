@@ -330,7 +330,7 @@ Done when:
 
 ### Stage 1D: Headless PDF composition with page furniture — 🟡 mostly built (2026-06-24)
 
-Delivered: `packages/pdf-client` renders an `AtlasContract` to a multi-page Letter PDF via `@react-pdf/renderer` in Node (`renderAtlasPdfToFile` / `renderAtlasPdfToBuffer`; reusable client-side later). Page furniture: title, page ID, neatline, **tier-aware** content — Level 1 shows the road-atlas locator + N/S/E/W continuation labels ("CONTINUE NORTH · A1"); Level 2+ adds a **true measured scale bar** (round-number `niceScaleBar`, unit-tested length) and a north-up compass rose; attribution footer inside the safe margin. The `tier` field (1–4) is now on the contract (`atlas-core` model, default Level 1). Wired into the CLI: `journeybook render --bbox … --scale … --out a.pdf [--tier N] [--basemap]` and `render --location …` — verified producing valid multi-page PDFs headlessly (36-page grid + 1-page location). With `--basemap` the panel now shows a **real USGS topo map** (Stage 1C). **Remaining for 1D-complete:** fiducial/ruler crop marks + a grid-locator inset are not yet drawn (Stage 1E adds the measurement harness).
+Delivered: `packages/pdf-client` renders an `AtlasContract` to a multi-page Letter PDF via `@react-pdf/renderer` in Node (`renderAtlasPdfToFile` / `renderAtlasPdfToBuffer`; reusable client-side later). Page furniture: title, page ID, neatline, **tier-aware** content — Level 1 shows the road-atlas locator + N/S/E/W continuation labels ("CONTINUE NORTH · A1"); Level 2+ adds a **true measured scale bar** (round-number `niceScaleBar`, unit-tested length) and a north-up compass rose; attribution footer inside the safe margin. The `tier` field (1–4) is now on the contract (`atlas-core` model, default Level 1). Wired into the CLI: `journeybook render --bbox … --scale … --out a.pdf [--tier N] [--basemap]` and `render --location …` — verified producing valid multi-page PDFs headlessly (36-page grid + 1-page location). With `--basemap` the panel now shows a **real USGS topo map** (Stage 1C). **Remaining for 1D-complete:** the ruler half is closed by the print check page (see Stage 1E, 2026-11-02). Crop marks and a grid-locator inset are still not drawn, and either one takes paper from the printed map box, so they are a layout decision rather than a task. The A-F × 1-8 reference grid is the locator every page has today.
 
 Spec:
 
@@ -374,7 +374,7 @@ Folders touched: `packages/render-cli/`, `data/fixtures/`.
 Build:
 - Automated checks emitted as a report: scale-bar measured length vs. known ground distance, effective DPI / pixel-density check, attribution-present check, page-boundary fiducial check, neighbor-reference correctness.
 - A small committed golden fixture (sample bbox + expected report) under `data/fixtures/`.
-- A one-page physical calibration target for ruler verification.
+- ✅ A one-page physical calibration target for ruler verification. *(2026-11-02: `journeybook calibration --out file.pdf`, rulers measured off the PDF in `calibration.test.ts`. Holding a real ruler to a printed copy is still the owner's to do, per "Done when" below.)*
 
 Done when:
 - The harness flags a deliberately wrong scale bar and passes a correct one.
@@ -466,6 +466,8 @@ Done when:
 
 Goal: define the visual language now that the engine is proven. This is the first UI work and the natural home for a themeable hero page.
 
+> **2026-11-02:** the hero and the shadcn/ui components were unreachable from `App` and have been removed (`Hero.tsx`, `HealthChip.tsx`, `MapFurniture.tsx`, `components/ui/*`, `lib/utils.ts`, `components.json`, and the dependencies only they used). The Tailwind theme tokens remain and are what the app renders with.
+
 Partly seeded already: the Stage 0 web shell shipped a **branded hero** (`apps/web/src/components/Hero.tsx`, `MapFurniture.tsx`) and a **Tailwind v4 `@theme`** brand token set (forest/moss/bark/parchment/cream/campfire + Saira Stencil / Source Sans 3 / Spline Mono fonts) in `apps/web/src/index.css`. Stage 4 hardens these into a reusable system and aligns the **PDF** furniture (`pdf-client`) to the same tokens. **shadcn/ui is not yet installed** — adding it is part of this stage.
 
 Folders touched: `apps/web/`, `apps/web/src/styles/`, `packages/ui/`, `packages/pdf-client/`, `docs/decisions/`, `vault/`.
@@ -556,7 +558,7 @@ Build:
 - Cache-manifest model in Postgres; server-side short-lived tile cache for render jobs.
 - Optional `pmtiles extract` workflow for a selected bbox when a reusable package is requested.
 - **[[PMTiles]] packaging for offline / international (built on the Stage 2D registry + Stage 3 reader).** Either extract a bbox from a hosted Protomaps basemap or **generate a region archive with [[Planetiler]]** from OSM data — the resulting `.pmtiles` is "self-hosting in a single file," registered as just another `TileSource` row, and is how Stage 11 (Android) and the hiking use case go offline planet-wide. Licensing note: OSM-derived archives carry the ODbL "© OpenStreetMap contributors" attribution through the existing attribution field.
-- Expiration/pruning job for temporary extracts and old render artifacts; size estimate before creating an extract (driven by the chosen scale).
+- Expiration/pruning job for temporary extracts and old render artifacts; size estimate before creating an extract (driven by the chosen scale). *(2026-11-02: render artifacts already prune through `GeneratedPdfRetentionService`. The tile cache can now prune to a size limit, through `TileCache:MaxSizeMb` or `journeybook cache-prune`, off by default because the retention period below is undecided. Extracts do not exist yet; they wait on the PMTiles basemap decision below.)*
 
 **Power User / Home Server (advanced, later):** a **full self-hosted tile server** — TileServer-GL / Martin / pg_tileserv in the existing Docker Compose — for users who want live styling, vector tiles, or to serve their own data. It is built on the *same* `TileSource` registry (just a row with the server's URL), so it is purely additive over the PMTiles path. The trade-off is ops cost: a running server is one more service to operate, which is why **PMTiles is the recommended first step and the server is the opt-in upgrade** for homelabbers. See [[Self-Hosted Tile Servers]].
 
@@ -583,15 +585,15 @@ Done when:
 
 Goal: make the app pleasant enough for real family use.
 
-**Status: the "Done when" is met.** Built: project **rename / delete / duplicate** (deep-copy of grid+extent+locations with pins), **render history** (per-project generated-PDF list with Open links), project **JSON export/import** (backup that round-trips locations + pins), **address/geocode search** (earlier), and understandable render errors (surfaced from the 400/502 mapping). Remaining nice-to-haves (not blocking MVP): richer per-page style settings (explorer name/date/margins beyond create-time) and optional lightweight profiles.
+**Status: the "Done when" is met.** Built: project **rename / delete / duplicate** (deep-copy of grid+extent+locations with pins), **render history** (per-project generated-PDF list with Open links), project **JSON export/import** (backup that round-trips locations + pins), **address/geocode search** (earlier), and understandable render errors (surfaced from the 400/502 mapping). Remaining nice-to-have (not blocking MVP): optional lightweight profiles, which depend on whether family use demands them. Margins landed with `PageSetup`; explorer name and date landed 2026-11-02 as a title page.
 
 Folders touched: `apps/web/`, `apps/api/`, `packages/ui/`, `packages/pdf-client/`, `docs/specs/`.
 
 Build:
 - Project list; rename/delete/duplicate project.
-- Basic style settings: title, explorer name, date, orientation, margin, overlap, scale preset.
+- ✅ Basic style settings: title, explorer name, date, orientation, margin, overlap, scale preset. *(Explorer name and date 2026-11-02: `Project.ExplorerName`/`AtlasDate`, `--explorer`/`--date`, and a title page following the cover structure in `vault/branding-theme.md`, printed only when one is set.)*
 - PDF history; understandable error messages for tile/source/render failures.
-- Print calibration page; simple backup/export of project JSON.
+- ✅ Print calibration page; simple backup/export of project JSON. *(Calibration page 2026-11-02: a "Print the ruler page" link in the editor to `apps/web/public/print-check.pdf`, generated from the renderer and checked by `pnpm check:print-check`.)*
 - ✅ **Address/geocode search** wired to the UI (landed early, 2026-06-25) — `IGeocodeClient`/`NominatimClient` (configurable base URL + required User-Agent, viewbox-biased to the project extent, graceful-empty); `GET /api/geocode?q=…`; a web search box → pick → creates a location recording `GeocodedFrom`/`GeocodeProvider` (the adapter + fields reserved in Stage 2A). Verified via a fake client (4 tests) + live Nominatim + Playwright.
 - Optional lightweight profiles if family use demands separation.
 
@@ -605,17 +607,18 @@ Done when:
 Follow-ups surfaced by the 2026-09-04 "many special locations" workflow pass (see `docs/decisions.md`, same date). None block the MVP; pick them up when convenient, roughly in this order.
 
 - [x] ~~**Zoom ladders + pins in the backend and web app.**~~ ✅ 2026-09-06. `ImportantLocation.ZoomLevels` (`text[]`, migration `AddLocationZoomLevels`) → DTOs → CSV (`pin`/`color`/`zoom`, the same columns render-cli reads) → `RenderLocationDto` → wire `zoomLevels`, plus a `Cover` flag. Web: a coarse→fine chip picker per location and a "Cover All Locations" toggle. Fixed two pre-existing full-replace bugs found on the way (changing a location's scale wiped its pin; the backup importer wiped notes). Also added `.config/dotnet-tools.json` pinning `dotnet-ef` — the documented migration command did not work on a fresh clone. ⚠️ The 6 new PostGIS integration tests are written but **not yet run** (Docker still down pending reboot); 31 backend tests that do not need Docker pass.
-- [ ] **`Microsoft.OpenApi` 2.0.0 advisory (NU1903).** `apps/api` references a version with a known high-severity vulnerability (GHSA-v5pm-xwqc-g5wc), surfaced by `dotnet ef`. Bump it and re-run the API tests.
-- [ ] **Run the deferred PostGIS integration tests.** After a reboot restores Docker, `dotnet test JourneyBook.slnx` should be run in full — the zoom-ladder round-trip, set/clear, unknown-level 400, CSV pin/color/zoom, CSV bad-ladder 400, and duplicate-copies-ladder cases have never executed. `--zoom-levels` (one page per scale per location, ids `L1a`/`L1b`/…) and the CSV `pin`/`color`/`zoom` columns are CLI-only. To reach the web: add `ZoomLevels` (and pin columns) to `LocationCsv`/`LocationCsvRow`, `ImportantLocation` (+ migration), the location DTOs/service, `RenderLocationDto` → `ToWirePayload` (camelCase `zoomLevels`), then a per-location ladder picker in `LocationList` and a "Cover all locations" toggle on Generate (call the worker with `cover: true`, reusing `enclosingBBox`). Follow the Stage 2B feature pattern; add `RenderApiTests`/`HttpRenderWorkerClientTests` cases asserting the wire fields.
+- [x] ~~**`Microsoft.OpenApi` 2.0.0 advisory (NU1903).**~~ ✅ 2026-11-02. It was transitive, through `Microsoft.AspNetCore.OpenApi`, so the fix is that package: 10.0.8 → **10.0.14**, which requires `Microsoft.OpenApi` `[2.12.2, 3.0.0)` and resolves 2.12.2 (GHSA-v5pm-xwqc-g5wc is patched from 2.7.5). No pin needed. `OpenApiDocumentTests` now requests `/openapi/v1.json`, the only runtime use of the package, which nothing did before.
+- [x] ~~**Run the deferred PostGIS integration tests.**~~ ✅ 2026-11-02, Docker 29.9.2. `dotnet test JourneyBook.slnx` on unmodified `master`: **319 passed, 0 failed**, so they exposed nothing to fix. That includes the round-trip, set/clear, unknown-level 400, CSV pin/color/zoom and CSV bad-ladder cases, by name in `LocationsApiTests`. The duplicate-copies-ladder case is the `ZoomLevels` assertion in `ProjectsApiTests.Duplicate_deep_copies_grid_extent_and_locations`. The rest of this item's old text, the steps to bring ladders to the web, had already landed in the row above.
+- [x] ~~**`SSH.NET` 2025.1.0 advisories (NU1903, GHSA-mggc-4xg6-vcxf, GHSA-q939-rpr3-3284).**~~ ✅ 2026-11-02. Found while closing the item above. Test-only, through Testcontainers. `Testcontainers.PostgreSql` 4.12.0 → 4.16.0 resolves `SSH.NET` 2026.0.0, the first patched version; `dotnet list package --vulnerable --include-transitive` is clean for all five projects and the integration suites pass.
 - [x] ~~**Wide-extent scale accuracy in `buildPageGrid`.**~~ ✅ 2026-09-05. The cause was measured rather than assumed: not tmerc distortion (~0.002%) but **meridian convergence** rotating each page relative to the lat/lng axes, so the axis-aligned bbox inflated — linearly with distance from the shared central meridian (0.72% at 40 km, 1.08% at 60 km). Fixed with `pageBBoxAround`, which re-centres the projector per page; grid, route and location pages all use it. Flat 0.175% everywhere now, and a wide atlas validates. Accepted trade: adjacent bboxes overlap/gap by ~0.17% instead of coinciding exactly.
 - [x] ~~**Basemap PDF size.**~~ ✅ 2026-09-05. Panels now default to JPEG q90 (mozjpeg): the road-trip atlas went **110 MB → 18 MB** (6.1x) with output visually identical at 150 DPI. Six encodings were measured first; WebP lost on capability (PDF cannot embed it), palette-PNG on size. Tier does not gate it — overlays are vector, never baked into the panel. Added `--panel-px`, `--panel-format`, `--panel-quality`; `MapPanel.png` became `bytes`/`format`/`mimeType`.
 - [x] ~~**Dev environment bootstrap.**~~ ✅ 2026-09-05. `harness/lib/env.sh` resolves pnpm (PATH → user-local → corepack → `npm install --prefix ~/.npm-global`) and exports PATH, so init and every check bootstrap themselves. New preflight `harness/checks/00-env.sh` also detects a missing ASP.NET Core runtime (the real cause of NETSDK1226) and separates "Docker not installed" from "not running" from "kernel upgraded since boot, reboot needed", printing the distro-correct fix for each. Checks now print real failure output instead of `/dev/null`. Also restored the executable bit on `scripts/hooks/*` — git had been silently ignoring the decision-log hook.
 - [x] ~~**Commit the workflow pass.**~~ ✅ 2026-09-05, commit `ff07c75`.
 
 Nice-to-haves from the same pass:
-- Overview page: label ladder footprints once per location (nested rectangles currently each carry a page number, which crowds small stops).
-- `journeybook grid … | jq` is the current "how many pages will this be?" preview; a `--dry-run` on `render` that prints the page plan and estimated tile count would be friendlier.
-- Web "Import CSV" could accept the JSON backup shape too, mirroring the CLI loader.
+- [x] ~~Overview page: label ladder footprints once per location.~~ ✅ 2026-11-02. `overviewPageLabels` gives a ladder one label with its page range ("4-6") inside the top edge of its largest footprint, clear of the pin at the centre. Every other page keeps its own label.
+- [x] ~~A `--dry-run` on `render` that prints the page plan and estimated tile count.~~ ✅ 2026-11-02. `planAtlasRender` reuses `assembleContract` and `planMapPanel`; `dry-run.test.ts` holds its figures to the fetch count and PDF page count of real renders.
+- [x] ~~Web "Import CSV" could accept the JSON backup shape too.~~ ✅ 2026-11-02. `locationImportToCsv` turns a backup or a location array into import CSV, so it keeps the one importer's all-or-nothing validation. That needed both CSV parsers to accept a line break in a quoted field, which is now in the shared conformance fixture.
 
 ---
 

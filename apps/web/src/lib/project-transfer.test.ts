@@ -8,6 +8,8 @@ const PROJECT: Project = {
   scalePresetId: "1-100000",
   orientation: "Landscape",
   overlap: 0.05,
+  explorerName: "Ada",
+  atlasDate: "Summer 2026",
   margins: { top: 0.75, right: 0.6, bottom: 0.75, left: 0.9, gutter: 0.25 },
   extent: [-98, 41, -97, 42],
   createdAt: "2026-09-09T00:00:00Z",
@@ -141,5 +143,16 @@ describe("project export/import", () => {
   it("survives a file that is not an export at all", () => {
     expect(() => parseProjectImport(null)).not.toThrow();
     expect(parseProjectImport("nonsense").locations).toEqual([]);
+  });
+});
+
+describe("title page in a project export", () => {
+  it("round-trips the explorer name and date", () => {
+    const parsed = parseProjectImport(JSON.parse(JSON.stringify(buildProjectExport(PROJECT, []))));
+    expect(parsed.titlePage).toEqual({ explorerName: "Ada", atlasDate: "Summer 2026" });
+  });
+
+  it("[CONTROL] treats a file without them as saying nothing", () => {
+    expect(parseProjectImport({ project: { name: "Old" } }).titlePage).toBeNull();
   });
 });

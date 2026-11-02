@@ -29,6 +29,9 @@ export interface Project {
   scalePresetId: string;
   orientation: string;
   overlap: number;
+  /** Printed on the book's title page, which exists only when one of these is set. */
+  explorerName: string | null;
+  atlasDate: string | null;
   /**
    * The project's persisted margins. Carried through the adapter because the
    * API's only update verb is a full PUT: any caller that does not resend these
@@ -202,6 +205,8 @@ interface ApiProject {
   scalePresetId: string;
   orientation: string;
   overlap: number;
+  explorerName?: string | null;
+  atlasDate?: string | null;
   margins?: Partial<Margins> | null;
   extent: ApiBBox | null;
   createdAt: string;
@@ -232,6 +237,8 @@ function normalizeProject(p: ApiProject): Project {
     scalePresetId: p.scalePresetId,
     orientation: p.orientation,
     overlap: p.overlap,
+    explorerName: p.explorerName ?? null,
+    atlasDate: p.atlasDate ?? null,
     margins: toMargins(p.margins),
     extent: toBBox(p.extent),
     createdAt: p.createdAt,
@@ -297,7 +304,7 @@ export const api = {
      * edit therefore goes through here, resending the project's current values
      * for the fields it is not changing.
      */
-    patch: async (p: Project, changes: Partial<Pick<Project, "name" | "scalePresetId" | "orientation" | "overlap" | "margins">>): Promise<Project> =>
+    patch: async (p: Project, changes: Partial<Pick<Project, "name" | "scalePresetId" | "orientation" | "overlap" | "margins" | "explorerName" | "atlasDate">>): Promise<Project> =>
       normalizeProject(
         await request<ApiProject>("PUT", `/projects/${p.id}`, {
           name: changes.name ?? p.name,
@@ -305,6 +312,9 @@ export const api = {
           orientation: changes.orientation ?? p.orientation,
           overlap: changes.overlap ?? p.overlap,
           margins: changes.margins ?? p.margins,
+          // Not `??`: null here means the user cleared the field.
+          explorerName: changes.explorerName !== undefined ? changes.explorerName : p.explorerName,
+          atlasDate: changes.atlasDate !== undefined ? changes.atlasDate : p.atlasDate,
         }),
       ),
     rename: (p: Project, name: string): Promise<Project> => api.projects.patch(p, { name }),

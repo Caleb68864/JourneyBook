@@ -108,4 +108,35 @@ public class ProjectsApiTests(PostgisApiFactory factory) : IClassFixture<Postgis
         var get = await _client.GetAsync($"/api/projects/{created.Id}");
         Assert.Equal(HttpStatusCode.NotFound, get.StatusCode);
     }
+
+    [Fact]
+    public async Task Title_page_fields_round_trip_clear_and_survive_duplicate()
+    {
+        var create = await _client.PostAsJsonAsync("/api/projects",
+            new CreateProjectRequest("Title Page", "usgs-7-5-min", ExplorerName: "  Ada ", AtlasDate: "Summer 2026"));
+        var created = (await create.Content.ReadFromJsonAsync<ProjectResponse>())!;
+        Assert.Equal("Ada", created.ExplorerName);
+        Assert.Equal("Summer 2026", created.AtlasDate);
+
+        var duplicate = await _client.PostAsync($"/api/projects/{created.Id}/duplicate", null);
+        var copy = (await duplicate.Content.ReadFromJsonAsync<ProjectResponse>())!;
+        Assert.Equal("Ada", copy.ExplorerName);
+        Assert.Equal("Summer 2026", copy.AtlasDate);
+
+        var update = await _client.PutAsJsonAsync($"/api/projects/{created.Id}",
+            new UpdateProjectRequest("Title Page", "usgs-7-5-min", "Portrait", 0, created.Margins,
+                ExplorerName: "   ", AtlasDate: "Fall 2026"));
+        var updated = (await update.Content.ReadFromJsonAsync<ProjectResponse>())!;
+        Assert.Null(updated.ExplorerName);
+        Assert.Equal("Fall 2026", updated.AtlasDate);
+    }
+
+    [Fact]
+    public async Task An_over_long_explorer_name_is_a_400_not_a_database_error()
+    {
+        var response = await _client.PostAsJsonAsync("/api/projects",
+            new CreateProjectRequest("Too Long", "usgs-7-5-min", ExplorerName: new string('x', 121)));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
 }

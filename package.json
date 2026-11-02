@@ -10,21 +10,32 @@
     "pnpm": ">=10"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild", "@tailwindcss/oxide", "sharp"]
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "@tailwindcss/oxide",
+      "sharp"
+    ]
   },
   "scripts": {
     "build": "pnpm -r --filter \"./packages/*\" run build",
     "typecheck": "pnpm -r run typecheck",
+    "lint": "eslint .",
     "check:fixture": "node scripts/regenerate-sample-atlas.mjs --check",
     "check:print-resolution": "node scripts/generate-print-resolution.mjs --check",
-  "check:page-count": "node scripts/generate-page-count.mjs --check",
+    "check:page-count": "node scripts/generate-page-count.mjs --check",
+    "check:print-check": "node scripts/generate-print-check.mjs --check",
     "generate:print-resolution": "node scripts/generate-print-resolution.mjs",
-  "generate:page-count": "node scripts/generate-page-count.mjs",
+    "generate:page-count": "node scripts/generate-page-count.mjs",
+    "generate:print-check": "node scripts/generate-print-check.mjs",
     "dev:web": "pnpm --filter @journeybook/web dev",
     "build:web": "pnpm --filter @journeybook/web build",
     "clean": "pnpm -r exec rimraf dist"
   },
   "devDependencies": {
-    "typescript": "^5.7.2"
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.72.1"
   }
 }

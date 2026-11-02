@@ -176,6 +176,8 @@ public class WorkerWirePayloadParityTests
         TileSourceId: "usgs-topo",
         TileMaxZoom: 16,
         Title: "Pawnee Creek",
+        ExplorerName: "Ada",
+        AtlasDate: "Summer 2026",
         Route: true,
         Landmarks: [new RenderLandmarkDto(-96.7, 40.8, "Water tower", "Landmark", 3)],
         IncludeLandmarks: true,

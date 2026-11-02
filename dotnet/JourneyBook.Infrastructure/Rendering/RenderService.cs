@@ -153,6 +153,8 @@ public class RenderService(
             TileSourceId: tileProxyBaseUrl is null ? null : tileSourceId,
             TileMaxZoom: tileMaxZoom,
             Title: title,
+            ExplorerName: project.ExplorerName,
+            AtlasDate: project.AtlasDate,
             Route: request.Route,
             Landmarks: landmarks,
             IncludeLandmarks: landmarks.Count > 0,

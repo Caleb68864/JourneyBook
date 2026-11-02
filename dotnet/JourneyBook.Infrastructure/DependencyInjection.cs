@@ -60,6 +60,13 @@ public static class DependencyInjection
         var cacheDir = configuration["TileCache:CacheDir"] is { Length: > 0 } dir ? dir : "data/cache";
         services.AddSingleton(new TileCache(cacheDir));
 
+        var tileCacheMaxMb = configuration.GetValue("TileCache:MaxSizeMb", 0L);
+        var tileCachePruneHours = configuration.GetValue("TileCache:PruneIntervalHours", 24d);
+        services.AddSingleton(new TileCachePruneOptions(
+            tileCacheMaxMb * 1024 * 1024,
+            TimeSpan.FromHours(tileCachePruneHours)));
+        services.AddHostedService<TileCachePruneService>();
+
         var upstreamTimeout = int.TryParse(configuration["TileCache:UpstreamTimeoutSeconds"], out var t) ? t : 10;
 
         // --- Tile egress policy (SSRF containment) --------------------------
