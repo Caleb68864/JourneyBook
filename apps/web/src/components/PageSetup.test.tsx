@@ -1,8 +1,17 @@
 // @vitest-environment jsdom
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { useState } from "react";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
-import { PageSetup, type PageSetupValue, clampMargin, clampGutter, MIN_MARGIN_IN, MAX_MARGIN_IN } from "./PageSetup";
+import {
+  PageSetup,
+  type PageSetupValue,
+  clampMargin,
+  clampGutter,
+  MIN_MARGIN_IN,
+  MAX_MARGIN_IN,
+  OVERLAP_TYPICAL_COST,
+} from "./PageSetup";
+import { api, type Project } from "../api/client";
 
 /**
  * Orientation, margins, gutter and overlap were plumbed end to end — persisted,
@@ -131,6 +140,100 @@ describe("PageSetup shows what overlap costs", () => {
   it("admits it cannot answer without an extent", () => {
     render(<Harness estimatePagesFor={() => null} />);
     expect(screen.getByTestId("overlap-cost").textContent).toMatch(/set a bounding box/i);
+  });
+  /**
+   * Decision 7 asks for the cost at the control even before an extent exists.
+   * The typical range sits beside the select, always, and it is a range: an
+   * edit that collapses it to "+11%" alone fails here.
+   */
+  it("states the typical range beside the control, with or without an extent", () => {
+    render(<Harness estimatePagesFor={() => null} />);
+    const typical = screen.getByTestId("overlap-typical").textContent ?? "";
+    expect(typical).toBe(OVERLAP_TYPICAL_COST);
+    expect(typical).toMatch(/\b0%/);
+    expect(typical).toContain("+50%");
+    expect(typical).toContain("+11%");
+    // The range was measured at 5% overlap only; it must say so, because the
+    // select offers up to 25%, where the cost is several times larger.
+    expect(typical).toMatch(/at 5% overlap/i);
+  });
+});
+
+/**
+ * The hop the PageSetup tests above stop short of: a committed value has to
+ * become the PUT body. The editor hands `next` straight to `api.projects.patch`
+ * (`ProjectEditorPage.handlePageSetupChange`); this composes the real component
+ * with the real client against a stubbed fetch, so a PageSetupValue key that
+ * `patch` does not read, or a patch that drops margins.gutter, fails here.
+ */
+describe("PageSetup reaches the PUT body", () => {
+  const PROJECT: Project = {
+    id: "p1",
+    name: "Sandhills",
+    scalePresetId: "usgs-7-5-min",
+    orientation: "Portrait",
+    overlap: 0,
+    explorerName: null,
+    atlasDate: null,
+    margins: { top: 0.5, right: 0.5, bottom: 0.5, left: 0.5, gutter: 0 },
+    extent: [-98, 41, -97, 42],
+    createdAt: "2026-09-09T00:00:00Z",
+    updatedAt: "2026-09-09T00:00:00Z",
+  };
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  async function putBodyAfter(act: () => void): Promise<Record<string, unknown>> {
+    const fetchMock = vi.fn(
+      async (_url: string, init?: RequestInit) =>
+        new Response(String(init?.body ?? "{}"), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const pending: Promise<unknown>[] = [];
+    render(<Harness onChange={(next) => pending.push(api.projects.patch(PROJECT, next))} />);
+    act();
+    await Promise.all(pending);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toMatch(/\/projects\/p1$/);
+    expect(init!.method).toBe("PUT");
+    return JSON.parse(String(init!.body));
+  }
+
+  it("[BEHAVIORAL] landscape goes on the wire, scale untouched", async () => {
+    const body = await putBodyAfter(() =>
+      fireEvent.click(screen.getByRole("button", { name: "Landscape" })),
+    );
+    expect(body.orientation).toBe("Landscape");
+    expect(body.scalePresetId).toBe("usgs-7-5-min");
+  });
+
+  it("[BEHAVIORAL] a margin goes on the wire", async () => {
+    const body = await putBodyAfter(() => {
+      const top = screen.getByLabelText("top");
+      fireEvent.change(top, { target: { value: "1.25" } });
+      fireEvent.blur(top);
+    });
+    expect(body.margins).toEqual({ top: 1.25, right: 0.5, bottom: 0.5, left: 0.5, gutter: 0 });
+  });
+
+  it("[BEHAVIORAL] a gutter goes on the wire with the four margins intact", async () => {
+    const body = await putBodyAfter(() => {
+      const gutter = screen.getByLabelText(/binder gutter/i);
+      fireEvent.change(gutter, { target: { value: "0.3" } });
+      fireEvent.blur(gutter);
+    });
+    expect(body.margins).toEqual({ top: 0.5, right: 0.5, bottom: 0.5, left: 0.5, gutter: 0.3 });
+  });
+
+  it("[BEHAVIORAL] overlap goes on the wire as a fraction", async () => {
+    const body = await putBodyAfter(() =>
+      fireEvent.change(screen.getByLabelText(/page overlap/i), { target: { value: "0.1" } }),
+    );
+    expect(body.overlap).toBe(0.1);
   });
 });
 

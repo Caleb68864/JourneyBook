@@ -1050,6 +1050,67 @@ Suites on this branch: TS atlas-core 102, pdf-client 71, map-sources 93 (one new
 render-cli 123 (with a 60 s timeout, see above), render-worker 37. .NET without Docker: 239
 (two new). The Docker `Api` suites were not run.
 
+||||||| d70705a
+
+## Decision 7 re-verified — 2026-11-09
+
+Decision 7 ("if we can edit it, it should be in the UI", `../../ROADMAP.md` 2J14) had
+already landed in `3a58665` (`PageSetup.tsx`, `BasemapOptions.tsx`). Re-checked against
+the code rather than the earlier note, looking for the half-wired shape.
+
+**Verified and closed.**
+
+- ✅ Orientation, the four margins, the gutter and overlap have controls
+  (`apps/web/src/components/PageSetup.tsx`), saved through `api.projects.patch`
+  (`ProjectEditorPage.handlePageSetupChange`). Basemap, panel format and panel quality
+  have controls (`BasemapOptions.tsx`) that reach the render body through
+  `toRenderRequestBody`. The API-level F08 tests (`RenderApiTests`, "Basemap panel knobs")
+  show those three reach the worker payload.
+- ✅ **Two hops had no test, and now do.** (1) A `PageSetup` change becoming the `PUT`
+  body: `PageSetup.test.tsx` "PageSetup reaches the PUT body" runs the real component
+  with the real client against a stubbed fetch. (2) The saved grid becoming the worker's
+  `RenderAtlasRequest` in `RenderService`: `RenderApiTests.Render_carries_the_projects_saved_page_setup`,
+  with every value off its default. Before this, only the DTO-to-JSON step
+  (`HttpRenderWorkerClientTests`) was covered. Both were mutation-checked: each fails
+  when its hop is cut.
+- ✅ **The overlap cost is shown at the control before there is an extent.** It used to
+  appear only once a bounding box existed. The typical range now always sits beside the
+  select (`OVERLAP_TYPICAL_COST`), and the cost measured on the user's own box still
+  follows it. **The range names its overlap:** the "+11%, 0–50%" sweep above was run at
+  5% overlap only, and the select offers up to 25%, where theory gives about +78%. An
+  unqualified "+11%" beside that option would have understated it about 7x.
+
+**Open — found while checking.**
+
+- [x] ~~**`ProjectEditorPage` has no test of its own.**~~ ✅ 2026-11-09.
+  `apps/web/src/routes/ProjectEditorPage.test.tsx` swaps `PageSetup`, `BasemapOptions` and
+  `GenerateButton` for probes that record their props, and stubs `api`. It checks that the
+  saved setup reaches `PageSetup`, that a change goes to `api.projects.patch` and comes
+  back, that `estimatePagesFor` returns a page count, and that a `BasemapOptions` change
+  reaches the `options` `GenerateButton` posts. Mutation-checked, each break restored:
+  a no-op `onChange` (1 test fails), overlap defaulted to 0 (2 fail), `setPanelQuality`
+  removed (1 fails), `panelFormat: null` on Generate (1 fails).
+- [ ] **`panelWidthPx` is reachable through the API but has no control.** `RenderProjectRequest.PanelWidthPx`
+  and `--panel-px` exist. `3a58665` left it out on purpose: the engine never resamples, so
+  width does nothing until it crosses a zoom boundary and then costs about 4x. Decision 7
+  as worded ("any route ... is in scope") covers it, so **the owner needs to confirm the
+  exception** or ask for a control that snaps to zoom boundaries.
+- [ ] **Other CLI-only knobs, not audited one by one against the rule:** `--tile-source`,
+  `--tile-max-zoom`, `--max-mb`, `--no-print-check` (`packages/render-cli/src/cli.ts`). Most
+  of these are operator settings rather than user settings, but each needs a yes or no.
+- [ ] **`render-cli` basemap tests time out under load.** At load average ~36, 1–4 of the
+  "renderAtlas with a basemap" mixed-scale cases in `packages/render-cli/src/render.test.ts`
+  hit vitest's 5 s default, and a `sharp`/wasm "expected magic word" line shows up on
+  stderr. They pass on an idle machine (123/123 earlier the same day). Give them an
+  explicit timeout, or find out why they take so long.
+- [ ] **No measured overlap cost above 5%.** The sweep covers 5% only. The 10–25% options
+  have just theory and the per-box figure. Re-run the sweep at 2/10/15/20/25%
+  (`pageGridSize`, same extents) if the UI is to quote a range for each step
+  (`PageSetup.tsx` `OVERLAP_STEPS`).
+- [ ] **The picker's DPI caveat** (J16/J17, `../../ROADMAP.md` 2026-09-11 row) gave figures
+  for Letter portrait at 0.5in. Now that orientation and margins are user-settable, check
+  whether it still describes the user's page.
+
 ## Phase 1: Print Geometry
 Build the Docker-hosted React/Vite/shadcn/Tailwind web app skeleton, define the outdoor field-guide visual system, accept bounding boxes, create page grid, generate overview and detail pages, and validate Letter-size PDF output from the preferred client-side React PDF path.
 

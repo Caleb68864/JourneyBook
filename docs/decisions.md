@@ -1218,3 +1218,21 @@ Each entry follows this shape:
 - Watch: `Retry-After` on a 429 is still ignored (fixed 200/400 ms backoff). Holes under the failure threshold still pass silently apart from `tilesMissing`.
 - Commit: (pending)
 
+||||||| d70705a
+
+
+## 2026-11-09 — Decision 7 re-verified: the two untested hops, and overlap cost before an extent
+- Symptom: Decision 7's controls (`3a58665`) were all wired, but two hops had no test. `PageSetup` was tested only up to its `onChange` callback, and the saved grid becoming the worker's `RenderAtlasRequest` (`RenderService`) was tested only from the DTO onward. The overlap control gave no cost at all until the project had a bounding box.
+- Fix: `PageSetup.test.tsx` "PageSetup reaches the PUT body" (real component, real `api.projects.patch`, stubbed fetch) and `RenderApiTests.Render_carries_the_projects_saved_page_setup` (every value off its default). `OVERLAP_TYPICAL_COST` now always sits beside the overlap select: a range (0% to +50%, about +11% on average), never a single rate, and labelled "at 5% overlap" because that is the only overlap the sweep measured. The select goes to 25%, where theory gives about +78%.
+- Evidence: mutation-checked. Each new test fails when its hop is cut (patch ignoring `margins`, `RenderService` sending default margins).
+- Surfaces: apps/web/src/components/PageSetup.tsx, apps/web/src/components/PageSetup.test.tsx, dotnet/JourneyBook.Tests/Api/RenderApiTests.cs
+- Watch: `ProjectEditorPage` itself still has no test. `panelWidthPx` is reachable through the API with no control, on purpose. Both are open in `vault/development-roadmap.md`.
+- Commit: (pending)
+
+## 2026-11-09 — ProjectEditorPage wiring test
+- Symptom: `ProjectEditorPage` passes the saved setup into `PageSetup`, `PageSetup`'s change to `api.projects.patch`, and `BasemapOptions` state into `GenerateButton`'s `options`. No test covered any of it. Only the pieces on either side were tested.
+- Fix: `apps/web/src/routes/ProjectEditorPage.test.tsx`. The three children are swapped for probes that record their props, `MapPreview` is stubbed (it needs WebGL), and `api.projects.get`, `api.locations.list` and `api.generatedPdfs.list` are spied.
+- Evidence: four deliberate breaks, each restored, and each fails the suite: a no-op `onChange`, `overlap` defaulted to 0, `setPanelQuality` removed, `panelFormat: null` passed to Generate.
+- Surfaces: apps/web/src/routes/ProjectEditorPage.test.tsx
+- Watch: the probes record props, not rendering. A child that ignores a prop it is given is caught by that child's own test file, not here.
+- Commit: (pending)
