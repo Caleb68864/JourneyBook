@@ -1016,11 +1016,14 @@ the code rather than the earlier note, looking for the half-wired shape.
 
 **Open — found while checking.**
 
-- [ ] **`ProjectEditorPage` has no test of its own.** The editor's
-  `onChange={(next) => void handlePageSetupChange(next)}` and the `BasemapOptions` → `GenerateButton`
-  state threading (`ProjectEditorPage.tsx` ~516 and ~763) are covered only by testing the
-  pieces on either side. A prop dropped inside the editor would go unnoticed. Fix: a
-  jsdom route test with a stubbed `api`.
+- [x] ~~**`ProjectEditorPage` has no test of its own.**~~ ✅ 2026-11-09.
+  `apps/web/src/routes/ProjectEditorPage.test.tsx` swaps `PageSetup`, `BasemapOptions` and
+  `GenerateButton` for probes that record their props, and stubs `api`. It checks that the
+  saved setup reaches `PageSetup`, that a change goes to `api.projects.patch` and comes
+  back, that `estimatePagesFor` returns a page count, and that a `BasemapOptions` change
+  reaches the `options` `GenerateButton` posts. Mutation-checked, each break restored:
+  a no-op `onChange` (1 test fails), overlap defaulted to 0 (2 fail), `setPanelQuality`
+  removed (1 fails), `panelFormat: null` on Generate (1 fails).
 - [ ] **`panelWidthPx` is reachable through the API but has no control.** `RenderProjectRequest.PanelWidthPx`
   and `--panel-px` exist. `3a58665` left it out on purpose: the engine never resamples, so
   width does nothing until it crosses a zoom boundary and then costs about 4x. Decision 7

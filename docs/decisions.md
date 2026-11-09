@@ -1212,3 +1212,11 @@ Each entry follows this shape:
 - Surfaces: apps/web/src/components/PageSetup.tsx, apps/web/src/components/PageSetup.test.tsx, dotnet/JourneyBook.Tests/Api/RenderApiTests.cs
 - Watch: `ProjectEditorPage` itself still has no test. `panelWidthPx` is reachable through the API with no control, on purpose. Both are open in `vault/development-roadmap.md`.
 - Commit: (pending)
+
+## 2026-11-09 — ProjectEditorPage wiring test
+- Symptom: `ProjectEditorPage` passes the saved setup into `PageSetup`, `PageSetup`'s change to `api.projects.patch`, and `BasemapOptions` state into `GenerateButton`'s `options`. No test covered any of it. Only the pieces on either side were tested.
+- Fix: `apps/web/src/routes/ProjectEditorPage.test.tsx`. The three children are swapped for probes that record their props, `MapPreview` is stubbed (it needs WebGL), and `api.projects.get`, `api.locations.list` and `api.generatedPdfs.list` are spied.
+- Evidence: four deliberate breaks, each restored, and each fails the suite: a no-op `onChange`, `overlap` defaulted to 0, `setPanelQuality` removed, `panelFormat: null` passed to Generate.
+- Surfaces: apps/web/src/routes/ProjectEditorPage.test.tsx
+- Watch: the probes record props, not rendering. A child that ignores a prop it is given is caught by that child's own test file, not here.
+- Commit: (pending)
