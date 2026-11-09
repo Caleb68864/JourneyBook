@@ -220,11 +220,29 @@ interface FetchedTile {
   contentType?: string;
 }
 
+/**
+ * Why a tile produced no bytes, as a short label: `HTTP 503`, `timeout`, or
+ * `network: <message>`.
+ *
+ * `fetchTile` used to return a bare `null` and drop this on the floor, so the one
+ * error a total outage produced -- "Tile fetch failed for 35 of 35 tiles" -- could
+ * not say whether the source was down (5xx), throttling us (429), off its coverage
+ * (404), or unreachable (DNS/timeout). Those four have four different fixes.
+ */
+type TileFailure = string;
+
+function describeFetchError(err: unknown): TileFailure {
+  if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) return "timeout";
+  const cause = err instanceof Error && err.cause instanceof Error ? `: ${err.cause.message}` : "";
+  return `network: ${err instanceof Error ? err.message : String(err)}${cause}`;
+}
+
 async function fetchTile(
   url: string,
   timeoutMs: number,
   attempts: number,
-): Promise<FetchedTile | null> {
+): Promise<FetchedTile | TileFailure> {
+  let failure: TileFailure = "no attempts made";
   for (let attempt = 1; attempt <= attempts; attempt++) {
     let retryable: boolean;
     try {
@@ -245,17 +263,33 @@ async function fetchTile(
           ...(contentType ? { contentType } : {}),
         };
       }
+      failure = `HTTP ${res.status}`;
       retryable = isRetryableStatus(res.status);
-    } catch {
-      // Network error or timeout — the transient case retries exist for.
+    } catch (err) {
+      // Network error or timeout -- the transient case retries exist for.
+      failure = describeFetchError(err);
       retryable = true;
     }
-    if (!retryable || attempt === attempts) return null;
+    if (!retryable || attempt === attempts) return failure;
     // Exponential backoff (200 ms, 400 ms). Retrying a throttled source
     // immediately is how a 429 becomes a ban.
     await new Promise((resolve) => setTimeout(resolve, 200 * 2 ** (attempt - 1)));
   }
-  return null;
+  return failure;
+}
+
+/**
+ * `["HTTP 503", "HTTP 503", "timeout"]` -> `"2x HTTP 503, 1x timeout"`, most
+ * common first, at most `limit` distinct reasons so one pathological source
+ * cannot make the job's error text unbounded.
+ */
+export function summarizeTileFailures(failures: readonly string[], limit = 3): string {
+  const counts = new Map<string, number>();
+  for (const f of failures) counts.set(f, (counts.get(f) ?? 0) + 1);
+  const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  const shown = sorted.slice(0, limit).map(([reason, n]) => `${n}x ${reason}`);
+  if (sorted.length > limit) shown.push(`${sorted.length - limit} other reason(s)`);
+  return shown.join(", ");
 }
 
 /**
@@ -286,7 +320,7 @@ async function loadTile(
   y: number,
   cacheSource: string,
   options?: RenderPanelOptions,
-): Promise<FetchedTile | null> {
+): Promise<FetchedTile | TileFailure> {
   if (options?.cacheDir) {
     // A cache hit carries no attribution: the disk cache stores bytes, not the
     // headers they arrived with. That is why the panel falls back to the
@@ -300,7 +334,7 @@ async function loadTile(
     options?.tileTimeoutMs ?? DEFAULT_TILE_TIMEOUT_MS,
     options?.tileAttempts ?? DEFAULT_TILE_ATTEMPTS,
   );
-  if (tile && options?.cacheDir) {
+  if (typeof tile !== "string" && options?.cacheDir) {
     // The extension is derived, not assumed. This site used to pass a literal
     // "png" for every tile: the C# proxy shares this cache directory, discovers
     // whichever `{y}.*` exists and serves it with `ContentTypeFor(ext)`, so a
@@ -394,15 +428,19 @@ export async function renderMapPanel(
   const jobs: (() => Promise<
     { left: number; top: number; input: Buffer; attribution?: string } | null
   >)[] = [];
+  // Why each missing tile is missing, for the error below.
+  const failures: string[] = [];
   for (let ty = range.minY; ty <= range.maxY; ty++) {
     for (let tx = range.minX; tx <= range.maxX; tx++) {
       const left = (tx - range.minX) * TILE_SIZE;
       const top = (ty - range.minY) * TILE_SIZE;
       jobs.push(async () => {
         const tile = await loadTile(basemap, zoom, tx, ty, cacheSource, options);
-        return tile
-          ? { left, top, input: tile.bytes, ...(tile.attribution ? { attribution: tile.attribution } : {}) }
-          : null;
+        if (typeof tile === "string") {
+          failures.push(tile);
+          return null;
+        }
+        return { left, top, input: tile.bytes, ...(tile.attribution ? { attribution: tile.attribution } : {}) };
       });
     }
   }
@@ -425,7 +463,8 @@ export async function renderMapPanel(
     throw new Error(
       `Tile fetch failed for ${tilesMissing} of ${tilesRequested} tiles at z${zoom} from ` +
         `${cacheSource} (limit ${(maxFailedFraction * 100).toFixed(0)}%). ` +
-        `The map panel would be mostly blank, so it is not rendered.`,
+        `The map panel would be mostly blank, so it is not rendered. ` +
+        `Causes: ${summarizeTileFailures(failures)}.`,
     );
   }
 

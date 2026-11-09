@@ -240,6 +240,30 @@ describe("tile fetch hardening", () => {
     expect(panel.tilesMissing).toBe(0);
   });
 
+  // The panel's error used to be only "Tile fetch failed for N of M tiles", which
+  // cannot tell an outage (5xx) from throttling (429), a coverage edge (404) or an
+  // unreachable host. That text is the job's recorded failure reason.
+  it("says WHY tiles failed in the panel error (status and network cause)", async () => {
+    let n = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, _init?: RequestInit) => {
+        if (n++ % 2 === 0) return new Response(null, { status: 404 });
+        throw new TypeError("fetch failed", { cause: new Error("getaddrinfo ENOTFOUND tiles.example") });
+      }),
+    );
+    const err = await renderMapPanel([...bbox], 256, undefined, {
+      tileConcurrency: 1,
+      tileAttempts: 1,
+    }).then(
+      () => new Error("expected renderMapPanel to throw"),
+      (e: unknown) => e as Error,
+    );
+    expect(err.message).toMatch(/^Tile fetch failed/);
+    expect(err.message).toMatch(/Causes: .*HTTP 404/);
+    expect(err.message).toMatch(/network: fetch failed: getaddrinfo ENOTFOUND tiles\.example/);
+  });
+
   it("does not retry a 404 — an absent tile is an answer, not a failure", async () => {
     const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response(null, { status: 404 }));
     vi.stubGlobal("fetch", fetchMock);

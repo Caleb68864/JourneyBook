@@ -1000,6 +1000,11 @@ Each fix has a test that failed before it. Write-ups in `docs/decisions.md` unde
 - **A render that succeeded but could not be recorded looked like one that never ran.** If the
   `Completed` write throws, the Failed record now says the render finished, how many pages, and
   the output path, followed by the cause.
+- **"Tile fetch failed for 35 of 35 tiles" did not say why.** `fetchTile` returned a bare
+  `null`, so an outage (5xx), throttling (429), a coverage edge (404) and an unreachable host
+  all read the same in the job's recorded error. It now returns the last failure per tile
+  (`HTTP 503`, `timeout`, `network: <message>: <cause>`) and the panel error ends with
+  `Causes: 30x HTTP 503, 5x timeout` (top three reasons).
 
 **Found, not fixed.**
 
@@ -1008,6 +1013,9 @@ Each fix has a test that failed before it. Write-ups in `docs/decisions.md` unde
 - **Retention may delete the orphaned PDF.** A render recorded Failed after it finished has a
   file on disk that the Failed row does not point at (`FilePath` is null). Nothing reclaims or
   re-links it.
+- **A 429's `Retry-After` is ignored.** `fetchTile` backs off a fixed 200/400 ms whatever
+  the source asks for, so a throttled render spends its three attempts inside the window the
+  source said to wait out.
 
 ## Phase 1: Print Geometry
 Build the Docker-hosted React/Vite/shadcn/Tailwind web app skeleton, define the outdoor field-guide visual system, accept bounding boxes, create page grid, generate overview and detail pages, and validate Letter-size PDF output from the preferred client-side React PDF path.

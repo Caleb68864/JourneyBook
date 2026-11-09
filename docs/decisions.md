@@ -1211,3 +1211,10 @@ Each entry follows this shape:
 - Watch: the Completed write itself is still single-shot; its failure now lands as an informative Failed instead. The "cancelled before it started" write is also still single-shot.
 - Commit: (pending)
 
+## 2026-11-09 — Tile fetch failures carry their cause into the panel error
+- Symptom: `fetchTile` returned `null` for every kind of failure, so the error that becomes the render job's recorded reason ("Tile fetch failed for N of M tiles at zZ from S") could not tell an upstream outage (5xx) from throttling (429), a coverage edge (404) or a DNS/connect failure.
+- Fix: `fetchTile` returns the last failure label per tile (`HTTP <status>`, `timeout`, `network: <message>: <cause>`); `renderMapPanel` collects them and appends `Causes: <summarizeTileFailures>` (counts, most common first, top three) to the threshold error. The message prefix is unchanged, so anything matching "Tile fetch failed" still matches.
+- Surfaces: packages/map-sources/src/panel.ts, fetchTile, loadTile, summarizeTileFailures, describeFetchError, packages/map-sources/src/panel.test.ts
+- Watch: `Retry-After` on a 429 is still ignored (fixed 200/400 ms backoff). Holes under the failure threshold still pass silently apart from `tilesMissing`.
+- Commit: (pending)
+
