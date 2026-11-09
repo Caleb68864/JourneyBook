@@ -1016,6 +1016,39 @@ Each fix has a test that failed before it. Write-ups in `docs/decisions.md` unde
 - **A 429's `Retry-After` is ignored.** `fetchTile` backs off a fixed 200/400 ms whatever
   the source asks for, so a throttled render spends its three attempts inside the window the
   source said to wait out.
+- **The worker logs an upstream (tile) failure at `info`.** `render-route.ts` writes every
+  failed render's summary line at `info`; only `internal` errors also get an `error` line. A
+  log filter at `warn` therefore shows nothing during a total tile outage. `upstream` should
+  be `warn`. Not done here: the route test has no log capture and no cheap way to force an
+  upstream failure, so the fix would have shipped without a test that failed first.
+- **What the golden fixture cannot see.** `harness/checks/golden-fixture.sh` and
+  `fixture.test.ts` pin `buildPageGrid`'s page bboxes for one bbox-mode parameter set. They
+  say nothing about location mode, corridor pages, the PDF, the panels or the worker wire. A
+  change that keeps the bboxes but breaks what is printed passes.
+- **What `scale-fidelity.test.ts` cannot see.** The pdf-client test measures the map box and
+  the scale bar off a real PDF, but:
+  - the panel is a 4x4 flat PNG stretched to the box (`width/height: 100%`), so a panel whose
+    pixel aspect does not match the box (anisotropic scale) prints and passes. Nothing
+    end-to-end checks that the panel image's aspect equals the map box's, or that the crop
+    lines up with the bbox; crop registration is tested only in `panel.test.ts`, in pixels,
+    before the PDF exists;
+  - it renders through `renderAtlasPdfToBuffer` directly, not `renderAtlas`, with the default
+    margins and no overlap. `render-cli/src/page-setup.test.ts` measures the map box that
+    custom margins produce, but nothing checks the scale-bar-to-map ratio through
+    `renderAtlas` with non-default margins, gutter, landscape or overlap, which are the knobs
+    the UI branch is exposing;
+  - one location (Lincoln, NE), Letter only, one page. The atlas-core test covers other
+    latitudes, but only as geometry, not as printed output.
+  (Grid-line placement on paper is covered separately by `pdf-client/src/overlays.test.ts`.)
+- **render-cli tests time out under load.** On a loaded machine (load average ~54) `pnpm -r test`
+  failed 4 to 11 `render-cli` tests at vitest's 5 s default, differently each run, including one
+  assertion that a timed-out test's late tile requests leaked into (`[12, 16]` vs `[12]`). With
+  `--testTimeout=60000` all 123 pass. The basemap tests share one global fetch mock, so a
+  timed-out test can corrupt the next one's counts.
+
+Suites on this branch: TS atlas-core 102, pdf-client 71, map-sources 93 (one new), web 180,
+render-cli 123 (with a 60 s timeout, see above), render-worker 37. .NET without Docker: 239
+(two new). The Docker `Api` suites were not run.
 
 ## Phase 1: Print Geometry
 Build the Docker-hosted React/Vite/shadcn/Tailwind web app skeleton, define the outdoor field-guide visual system, accept bounding boxes, create page grid, generate overview and detail pages, and validate Letter-size PDF output from the preferred client-side React PDF path.
