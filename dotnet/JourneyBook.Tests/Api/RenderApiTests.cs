@@ -830,6 +830,40 @@ public class RenderApiTests(RenderApiFactory factory) : IClassFixture<RenderApiF
     }
 
     /// <summary>
+    /// Decision 7: the page setup a user saves in the app's PageSetup panel
+    /// (orientation, four margins, binder gutter, overlap) is what the worker is
+    /// handed for the next render.
+    /// </summary>
+    /// <remarks>
+    /// <c>HttpRenderWorkerClientTests</c> proves the DTO serializes; this proves
+    /// the hop before it — persisted grid to <c>RenderAtlasRequest</c> in
+    /// <c>RenderService</c> — which nothing else covered end to end. Every value is
+    /// off its default, so a mapping that fell back to the 0.5in portrait default
+    /// for any one of them fails here.
+    /// </remarks>
+    [Fact]
+    public async Task Render_carries_the_projects_saved_page_setup()
+    {
+        factory.FakeClient.ShouldFail = false;
+        var projectId = await CreateProjectAsync("Page Setup Render");
+        var project = (await _client.GetFromJsonAsync<ProjectResponse>($"/api/projects/{projectId}"))!;
+        var put = await _client.PutAsJsonAsync($"/api/projects/{projectId}", new UpdateProjectRequest(
+            project.Name, project.ScalePresetId, "Landscape", 0.1,
+            new MarginsDto(Top: 0.75, Right: 0.6, Bottom: 0.8, Left: 0.9, Gutter: 0.3)));
+        Assert.True(put.IsSuccessStatusCode, $"PUT failed: {(int)put.StatusCode}");
+
+        var resp = await _client.PostAsJsonAsync($"/api/projects/{projectId}/render",
+            new RenderProjectRequest(Tier: 1));
+        var body = await resp.Content.ReadFromJsonAsync<RenderProjectResponse>();
+        await PollUntilTerminalAsync(body!.GeneratedPdfId);
+
+        Assert.True(factory.FakeClient.Requests.TryGetValue($"atlas-{body.GeneratedPdfId:N}.pdf", out var sent));
+        Assert.Equal("Landscape", sent!.Orientation, ignoreCase: true);
+        Assert.Equal(0.1, sent.Overlap, precision: 9);
+        Assert.Equal(new RenderMarginsDto(Top: 0.75, Right: 0.6, Bottom: 0.8, Left: 0.9, Gutter: 0.3), sent.Margins);
+    }
+
+    /// <summary>
     /// A name that is only whitespace stays null, so the engine's own fallback
     /// applies rather than an atlas titled with a blank line.
     /// </summary>

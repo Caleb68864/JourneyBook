@@ -47,6 +47,18 @@ const MARGIN_SIDES = ["top", "right", "bottom", "left"] as const;
 /** Overlap choices, as fractions. 0.25 is the engine's practical ceiling here. */
 export const OVERLAP_STEPS = [0, 0.02, 0.05, 0.1, 0.15, 0.2, 0.25] as const;
 
+/**
+ * What overlap typically costs across extents, from the sweep in
+ * vault/development-roadmap.md ("Overlap has no single rate"). That sweep was
+ * measured at 5% overlap ONLY — aggregate about +10-11%, a third of boxes paying
+ * nothing, worst +50% at 1 km sampling and +67% at finer sampling — so the
+ * figure names its overlap. The select goes to 25%, where the theoretical cost
+ * `(1/(1-o))² - 1` is about +78%; quoting the 5% range unqualified next to that
+ * option would understate it several times over.
+ */
+export const OVERLAP_TYPICAL_COST =
+  "At 5% overlap a box typically costs 0% to +50% more pages, about +11% on average. More overlap costs more.";
+
 /** A margin the printer can actually manage; below this most home printers clip. */
 export const MIN_MARGIN_IN = 0.25;
 export const MAX_MARGIN_IN = 2;
@@ -197,6 +209,13 @@ export function PageSetup({ value, onChange, estimatePagesFor, disabled }: PageS
         </select>
         <span className="font-mono text-[10px] text-bark-500">
           The strip of ground two adjacent pages both carry, so a feature never falls in a seam.
+        </span>
+        {/* The typical range, stated beside the knob so it is visible before
+            there is an extent to measure, and so the measured figure below has a
+            frame. Source: the overlap sweep in vault/development-roadmap.md
+            ("Overlap has no single rate"). A range, never a rate. */}
+        <span data-testid="overlap-typical" className="font-mono text-[10px] text-bark-500">
+          {OVERLAP_TYPICAL_COST}
         </span>
         {/* The cost, where the person turning the knob can see it. Overlap buys
             pages: about +11% on average, 0% to +50% depending on the extent, and

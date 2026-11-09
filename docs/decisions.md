@@ -1204,3 +1204,11 @@ Each entry follows this shape:
 - Watch: the fields save on blur, like `PageSetup`. The blur fires before a click on Generate but the save is asynchronous, so a render started in the same click can read the old value. The cover structure's "Challenge checklist" line is not built; it belongs to the education work.
 - Commit: (pending)
 
+
+## 2026-11-09 — Decision 7 re-verified: the two untested hops, and overlap cost before an extent
+- Symptom: Decision 7's controls (`3a58665`) were all wired, but two hops had no test. `PageSetup` was tested only up to its `onChange` callback, and the saved grid becoming the worker's `RenderAtlasRequest` (`RenderService`) was tested only from the DTO onward. The overlap control gave no cost at all until the project had a bounding box.
+- Fix: `PageSetup.test.tsx` "PageSetup reaches the PUT body" (real component, real `api.projects.patch`, stubbed fetch) and `RenderApiTests.Render_carries_the_projects_saved_page_setup` (every value off its default). `OVERLAP_TYPICAL_COST` now always sits beside the overlap select: a range (0% to +50%, about +11% on average), never a single rate, and labelled "at 5% overlap" because that is the only overlap the sweep measured. The select goes to 25%, where theory gives about +78%.
+- Evidence: mutation-checked. Each new test fails when its hop is cut (patch ignoring `margins`, `RenderService` sending default margins).
+- Surfaces: apps/web/src/components/PageSetup.tsx, apps/web/src/components/PageSetup.test.tsx, dotnet/JourneyBook.Tests/Api/RenderApiTests.cs
+- Watch: `ProjectEditorPage` itself still has no test. `panelWidthPx` is reachable through the API with no control, on purpose. Both are open in `vault/development-roadmap.md`.
+- Commit: (pending)
