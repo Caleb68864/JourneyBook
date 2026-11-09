@@ -49,6 +49,11 @@ public sealed class RenderJobRunner(
         var cancelToken = cancellations.TokenFor(job.GeneratedPdfId);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, cancelToken);
 
+        // Set once the worker has answered with a PDF. If the Completed write then
+        // throws, the catch below must not report a render that SUCCEEDED as a bare
+        // database error: the file is on disk and the record is the only pointer to it.
+        RenderWorkerResult? finished = null;
+
         try
         {
             // Cancelled while it was still in the queue. There is nothing to stop
@@ -86,6 +91,7 @@ public sealed class RenderJobRunner(
                 },
                 linked.Token);
 
+            finished = result;
             await pdfService.UpdateStatusAsync(
                 job.GeneratedPdfId,
                 new UpdateGeneratedPdfStatusRequest(
@@ -101,7 +107,11 @@ public sealed class RenderJobRunner(
         }
         catch (Exception ex)
         {
-            var (status, message) = Classify(ex, ct, cancelToken);
+            var (status, message) = finished is { } done
+                ? ("Failed",
+                   $"The render finished ({done.PageCount} page(s), output '{done.OutputPath}') but " +
+                   $"recording it as Completed failed: {ex.Message}")
+                : Classify(ex, ct, cancelToken);
 
             if (status == "Cancelled")
             {
@@ -116,7 +126,7 @@ public sealed class RenderJobRunner(
                     job.ProjectId, job.GeneratedPdfId);
             }
 
-            await WriteAsync(job, status, null, message);
+            await WriteOutcomeAsync(job, status, message);
         }
         finally
         {
@@ -222,6 +232,48 @@ public sealed class RenderJobRunner(
             basemap = job.WorkerRequest.Basemap,
             renderedAt = DateTimeOffset.UtcNow,
         });
+
+    /// <summary>Delays between attempts at the terminal write. Seam for tests.</summary>
+    public TimeSpan[] OutcomeRetryDelays { get; init; } =
+        [TimeSpan.FromMilliseconds(250), TimeSpan.FromSeconds(1)];
+
+    /// <summary>
+    /// Write a Failed/Cancelled outcome, retrying a transient failure.
+    /// </summary>
+    /// <remarks>
+    /// This write is the only thing that moves the row off <c>Rendering</c>. It used
+    /// to be a single attempt: one DB blip here threw out of <c>RunAsync</c>, the
+    /// processor logged it and moved on, and the row sat at <c>Rendering</c> until the
+    /// next process restart's reconciliation — the client polling a render that was
+    /// over. A final failure is logged with the outcome it was trying to record, so
+    /// the reason is at least in the log even when it never reaches the row.
+    /// </remarks>
+    private async Task WriteOutcomeAsync(RenderJob job, string status, string message)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                await WriteAsync(job, status, null, message);
+                return;
+            }
+            catch (Exception writeEx) when (attempt < OutcomeRetryDelays.Length)
+            {
+                logger.LogWarning(writeEx,
+                    "Could not record {Status} for pdf {GeneratedPdfId} (attempt {Attempt}); retrying.",
+                    status, job.GeneratedPdfId, attempt + 1);
+                await Task.Delay(OutcomeRetryDelays[attempt]);
+            }
+            catch (Exception writeEx)
+            {
+                logger.LogError(writeEx,
+                    "Gave up recording {Status} for pdf {GeneratedPdfId}; the row stays at its last " +
+                    "status until restart reconciliation. Intended reason: {Reason}",
+                    status, job.GeneratedPdfId, message);
+                throw;
+            }
+        }
+    }
 
     private Task WriteAsync(RenderJob job, string status, string? filePath, string message) =>
         pdfService.UpdateStatusAsync(

@@ -1204,3 +1204,10 @@ Each entry follows this shape:
 - Watch: the fields save on blur, like `PageSetup`. The blur fires before a click on Generate but the save is asynchronous, so a render started in the same click can read the old value. The cover structure's "Challenge checklist" line is not built; it belongs to the education work.
 - Commit: (pending)
 
+## 2026-11-09 — Render outcome writes: retried, and a failed Completed write says the PDF exists
+- Symptom: `RenderJobRunner` wrote the terminal Failed/Cancelled status once. A DB blip on that write threw out of `RunAsync`, `RenderJobProcessor` logged it and moved on, and the row stayed at `Rendering` until the next restart's `FailStrandedAsync`, while the client polled a render that was over. Separately, when the worker succeeded and only the `Completed` write threw, the row was marked Failed with the bare DB message, so a render whose PDF is on disk looked the same as one that never ran.
+- Fix: `WriteOutcomeAsync` retries the outcome write (250 ms, 1 s; `OutcomeRetryDelays` is the test seam) and on final failure logs the intended status and reason before rethrowing. A failure after the worker answered records "The render finished (N page(s), output '<path>') but recording it as Completed failed: <cause>".
+- Surfaces: dotnet/JourneyBook.Infrastructure/Rendering/RenderJobRunner.cs, WriteOutcomeAsync, OutcomeRetryDelays, dotnet/JourneyBook.Tests/Rendering/RenderJobRunnerTests.cs
+- Watch: the Completed write itself is still single-shot; its failure now lands as an informative Failed instead. The "cancelled before it started" write is also still single-shot.
+- Commit: (pending)
+

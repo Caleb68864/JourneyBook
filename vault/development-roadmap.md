@@ -986,6 +986,29 @@ Suites at this point: **605 TS** (atlas-core 102 · pdf-client 71 · web 180 · 
 render-cli 123 · render-worker 37) and **335 .NET**, 237 of them without Docker and 98 in the
 `Api` suites.
 
+## Hardening pass — 2026-11-09
+
+Render-job lifecycle, tile-fetch errors and render logging. Branch `harden/2026-11-09`.
+Each fix has a test that failed before it. Write-ups in `docs/decisions.md` under the date.
+
+**Fixed.**
+
+- **A row could stay at `Rendering` after the render was over.** `RenderJobRunner` wrote the
+  terminal Failed/Cancelled status once; a DB blip there threw out of `RunAsync` and the row
+  waited for the next restart's reconciliation. The write is now retried (250 ms, 1 s) and a
+  final failure logs the reason it was trying to record.
+- **A render that succeeded but could not be recorded looked like one that never ran.** If the
+  `Completed` write throws, the Failed record now says the render finished, how many pages, and
+  the output path, followed by the cause.
+
+**Found, not fixed.**
+
+- **The `Completed` write is still single-shot.** Retrying it needs care (provenance snapshot,
+  file-path ownership), so its failure now lands as an informative Failed instead.
+- **Retention may delete the orphaned PDF.** A render recorded Failed after it finished has a
+  file on disk that the Failed row does not point at (`FilePath` is null). Nothing reclaims or
+  re-links it.
+
 ## Phase 1: Print Geometry
 Build the Docker-hosted React/Vite/shadcn/Tailwind web app skeleton, define the outdoor field-guide visual system, accept bounding boxes, create page grid, generate overview and detail pages, and validate Letter-size PDF output from the preferred client-side React PDF path.
 

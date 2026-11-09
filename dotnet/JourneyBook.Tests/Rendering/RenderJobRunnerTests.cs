@@ -29,10 +29,13 @@ public class RenderJobRunnerTests
         /// <summary>Make the Nth status write (0-based) throw, e.g. a row deleted underneath us.</summary>
         public int? FailOnUpdate { get; set; }
 
+        /// <summary>Every status write (0-based) that should throw.</summary>
+        public HashSet<int> FailOnUpdates { get; init; } = [];
+
         public Task<GeneratedPdfResponse?> UpdateStatusAsync(
             Guid id, UpdateGeneratedPdfStatusRequest request, CancellationToken ct = default)
         {
-            if (FailOnUpdate == Updates.Count)
+            if (FailOnUpdate == Updates.Count || FailOnUpdates.Contains(Updates.Count))
             {
                 Updates.Add(request);
                 throw new InvalidOperationException("Row vanished between accept and dequeue.");
@@ -252,6 +255,50 @@ public class RenderJobRunnerTests
         Assert.Contains("Row vanished", pdfs.Updates[^1].ErrorMessage);
         // The worker must not have been called: we never got the job into Rendering.
         Assert.False(worker.WasCalled);
+    }
+
+    /// <summary>
+    /// The worker produced a PDF and only the Completed write failed. The record used
+    /// to say just the DB error, so nobody could tell a render that never happened
+    /// from one whose file is sitting on disk unreferenced.
+    /// </summary>
+    [Fact]
+    public async Task A_failure_recording_Completed_says_the_render_finished_and_where_the_file_is()
+    {
+        var pdfs = new RecordingPdfService { FailOnUpdate = 1 };
+        var worker = new StubWorkerClient(req => new RenderWorkerResult(req.OutputFileName, 7, null, null));
+
+        await RunnerFor(pdfs, worker).RunAsync(SampleJob());
+
+        Assert.Equal(["Rendering", "Completed", "Failed"], pdfs.Updates.Select(u => u.Status));
+        var message = pdfs.Updates[^1].ErrorMessage!;
+        Assert.Contains("render finished", message);
+        Assert.Contains("atlas-test.pdf", message);
+        Assert.Contains("7 page(s)", message);
+        Assert.Contains("Row vanished", message);
+    }
+
+    /// <summary>
+    /// The outcome write is the only thing that moves a row off Rendering. One blip
+    /// there used to throw out of RunAsync and leave the row at Rendering until the
+    /// next restart, with the client polling a render that was already over.
+    /// </summary>
+    [Fact]
+    public async Task A_transient_failure_writing_the_outcome_is_retried_instead_of_stranding_Rendering()
+    {
+        // Write 0 = Rendering (ok). The worker throws, so write 1 is the first
+        // Failed attempt (throws) and write 2 is the retry (succeeds).
+        var pdfs = new RecordingPdfService { FailOnUpdates = [1] };
+        var worker = new StubWorkerClient(_ => throw new InvalidOperationException("worker exploded"));
+        var runner = new RenderJobRunner(pdfs, worker, new StubCancellations(), NullLogger<RenderJobRunner>.Instance)
+        {
+            OutcomeRetryDelays = [TimeSpan.Zero, TimeSpan.Zero],
+        };
+
+        await runner.RunAsync(SampleJob());
+
+        Assert.Equal(["Rendering", "Failed", "Failed"], pdfs.Updates.Select(u => u.Status));
+        Assert.Contains("worker exploded", pdfs.Updates[^1].ErrorMessage);
     }
 
     [Fact]
