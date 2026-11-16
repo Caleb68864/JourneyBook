@@ -2,6 +2,11 @@
   "doc": "docs/print-resolution.md",
   "targetDpi": 300,
   "page": { "description": "US Letter, portrait, default 0.5 in margins", "orientation": "portrait", "mapBoxWidthIn": 6.2083 },
+  "otherPages": {
+    "pages": ["landscape, 0.5 in margins", "portrait, 0.25 in margins", "portrait, 2 in margins and a 2 in gutter", "landscape, 0.25 in margins", "landscape, 2 in margins and a 2 in gutter"],
+    "maxDpiDelta": 2,
+    "zoomChanges": 0
+  },
   "basemap": { "id": "usgs-topo", "maxZoom": 16 },
   "latitudes": { "from": 18, "to": 72, "step": 1 },
   "presets": [

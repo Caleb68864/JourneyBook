@@ -68,8 +68,30 @@ describe("every description says which page it is for", () => {
   it("takes the page from the generated table rather than a copy of it", () => {
     // The control that stops the sentence drifting from the measurement: it must
     // quote the table's own words, whatever they are.
-    expect(pageCaveat()).toBe(`Figures are for ${PRINT_RESOLUTION.page.description}.`);
+    expect(pageCaveat()).toContain(`Measured on ${PRINT_RESOLUTION.page.description}.`);
     expect(PRINT_RESOLUTION.page.description).toMatch(/portrait|landscape/);
+  });
+
+  /**
+   * Page Setup made orientation, margins and gutter user-settable, and the old
+   * caveat ("Figures are for US Letter, portrait…") then told every landscape
+   * user the figures were not theirs. They are: the zoom does not move. The
+   * sentence has to say so, with the measurement's own figures.
+   */
+  it("[BEHAVIORAL] tells a user on another page setup whether the figures are theirs", () => {
+    const o = PRINT_RESOLUTION.otherPages;
+    expect(o.pages.length).toBeGreaterThan(0);
+    expect(o.pages.join(" ")).toMatch(/landscape/);
+    expect(pageCaveat()).toContain(`${o.pages.length} other page setups`);
+    expect(pageCaveat()).toContain(`within ${o.maxDpiDelta} DPI`);
+    expect(pageCaveat()).toMatch(/do not change them/);
+  });
+
+  it("[CONTROL] says they differ when the measurement says the zoom moved", () => {
+    const moved = { ...PRINT_RESOLUTION, otherPages: { pages: ["x", "y"], maxDpiDelta: 137, zoomChanges: 3 } };
+    expect(pageCaveat(moved)).toMatch(/can differ: 3 of the re-measured/);
+    expect(pageCaveat(moved)).toContain("137 DPI");
+    expect(pageCaveat(moved)).not.toMatch(/do not change/);
   });
 });
 

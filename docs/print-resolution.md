@@ -121,9 +121,11 @@ one to trust.
 ## What this table covers
 
 - **Page:** US Letter, portrait, default 0.5 in margins (map box 6.2083 in wide).
-  Each preset's panel request is rescaled to the page you actually print, so it
-  asks for the same DPI on any page setup — but orientation, margins and gutter
-  change how much ground a page covers, so the cliffs fall at different latitudes.
+  Each preset's panel request is rescaled to the page you actually print, and the
+  ground a page covers scales with its map box too, so the tile zoom each latitude
+  selects does not depend on the page setup. Measured, not assumed: re-run on
+  5 other setups (landscape, 0.5 in margins; portrait, 0.25 in margins; portrait, 2 in margins and a 2 in gutter; landscape, 0.25 in margins; landscape, 2 in margins and a 2 in gutter), the zoom is the same at every sampled latitude,
+  and the DPI moves by at most 2.
 - **Basemap:** usgs-topo, deepest zoom z16.
 - **Latitudes:** every whole degree from 18°N to 72°N, the band USGS Topo covers.
   Between samples the figure can sit a little outside the sampled extremes — an

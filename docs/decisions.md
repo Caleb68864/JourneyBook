@@ -1262,3 +1262,11 @@ Each entry follows this shape:
 - Watch: the figures are for 1:24,000 on Letter portrait at 41N. Other scales and page setups shift which boxes are free, not the theory. The per-box figure under the select is still the one to trust.
 - Commit: (pending)
 
+## 2026-11-16 — Print-resolution caveat: the figures hold on every page setup, so say so
+- Symptom: the scale picker ended every note with "Figures are for US Letter, portrait, default 0.5 in margins", and docs/print-resolution.md said orientation and margins move the zoom cliffs. Page Setup made those user-settable, so a landscape user was told the figures were not theirs.
+- Cause: measured, the figures are theirs. `panelWidthPxFor` rescales each preset's request with the map box, and the ground a page covers scales with it too, so each latitude selects the same zoom on any page. Every preset at 18-72N on 5 setups at the Page Setup extremes: 0 zoom changes, at most 2 DPI.
+- Fix: `buildPrintResolutionTable` measures that spread into the table (`otherPages`: pages, maxDpiDelta, zoomChanges). `pageCaveat()` quotes it, and says the figures can differ, with counts, if zoomChanges is ever non-zero. The generated doc paragraph uses the same fields. Corrected a stale 5.7639 in figure in `ScalePreset.panelWidthPx`'s comment.
+- Surfaces: packages/map-sources/src/print-resolution.ts, scripts/generate-print-resolution.mjs, apps/web/src/generated/print-resolution.json, docs/print-resolution.md, apps/web/src/lib/print-resolution.ts, apps/web/src/lib/print-resolution.test.ts, packages/atlas-core/src/model.ts
+- Watch: sampled at whole degrees. Between samples a cliff can shift by a sub-pixel rounding amount. Only Letter exists; another sheet size would need its own check.
+- Commit: (pending)
+

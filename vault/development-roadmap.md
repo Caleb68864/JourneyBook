@@ -1157,10 +1157,36 @@ the code rather than the earlier note, looking for the half-wired shape.
   step" below. Every step the select offers now quotes its own measured range
   (`OVERLAP_STEP_COST`, `overlapTypicalCost`), and `PageSetup.overlap-cost.test.ts`
   re-measures the table through `pageGridSize` so it cannot drift. Against the old code the
-  6 measurement tests and 2 of the 3 changed `PageSetup` tests fail.
-- [ ] **The picker's DPI caveat** (J16/J17, `../../ROADMAP.md` 2026-09-11 row) gave figures
-  for Letter portrait at 0.5in. Now that orientation and margins are user-settable, check
-  whether it still describes the user's page.
+  6 measurement tests and all 3 changed `PageSetup` tests fail.
+- [x] ~~**The picker's DPI caveat** (J16/J17).~~ ✅ 2026-11-16. Rechecked by measurement:
+  **the figures still describe the user's page; the caveat was the part that had gone
+  wrong.** J16's own Watch note predicted it ("if 2J14 ever lets a user pick orientation or
+  margins, the picker's figures stop being true for their page"), and
+  `docs/print-resolution.md` said orientation and margins "change how much ground a page
+  covers, so the cliffs fall at different latitudes". Neither holds since `panelWidthPxFor`:
+  the request and the ground a page covers both scale with the map box width, so the zoom
+  each latitude selects does not move. Re-measured every preset at 18–72°N on Letter
+  landscape, 0.25 in / 1 in / 2 in margins, a 0.75 in gutter, and landscape with 2 in
+  margins plus a 2 in gutter: **0 zoom changes, at most 2 DPI** (rounding) — every band,
+  every below-300 latitude and every steepest cliff in the table is the same. So
+  "Figures are for US Letter, portrait, default 0.5 in margins", shown to a landscape user,
+  read as "not your figures" and was the misleading part. Now the generator measures that
+  spread into the table (`otherPages`: 5 setups at the Page Setup extremes,
+  `maxDpiDelta` 2, `zoomChanges` 0), the picker's `pageCaveat()` quotes it ("…re-measured on
+  5 other page setups, the same tile zoom at each sampled latitude, within 2 DPI"), and says
+  the opposite, with the counts, if a future engine change ever makes the zoom move. The
+  doc paragraph is generated from the same fields. Against the old code all three
+  `pageCaveat` tests fail. Not done here: the J16 Watch note lives in `../../ROADMAP.md`,
+  outside this repo, and still reads as if the caveat became the bug.
+  Also corrected: `ScalePreset.panelWidthPx`'s comment gave the Letter-portrait map box as
+  5.7639 in; it is 6.2083 in (`print-resolution.json` `mapBoxWidthIn`) — it now names
+  `mapBoxInches(LETTER_PORTRAIT)` instead of a number.
+
+**State of this branch** (`work/2026-11-16-open-items`, not pushed; this repo's rule is push,
+open a PR, read all four CI jobs, then merge — **CI has not been read**). Suites:
+TS atlas-core 102, pdf-client 71, map-sources 94, web 214, render-cli 123, render-worker 37
+(641); .NET 338/338 with Docker (239 unit + 99 Testcontainers integration). Harness checks
+print-resolution, page-count, print-check, golden-fixture, lint/typecheck pass.
 
 ### Overlap cost at every step — 2026-11-16
 
