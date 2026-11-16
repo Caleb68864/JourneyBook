@@ -1050,7 +1050,6 @@ Suites on this branch: TS atlas-core 102, pdf-client 71, map-sources 93 (one new
 render-cli 123 (with a 60 s timeout, see above), render-worker 37. .NET without Docker: 239
 (two new). The Docker `Api` suites were not run.
 
-||||||| d70705a
 
 ## Decision 7 re-verified — 2026-11-09
 
@@ -1098,11 +1097,25 @@ the code rather than the earlier note, looking for the half-wired shape.
 - [ ] **Other CLI-only knobs, not audited one by one against the rule:** `--tile-source`,
   `--tile-max-zoom`, `--max-mb`, `--no-print-check` (`packages/render-cli/src/cli.ts`). Most
   of these are operator settings rather than user settings, but each needs a yes or no.
-- [ ] **`render-cli` basemap tests time out under load.** At load average ~36, 1–4 of the
-  "renderAtlas with a basemap" mixed-scale cases in `packages/render-cli/src/render.test.ts`
-  hit vitest's 5 s default, and a `sharp`/wasm "expected magic word" line shows up on
-  stderr. They pass on an idle machine (123/123 earlier the same day). Give them an
-  explicit timeout, or find out why they take so long.
+- [x] ~~**`render-cli` basemap tests time out under load.**~~ ✅ 2026-11-16
+  (`work/2026-11-16-open-items`). Two causes, not one.
+  **(1) The "expected magic word" line was a real bug in the test, not noise.** The cases
+  stub the *global* `fetch` to return a PNG for every call, and yoga-layout (under
+  @react-pdf) loads its inlined WebAssembly with `fetch("data:…")` the first time a PDF is
+  laid out in the process. It got the PNG (`found 89 50 4e 47`) and aborted. A full run
+  passed only because an earlier, unstubbed test had loaded yoga first: run on its own
+  (`vitest run src/render.test.ts -t "mixed-scale zoom ladder"`) the case failed **every
+  time**, on an idle machine, on the old code. The stub (`tileFetchStub`) now answers
+  http(s) only and hands everything else to the real `fetch`; the same command passes.
+  **(2) The time is real CPU, not a hang.** Each case composites a tile mosaic in sharp,
+  mozjpeg-encodes a 1,900–3,800 px panel per page and lays out the PDF; only the network
+  is stubbed. Measured at load average 13: 0.25–3.4 s per case, and the three-page
+  zoom-ladder case crossed 5 s. The `describe` now carries a 60 s timeout
+  (`BASEMAP_TEST_TIMEOUT_MS`). Proved under load: with six CPU burners pinned to the same
+  two cores (`taskset -c 0,1`), the old file failed 1 of 35 (zoom ladder, 5030 ms) and the
+  new one passed 35/35. A timed-out case can no longer leak late tile requests into the
+  next case's mock (the `[12, 16]` vs `[12]` failure noted above), because it no longer
+  times out at 5 s.
 - [ ] **No measured overlap cost above 5%.** The sweep covers 5% only. The 10–25% options
   have just theory and the per-box figure. Re-run the sweep at 2/10/15/20/25%
   (`pageGridSize`, same extents) if the UI is to quote a range for each step

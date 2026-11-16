@@ -474,7 +474,18 @@ describe("renderAtlas", () => {
  * PDF back to check the panel is actually in it and actually painted into the
  * map box.
  */
-describe("renderAtlas with a basemap", () => {
+/**
+ * Why this block has its own timeout, measured 2026-11-16. Every case here does
+ * the real work of a basemap render — sharp composites a mosaic of tiles, crops
+ * it, mozjpeg-encodes a ~1,900-3,800 px panel per page and @react-pdf lays the
+ * PDF out — only the network is stubbed. That is CPU-bound: about 0.4-3 s per
+ * case on a quiet machine, and at load average 13 the three-page zoom-ladder case
+ * already crossed vitest's 5 s default. The work is the point of the test, so the
+ * budget is raised rather than the render faked.
+ */
+const BASEMAP_TEST_TIMEOUT_MS = 60_000;
+
+describe("renderAtlas with a basemap", { timeout: BASEMAP_TEST_TIMEOUT_MS }, () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
@@ -489,10 +500,28 @@ describe("renderAtlas with a basemap", () => {
     "base64",
   );
 
+  /**
+   * A fetch stub that answers TILE requests only.
+   *
+   * `fetch` is global, and tiles are not the only thing that goes through it:
+   * yoga-layout (under @react-pdf) loads its inlined WebAssembly with
+   * `fetch("data:application/octet-stream;base64,...")` the first time a PDF is
+   * laid out in the process. A stub that answered everything handed yoga a PNG,
+   * which aborts with "expected magic word 00 61 73 6d, found 89 50 4e 47" —
+   * the stderr line seen under load. It passed in a full run only because an
+   * earlier, unstubbed test had already loaded yoga; any case run on its own
+   * (`-t`), or first, failed. Everything that is not http(s) goes to the real fetch.
+   */
+  const realFetch = globalThis.fetch;
+  const tileFetchStub = () =>
+    vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (!/^https?:/i.test(url)) return realFetch(input, init);
+      return new Response(new Uint8Array(TILE_PNG), { status: 200 });
+    });
+
   it("fetches tiles, embeds the panel, and paints it into the printed map box", async () => {
-    const fetchMock = vi.fn(
-      async () => new Response(new Uint8Array(TILE_PNG), { status: 200 }),
-    );
+    const fetchMock = tileFetchStub();
     vi.stubGlobal("fetch", fetchMock);
 
     const dir = mkdtempSync(join(tmpdir(), "jb-render-basemap-"));
@@ -551,7 +580,7 @@ describe("renderAtlas with a basemap", () => {
   type ZoomProbeInput = Omit<Parameters<typeof renderAtlas>[0], "outputPath">;
 
   async function renderAndCaptureZooms(input: ZoomProbeInput): Promise<Set<number>> {
-    const fetchMock = vi.fn(async () => new Response(new Uint8Array(TILE_PNG), { status: 200 }));
+    const fetchMock = tileFetchStub();
     vi.stubGlobal("fetch", fetchMock);
     const dir = mkdtempSync(join(tmpdir(), "jb-render-perpreset-"));
     try {
@@ -639,7 +668,7 @@ describe("renderAtlas with a basemap", () => {
    * 4% apart in scale can print 1.9x apart in DPI.
    */
   async function renderAndCaptureStderr(input: ZoomProbeInput): Promise<string> {
-    const fetchMock = vi.fn(async () => new Response(new Uint8Array(TILE_PNG), { status: 200 }));
+    const fetchMock = tileFetchStub();
     vi.stubGlobal("fetch", fetchMock);
     const lines: string[] = [];
     const spy = vi
@@ -733,7 +762,7 @@ describe("renderAtlas with a basemap", () => {
    * render.
    */
   async function renderAndCaptureResult(input: ZoomProbeInput) {
-    const fetchMock = vi.fn(async () => new Response(new Uint8Array(TILE_PNG), { status: 200 }));
+    const fetchMock = tileFetchStub();
     vi.stubGlobal("fetch", fetchMock);
     const dir = mkdtempSync(join(tmpdir(), "jb-render-dpi-result-"));
     try {
@@ -835,7 +864,7 @@ describe("renderAtlas with a basemap", () => {
     /** All text shown on each PDF page, in stream order, concatenated. */
     pageText: string[];
   }> {
-    const fetchMock = vi.fn(async () => new Response(new Uint8Array(TILE_PNG), { status: 200 }));
+    const fetchMock = tileFetchStub();
     vi.stubGlobal("fetch", fetchMock);
     const dir = mkdtempSync(join(tmpdir(), "jb-render-dpi-page-"));
     try {

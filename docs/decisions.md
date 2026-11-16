@@ -1218,7 +1218,6 @@ Each entry follows this shape:
 - Watch: `Retry-After` on a 429 is still ignored (fixed 200/400 ms backoff). Holes under the failure threshold still pass silently apart from `tilesMissing`.
 - Commit: (pending)
 
-||||||| d70705a
 
 
 ## 2026-11-09 — Decision 7 re-verified: the two untested hops, and overlap cost before an extent
@@ -1235,4 +1234,14 @@ Each entry follows this shape:
 - Evidence: four deliberate breaks, each restored, and each fails the suite: a no-op `onChange`, `overlap` defaulted to 0, `setPanelQuality` removed, `panelFormat: null` passed to Generate.
 - Surfaces: apps/web/src/routes/ProjectEditorPage.test.tsx
 - Watch: the probes record props, not rendering. A child that ignores a prop it is given is caught by that child's own test file, not here.
+- Commit: (pending)
+
+## 2026-11-16 — render-cli basemap tests: fetch stub answered yoga's wasm load, and a timeout sized to the work
+- Symptom: under load, 1–4 "renderAtlas with a basemap" cases hit vitest's 5 s default, with "expected magic word 00 61 73 6d, found 89 50 4e 47" on stderr. Run on its own with `-t`, the zoom-ladder case failed every time, even idle.
+- Cause: the cases stub the global `fetch` to return a PNG for every call. yoga-layout loads its inlined wasm via `fetch("data:...")` on first PDF layout, got the PNG and aborted; a full run passed only because an earlier unstubbed test had loaded yoga. Separately, the cases are CPU-bound (sharp composite, mozjpeg encode, PDF layout), 0.25–3.4 s each at load 13.
+- Fix: `tileFetchStub` answers http(s) only and delegates other URLs to the real `fetch`; the block has a 60 s timeout (`BASEMAP_TEST_TIMEOUT_MS`).
+- Evidence: isolated case fails on the old file, passes on the new. With six CPU burners pinned to two cores, old 34/35 (zoom ladder at 5030 ms), new 35/35.
+- Also: removed a stray diff3 base marker (`||||||| d70705a`) left in this file and in `vault/development-roadmap.md` by merge `1f3d0d9`.
+- Surfaces: packages/render-cli/src/render.test.ts
+- Watch: any other test file that stubs the global `fetch` around a PDF render has the same trap if it is the first to lay a PDF out.
 - Commit: (pending)
