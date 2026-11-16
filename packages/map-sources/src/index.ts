@@ -48,5 +48,6 @@ export * from "./tilecache.js";
 export * from "./usng-grid.js";
 export * from "./overview.js";
 export * from "./print-resolution.js";
+export * from "./pmtiles.js";
 
 export const MAP_SOURCES_VERSION = "0.0.0";

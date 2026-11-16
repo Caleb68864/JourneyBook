@@ -1,7 +1,7 @@
 import sharp from "sharp";
 import type { BBox } from "@journeybook/atlas-core";
 import { TILE_SIZE, planMapPanel } from "./tilemath.js";
-import { getCachedTile, storeCachedTile, tileExtensionForContentType } from "./tilecache.js";
+import { contentTypeForTileExtension, getCachedTile, storeCachedTile, tileExtensionForContentType } from "./tilecache.js";
 
 /** Parchment fill behind the mosaic, showing wherever a tile fetch failed. */
 const PANEL_BACKGROUND = { r: 244, g: 240, b: 230, alpha: 1 } as const;
@@ -204,7 +204,7 @@ function isRetryableStatus(status: number): boolean {
 }
 
 /** A tile's bytes, plus whatever the source said about how it must be credited. */
-interface FetchedTile {
+export interface FetchedTile {
   bytes: Buffer;
   /**
    * `X-Tile-Attribution` as returned by the C# tile proxy, which knows the
@@ -229,7 +229,7 @@ interface FetchedTile {
  * not say whether the source was down (5xx), throttling us (429), off its coverage
  * (404), or unreachable (DNS/timeout). Those four have four different fixes.
  */
-type TileFailure = string;
+export type TileFailure = string;
 
 function describeFetchError(err: unknown): TileFailure {
   if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) return "timeout";
@@ -296,7 +296,7 @@ export function summarizeTileFailures(failures: readonly string[], limit = 3): s
  * Run `jobs` with at most `limit` in flight, preserving result order. Kept local
  * and dependency-free — the only concurrency this package needs.
  */
-async function mapWithConcurrency<T>(
+export async function mapWithConcurrency<T>(
   jobs: (() => Promise<T>)[],
   limit: number,
 ): Promise<T[]> {
@@ -313,7 +313,7 @@ async function mapWithConcurrency<T>(
 }
 
 /** Read a tile from the shared disk cache when configured, else fetch and (best-effort) cache it. */
-async function loadTile(
+export async function loadTile(
   basemap: RasterBasemap,
   z: number,
   x: number,
@@ -326,7 +326,7 @@ async function loadTile(
     // headers they arrived with. That is why the panel falls back to the
     // configured source attribution rather than depending on the header.
     const hit = await getCachedTile(options.cacheDir, cacheSource, z, x, y);
-    if (hit) return { bytes: hit.bytes };
+    if (hit) return { bytes: hit.bytes, contentType: contentTypeForTileExtension(hit.ext) };
   }
 
   const tile = await fetchTile(

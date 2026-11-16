@@ -12,7 +12,7 @@
  * `--route` for corridor pages. All three commands assemble the same contract.
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { argv, exit, stderr, stdout } from "node:process";
 import { fileURLToPath } from "node:url";
 import {
@@ -35,7 +35,7 @@ import {
   renderAtlasPdfToBuffer,
   renderCalibrationPdfToFile,
 } from "@journeybook/pdf-client";
-import { pruneTileCache, type PanelFormat } from "@journeybook/map-sources";
+import { USGS_TOPO, pruneTileCache, type PanelFormat } from "@journeybook/map-sources";
 import {
   assembleContract,
   planAtlasRender,
@@ -45,6 +45,7 @@ import {
   type RenderPlan,
 } from "./render.js";
 import { loadLocationsFile } from "./locations.js";
+import { DEFAULT_PACKAGE_MAX_TILES, buildRasterPackage, planPackage } from "./package.js";
 
 const HELP = `journeybook — headless atlas renderer
 
@@ -55,6 +56,9 @@ Usage:
   journeybook render   <geometry> --scale <preset> --dry-run [options] [--basemap]
   journeybook calibration --out <file.pdf>   one-page ruler target to check a printer's scale
   journeybook cache-prune --dir <dir> --max-mb <n>   delete a tile cache's oldest tiles down to n MB
+  journeybook package --bbox W,S,E,N --min-zoom <a> --max-zoom <b> --out <file.pmtiles> [--dry-run]
+                              raster PMTiles of USGS topo for offline use (accepts --tile-base-url,
+                              --tile-source, --tile-cache-dir; --max-tiles <n>, default ${DEFAULT_PACKAGE_MAX_TILES})
 
 Geometry (combine freely; at least one of --bbox / --locations / --location):
   --bbox W,S,E,N              tile a page grid over this extent at --scale
@@ -397,6 +401,49 @@ export async function runCli(args: readonly string[]): Promise<number> {
       stdout.write(
         `Removed ${result.removedTiles} tile(s) and ${result.removedTempFiles} abandoned temp file(s); ` +
           `${(result.bytesRemaining / (1024 * 1024)).toFixed(1)} MB remain.\n`,
+      );
+      return 0;
+    } catch (err) {
+      stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
+      return 2;
+    }
+  }
+  if (cmd === "package") {
+    try {
+      const flags = parseFlags(rest);
+      const bboxText = valueOf(flags, "bbox");
+      if (!bboxText) throw new Error("package needs --bbox W,S,E,N");
+      const bbox = parseNumbers(bboxText, 4, "bbox") as BBox;
+      const minText = valueOf(flags, "min-zoom");
+      const maxText = valueOf(flags, "max-zoom");
+      if (minText === undefined || maxText === undefined) throw new Error("package needs --min-zoom and --max-zoom");
+      const minZoom = Number(minText);
+      const maxZoom = Number(maxText);
+      if (flags.has("dry-run")) {
+        const plan = planPackage(bbox, minZoom, maxZoom, USGS_TOPO.maxZoom);
+        for (const z of plan.zooms) stdout.write(`z${z.z}: ${z.tiles} tile${z.tiles === 1 ? "" : "s"}\n`);
+        stdout.write(`total ${plan.tiles} tiles. No byte estimate: tile sizes vary too much by terrain to guess.\n`);
+        return 0;
+      }
+      const out = valueOf(flags, "out");
+      if (!out) throw new Error("package needs --out <file.pmtiles>");
+      const tileBaseUrl = valueOf(flags, "tile-base-url");
+      const sourceId = valueOf(flags, "tile-source");
+      const cacheDir = valueOf(flags, "tile-cache-dir");
+      const maxTilesText = valueOf(flags, "max-tiles");
+      const result = await buildRasterPackage({
+        bbox,
+        minZoom,
+        maxZoom,
+        ...(tileBaseUrl ? { tileBaseUrl } : {}),
+        ...(sourceId ? { sourceId } : {}),
+        ...(cacheDir ? { cacheDir } : {}),
+        ...(maxTilesText ? { maxTiles: Number(maxTilesText) } : {}),
+      });
+      writeFileSync(out, result.archive);
+      stdout.write(
+        `Wrote ${result.plan.tiles} ${result.tileType} tiles (z${minZoom}-${maxZoom}, ` +
+          `${(result.archive.length / (1024 * 1024)).toFixed(1)} MB) to ${out}. Credit: ${result.attribution}.\n`,
       );
       return 0;
     } catch (err) {
