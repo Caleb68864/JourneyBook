@@ -592,19 +592,29 @@ Branch `work/stage-7` (not pushed, so CI is unread).
 | Done when: renders without permanent map bloat; temp files prune safely | **Partly done** | Temp files: the prune removes abandoned `.tmp-` files older than an hour. Bloat: the tile cache grows without bound until a size is chosen. |
 | Done when: cache metadata records source URL, source date, bbox, zoom range, attribution, expiration | **Partly done (2026-11-16)** | All but expiration are recorded per render (row 1). Gaps: the seeded `usgs-topo` row has no `SourceDate`, so that field is null for it; and there is no expiry to record, because nothing expires tiles. The snapshot records the row's declared `sourceCacheMaxAgeSeconds` under that name and invents no date. |
 
+**Owner decisions, 2026-11-16** (also in `docs/decisions.md`):
+
+- **(a) A source's own `MaxAgeSeconds` wins** over the global `TileCache:BrowserMaxAgeSeconds`,
+  which becomes the fallback. **Done** on `feat/stage-7-raster-pmtiles`: `TileService` puts the
+  row's value on `TileResult.MaxAgeSeconds` and `TileEndpoints` sends it, on a miss and a hit;
+  a row with 0 gets the global value (`TilesApiTests.Cache_control_*`). USGS tiles now go to
+  browsers with 1 day, the seed row's value, not 7.
+- **(b) Tile packages are raster PMTiles of USGS topo only.** No MBTiles, no vector formats.
+  That picks option C below and rules out A, B and D.
+
 Found while auditing, not fixed:
 
-- **A source's cache policy is stored and not used.** `TileCachePolicy.MaxAgeSeconds`
-  (86,400 on the seed) and `OfflineAllowed` (false) are read by nothing that acts on them. The
-  proxy sends `Cache-Control: max-age` from the global `TileCache:BrowserMaxAgeSeconds`
-  (604,800), so USGS tiles are offered to browsers for 7 days against the row's 1. Which value
-  should win is a policy choice, so it is left alone. `OfflineAllowed` should gate any extract
-  once one exists.
+- **`OfflineAllowed` gates nothing yet: open.** It should gate building a package, but the
+  seeded `usgs-topo` row says `false` while USGS is public domain and is now the one source
+  packages are made from (decision b). Gating on it today would forbid the only allowed
+  package. Settle it together: flip the seed (a migration) to `true`, then refuse to package a
+  row with `false`. The package command added on this branch fetches tiles by URL and does not
+  read the registry row, so the gate has nowhere to sit until packaging goes through the API.
 
 What is left needs an owner decision. The options:
 
-1. **Which offline package format and source** (the open question under Resolved vs.
-   Remaining Decisions).
+1. ~~**Which offline package format and source**~~ Decided 2026-11-16: **C**, raster
+   PMTiles of USGS topo only (decision b above). The options as they were weighed:
    - *A. Protomaps prebuilt planet, `pmtiles extract` per bbox.* No build pipeline, ODbL
      attribution. The tiles are **vector**, so printing them needs a vector-to-raster step
      the panel renderer does not have (maplibre-native, the Stage 1C path not taken). Good
@@ -618,7 +628,8 @@ What is left needs an owner decision. The options:
      built in Stage 3 is PMTiles.
 2. **How long tiles are kept.** Pick `TileCache:MaxSizeMb`, an age limit (code to write), or
    both. That also settles the expiry field in the provenance.
-3. **Whether a source's own `MaxAgeSeconds` should replace the global browser max-age.**
+3. ~~**Whether a source's own `MaxAgeSeconds` should replace the global browser max-age.**~~
+   Decided 2026-11-16: it does (decision a above), and it is built.
 4. **Whether to build a cache-manifest table now.** A table needs rows, and there will be
    rows once packages exist (1). Until then the per-render snapshot holds the same facts.
 

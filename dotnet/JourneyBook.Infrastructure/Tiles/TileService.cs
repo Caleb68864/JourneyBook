@@ -41,7 +41,7 @@ public sealed class TileService(
         // and PMTiles alike without knowing the content-type up front.
         if (cache.TryGet(sourceKey, z, x, y, out var cached, out var cachedExt))
         {
-            return new TileResult(TileStatus.Ok, cached, ContentTypeFor(cachedExt), source.Attribution, Etag(cached), CacheHit: true);
+            return new TileResult(TileStatus.Ok, cached, ContentTypeFor(cachedExt), source.Attribution, Etag(cached), CacheHit: true, MaxAgeOf(source));
         }
 
         var fetched = await fetcher.FetchAsync(source, z, x, y, ct);
@@ -56,8 +56,16 @@ public sealed class TileService(
         }
 
         cache.Store(sourceKey, z, x, y, ExtFor(fetched.ContentType), fetched.Bytes);
-        return new TileResult(TileStatus.Ok, fetched.Bytes, fetched.ContentType, source.Attribution, Etag(fetched.Bytes), CacheHit: false);
+        return new TileResult(TileStatus.Ok, fetched.Bytes, fetched.ContentType, source.Attribution, Etag(fetched.Bytes), CacheHit: false, MaxAgeOf(source));
     }
+
+    /// <summary>
+    /// The row's own browser max-age, which wins over the global <c>TileCache:BrowserMaxAgeSeconds</c>
+    /// (owner decision 2026-11-16). <c>MaxAgeSeconds</c> is a non-null int, so 0 (or less) is how a
+    /// row says "not set" and gets the global fallback.
+    /// </summary>
+    private static int? MaxAgeOf(TileSourceResponse source) =>
+        source.Cache.MaxAgeSeconds > 0 ? source.Cache.MaxAgeSeconds : null;
 
     private static string Etag(byte[] bytes) => "\"" + Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant() + "\"";
 

@@ -253,9 +253,10 @@ public sealed class RenderJobRunner(
     /// <para>
     /// <c>sourceCacheMaxAgeSeconds</c> is the registry row's declared policy
     /// (<c>TileCachePolicy.MaxAgeSeconds</c>), recorded as the source's terms and named
-    /// for what it is. It is NOT an expiry anything enforces: the tile proxy sends the
-    /// global <c>TileCache:BrowserMaxAgeSeconds</c> (default 7 days) and reads no row's
-    /// policy, and the server's disk cache keeps a tile until a size prune removes it
+    /// for what it is. Since 2026-11-16 the tile proxy sends it as the browser
+    /// <c>Cache-Control: max-age</c> (falling back to the global
+    /// <c>TileCache:BrowserMaxAgeSeconds</c> when the row sets 0). It is still NOT a server
+    /// expiry: the server's disk cache keeps a tile until a size prune removes it
     /// (<c>TileCache:MaxSizeMb</c>, off by default). How long tiles should be kept is
     /// still the owner's decision, so no expiry date is invented here.
     /// </para>

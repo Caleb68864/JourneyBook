@@ -13,6 +13,8 @@ public enum TileStatus
 /// <summary>
 /// One resolved map tile plus the metadata the HTTP layer needs. Only <c>Status == Ok</c> carries
 /// real <c>Bytes</c>/<c>ETag</c>; other statuses map straight to their HTTP code.
+/// <c>MaxAgeSeconds</c> is the source row's own <c>Cache.MaxAgeSeconds</c> when it sets one
+/// (a positive value); null means "use the global <c>TileCache:BrowserMaxAgeSeconds</c>".
 /// </summary>
 public record TileResult(
     TileStatus Status,
@@ -20,7 +22,8 @@ public record TileResult(
     string ContentType,
     string Attribution,
     string ETag,
-    bool CacheHit)
+    bool CacheHit,
+    int? MaxAgeSeconds = null)
 {
     public static TileResult UnknownSource() => new(TileStatus.UnknownSource, [], "", "", "", false);
     public static TileResult ZoomOutOfRange() => new(TileStatus.ZoomOutOfRange, [], "", "", "", false);

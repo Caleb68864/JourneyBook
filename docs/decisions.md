@@ -1277,3 +1277,16 @@ Each entry follows this shape:
 - Surfaces: packages/render-cli/src/render.ts, services/render-worker/src/jobs.ts, services/render-worker/src/render-route.ts, dotnet/JourneyBook.Application/Rendering/RenderDtos.cs, dotnet/JourneyBook.Application/Rendering/RenderJobs.cs, dotnet/JourneyBook.Infrastructure/Rendering/HttpRenderWorkerClient.cs, dotnet/JourneyBook.Infrastructure/Rendering/RenderJobRunner.cs, dotnet/JourneyBook.Infrastructure/Rendering/RenderService.cs
 - Watch: no expiry is recorded, because nothing expires tiles. `sourceCacheMaxAgeSeconds` is the row's declared policy, which the proxy does not apply (it sends `TileCache:BrowserMaxAgeSeconds`). Unproxied renders have null source fields by design. `RenderWorkerResult.TileCoverage` defaults to null, so a new construction site can omit it silently. The client wire test is what pins it.
 - Commit: (pending)
+
+## 2026-11-16 — Owner decisions for Stage 7: per-source max-age wins; packages are raster PMTiles of USGS only
+- Decision (a): a tile source's own `TileCachePolicy.MaxAgeSeconds` wins over the global `TileCache:BrowserMaxAgeSeconds`, which becomes the fallback.
+- Decision (b): offline tile packages are raster PMTiles of USGS topo only. No MBTiles and no vector formats (Protomaps/Planetiler are out). This is option C of the Stage 7 audit.
+- Recorded in: vault/staged-build-roadmap.md, Stage 7, "Owner decisions, 2026-11-16".
+
+## 2026-11-16 — Tile proxy Cache-Control uses the source row's MaxAgeSeconds
+- Symptom: the proxy sent `Cache-Control: public, max-age` from `TileCache:BrowserMaxAgeSeconds` (604,800) for every source, so USGS tiles went to browsers for 7 days against the seed row's 86,400.
+- Fix: `TileResult` carries `MaxAgeSeconds` (null = not set). `TileService` fills it from the row on a cache miss and a hit; `TileEndpoints` sends it, or the global value when it is null. `MaxAgeSeconds` is a non-null int, so a row with 0 (or less) counts as "not set" and gets the global value.
+- Evidence: `TilesApiTests.Cache_control_uses_the_sources_own_max_age` failed on the old code (expected 1 day, got 7) and passes now. `Cache_control_falls_back_to_the_global_max_age_when_the_source_sets_none` passes on both, as a control does.
+- Surfaces: dotnet/JourneyBook.Application/Tiles/ITileService.cs, dotnet/JourneyBook.Infrastructure/Tiles/TileService.cs, apps/api/Endpoints/TileEndpoints.cs, dotnet/JourneyBook.Infrastructure/Rendering/RenderJobRunner.cs (comment), dotnet/JourneyBook.Tests/Api/TilesApiTests.cs
+- Watch: a row cannot say "do not cache" (0 means fallback). The 204/304 paths: 304 gets the row's value (the header is set before the If-None-Match check); 204 empty tiles send no Cache-Control, as before. `OfflineAllowed` still gates nothing, and that is recorded as open in the Stage 7 section (the seed says false for public-domain USGS, so gating today would forbid the only allowed package).
+- Commit: (pending)

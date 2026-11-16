@@ -60,7 +60,10 @@ public static class TileEndpoints
             response.Headers[HeaderNames.ETag] = tile.ETag;
             response.Headers["X-Tile-Attribution"] = tile.Attribution;
             response.Headers["X-Cache"] = tile.CacheHit ? "HIT" : "MISS";
-            var maxAge = int.TryParse(config["TileCache:BrowserMaxAgeSeconds"], out var s) ? s : 604800;
+            // The source row's own MaxAgeSeconds wins; the global setting is the fallback
+            // (owner decision 2026-11-16, docs/decisions.md).
+            var maxAge = tile.MaxAgeSeconds
+                ?? (int.TryParse(config["TileCache:BrowserMaxAgeSeconds"], out var s) ? s : 604800);
             response.Headers[HeaderNames.CacheControl] = $"public, max-age={maxAge}";
 
             // Conditional GET: honor If-None-Match.
