@@ -179,7 +179,11 @@ export interface GeneratedPdf {
    * column is `jsonb`; `GeneratedPdfResponse.SourceMetadataSnapshot` is `string?`).
    * Written by `RenderJobRunner.ProvenanceOf`: `attribution`, `deliveredDpi`
    * (`{min, max, panels}`, or an explicit null when no basemap was drawn),
-   * `pageCount`, `scalePresetId`, `tier`, `renderedAt`.
+   * `pageCount`, `scalePresetId`, `tier`, `tileSourceId`, `basemap`, `renderedAt`,
+   * and `tileCache` (Stage 7: source key/kind/url/date/version, attribution, the
+   * `[W,S,E,N]` bbox, min/max zoom, tile and panel counts and the source's
+   * `sourceCacheMaxAgeSeconds`, or null when no basemap was drawn). Nothing in the web
+   * app reads `tileCache` yet.
    *
    * Parse it with `readDeliveredResolution` in `lib/pdf-history.ts`, never inline:
    * `POST /api/generated-pdfs` accepts an arbitrary client-supplied snapshot, so

@@ -16,6 +16,7 @@ export {
   type RenderAtlasInput,
   type RenderAtlasResult,
   type DeliveredDpi,
+  type TileCoverage,
   type RenderLocation,
   type RenderProgress,
   type AssembledAtlas,

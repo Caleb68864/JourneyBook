@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import type { DeliveredDpi, RenderProgress } from "@journeybook/render-cli";
+import type { DeliveredDpi, RenderProgress, TileCoverage } from "@journeybook/render-cli";
 
-export type { DeliveredDpi };
+export type { DeliveredDpi, TileCoverage };
 
 /**
  * In-memory job registry for the render worker.
@@ -58,6 +58,12 @@ export interface JobRecord {
    * already on disk, and this is its only channel.
    */
   deliveredDpi?: DeliveredDpi;
+  /**
+   * The tiles the finished render pulled (bbox, zoom range, request count), from
+   * `RenderAtlasResult`. Absent on a render that drew no basemap. The API writes
+   * it into the `GeneratedPdf` provenance next to the source's URL and date.
+   */
+  tileCoverage?: TileCoverage;
   error?: string;
   errorKind?: JobErrorKind;
   startedAt: number;
@@ -142,9 +148,9 @@ export class JobStore {
   /**
    * Record a finished render.
    *
-   * `attribution` and `deliveredDpi` are REQUIRED parameters that accept
-   * `undefined` rather than optional ones. Both are facts the engine measured and
-   * that have no other route out of this process, and both have been lost before
+   * `attribution`, `deliveredDpi` and `tileCoverage` are REQUIRED parameters that accept
+   * `undefined` rather than optional ones. All three are facts the engine measured and
+   * that have no other route out of this process, and two have been lost before
    * by being left off a call — an optional parameter makes forgetting one a silent
    * success, where this makes it a compile error at every call site.
    */
@@ -154,6 +160,7 @@ export class JobStore {
     pageCount: number,
     attribution: string | undefined,
     deliveredDpi: DeliveredDpi | undefined,
+    tileCoverage: TileCoverage | undefined,
   ): void {
     const entry = this.jobs.get(id);
     if (!entry) return;
@@ -164,6 +171,7 @@ export class JobStore {
     entry.record.page = pageCount;
     if (attribution !== undefined) entry.record.attribution = attribution;
     if (deliveredDpi !== undefined) entry.record.deliveredDpi = deliveredDpi;
+    if (tileCoverage !== undefined) entry.record.tileCoverage = tileCoverage;
     entry.record.finishedAt = this.now();
   }
 

@@ -63,6 +63,9 @@ public sealed class FakeRenderWorkerClient(string generatedDir) : IRenderWorkerC
     /// </remarks>
     public RenderDeliveredDpi? DeliveredDpi { get; set; }
 
+    /// <summary>The tiles the stub reports having pulled, as the real worker does.</summary>
+    public RenderTileCoverage? TileCoverage { get; set; }
+
     public async Task<RenderWorkerResult> RenderAsync(
         RenderWorkerRequest request,
         RenderProgressHandler? onProgress = null,
@@ -100,7 +103,7 @@ public sealed class FakeRenderWorkerClient(string generatedDir) : IRenderWorkerC
         // sets `record.pageCount` from the same render result the progress events
         // counted towards.
         var reported = Emits.Count > 0 && Emits[^1].PageCount > 0 ? Emits[^1].PageCount : 1;
-        return new RenderWorkerResult(request.OutputFileName, reported, Attribution, DeliveredDpi);
+        return new RenderWorkerResult(request.OutputFileName, reported, Attribution, DeliveredDpi, TileCoverage);
     }
 }
 
@@ -770,6 +773,42 @@ public class RenderApiTests(RenderApiFactory factory) : IClassFixture<RenderApiF
     }
 
     /// <summary>
+    /// An unproxied render records its tile coverage with no registry source.
+    /// </summary>
+    /// <remarks>
+    /// This factory sets no <c>Tiles:ProxyBaseUrl</c>, so the worker fetches its
+    /// built-in basemap directly and no registry row stands behind the tiles. The
+    /// seeded <c>usgs-topo</c> row is the default source key, and naming it here
+    /// would be a claim about tiles that never went near it. The proxied half is
+    /// <c>ProxiedRenderApiTests</c>.
+    /// </remarks>
+    [Fact]
+    public async Task An_unproxied_render_records_tile_coverage_without_a_registry_source()
+    {
+        factory.FakeClient.ShouldFail = false;
+        factory.FakeClient.TileCoverage = new RenderTileCoverage([-96.75, 40.78, -96.65, 40.86], 12, 16, 143, 4);
+        try
+        {
+            var projectId = await CreateProjectAsync("Unproxied Tile Cache Project");
+            var resp = await _client.PostAsJsonAsync($"/api/projects/{projectId}/render",
+                new RenderProjectRequest(Tier: 1));
+            var body = (await resp.Content.ReadFromJsonAsync<RenderProjectResponse>())!;
+            var record = await PollUntilTerminalAsync(body.GeneratedPdfId);
+            Assert.Equal("Completed", record.Status);
+
+            using var doc = System.Text.Json.JsonDocument.Parse(record.SourceMetadataSnapshot!);
+            var cache = doc.RootElement.GetProperty("tileCache");
+            Assert.Equal(System.Text.Json.JsonValueKind.Null, cache.GetProperty("sourceKey").ValueKind);
+            Assert.Equal(System.Text.Json.JsonValueKind.Null, cache.GetProperty("sourceUrl").ValueKind);
+            Assert.Equal(143, cache.GetProperty("tiles").GetInt32());
+        }
+        finally
+        {
+            factory.FakeClient.TileCoverage = null;
+        }
+    }
+
+    /// <summary>
     /// The project's own name reaches the worker request as the atlas title.
     /// </summary>
     /// <remarks>
@@ -1081,6 +1120,54 @@ public class ProxiedRenderApiTests(ProxiedRenderApiFactory factory)
             factory.FakeClient.Requests.TryGetValue($"atlas-{body.GeneratedPdfId:N}.pdf", out var sent),
             $"the worker was never handed a request for atlas-{body.GeneratedPdfId:N}.pdf");
         return sent!;
+    }
+
+    /// <summary>
+    /// A proxied render's provenance names the registry row its tiles came through.
+    /// </summary>
+    /// <remarks>
+    /// The hop this covers is <c>RenderService</c>: it already read the row's
+    /// <c>MaxZoom</c> for the worker, and nothing carried the row's URL, date or
+    /// attribution to the record, so Stage 7's "cache metadata records source URL,
+    /// source date, bbox, zoom range, attribution" had the bbox and zooms (from the
+    /// engine) and no source. The expectation is read out of the database, not
+    /// restated.
+    /// </remarks>
+    [Fact]
+    public async Task A_proxied_render_records_the_registry_source_its_tiles_came_through()
+    {
+        string sourceUrl, attribution;
+        int maxAge;
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<JourneyBookDbContext>();
+            var row = await db.TileSources.SingleAsync(t => t.Key == "usgs-topo");
+            (sourceUrl, attribution, maxAge) = (row.SourceUrl, row.Attribution, row.Cache.MaxAgeSeconds);
+        }
+
+        factory.FakeClient.TileCoverage = new RenderTileCoverage([-96.75, 40.78, -96.65, 40.86], 12, 16, 143, 4);
+        try
+        {
+            var projectId = await CreateProjectAsync("Proxied Tile Cache Project");
+            var resp = await _client.PostAsJsonAsync($"/api/projects/{projectId}/render",
+                new RenderProjectRequest(Tier: 1));
+            var body = (await resp.Content.ReadFromJsonAsync<RenderProjectResponse>())!;
+            var record = await PollUntilTerminalAsync(body.GeneratedPdfId);
+            Assert.Equal("Completed", record.Status);
+
+            using var doc = System.Text.Json.JsonDocument.Parse(record.SourceMetadataSnapshot!);
+            var cache = doc.RootElement.GetProperty("tileCache");
+            Assert.Equal("usgs-topo", cache.GetProperty("sourceKey").GetString());
+            Assert.Equal(sourceUrl, cache.GetProperty("sourceUrl").GetString());
+            Assert.Equal(attribution, cache.GetProperty("attribution").GetString());
+            Assert.Equal(maxAge, cache.GetProperty("sourceCacheMaxAgeSeconds").GetInt32());
+            Assert.Equal(16, cache.GetProperty("maxZoom").GetInt32());
+            Assert.Equal(143, cache.GetProperty("tiles").GetInt32());
+        }
+        finally
+        {
+            factory.FakeClient.TileCoverage = null;
+        }
     }
 
     private async Task SetSeededMaxZoomAsync(int value)

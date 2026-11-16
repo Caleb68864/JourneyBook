@@ -477,6 +477,82 @@ public class RenderJobRunnerTests
     }
 
     /// <summary>
+    /// The finished record carries Stage 7's cache metadata: the source URL, source
+    /// date and attribution of the registry row the tiles came through, the bbox and
+    /// zoom range the engine pulled, and the source's declared cache max-age.
+    /// </summary>
+    [Fact]
+    public async Task The_finished_record_carries_the_tile_cache_metadata()
+    {
+        var pdfs = new RecordingPdfService();
+        var worker = new StubWorkerClient(
+            req => new RenderWorkerResult(
+                req.OutputFileName, 3, "USGS", null,
+                new RenderTileCoverage([-96.75, 40.78, -96.65, 40.86], 12, 16, 143, 4)));
+        var source = new RenderTileSourceSnapshot(
+            "usgs-topo", "usgs-raster", "https://example.test/tile/{z}/{y}/{x}",
+            new DateOnly(2026, 1, 15), "v2", "USGS The National Map", 86400);
+        var job = SampleJob() with { TileSource = source };
+
+        await RunnerFor(pdfs, worker).RunAsync(job);
+
+        var completed = Assert.Single(pdfs.Updates.Where(u => u.Status == "Completed"));
+        using var doc = JsonDocument.Parse(completed.SourceMetadataSnapshot!);
+        var cache = doc.RootElement.GetProperty("tileCache");
+        Assert.Equal("usgs-topo", cache.GetProperty("sourceKey").GetString());
+        Assert.Equal("usgs-raster", cache.GetProperty("sourceKind").GetString());
+        Assert.Equal("https://example.test/tile/{z}/{y}/{x}", cache.GetProperty("sourceUrl").GetString());
+        Assert.Equal("2026-01-15", cache.GetProperty("sourceDate").GetString());
+        Assert.Equal("v2", cache.GetProperty("sourceVersion").GetString());
+        Assert.Equal("USGS The National Map", cache.GetProperty("attribution").GetString());
+        Assert.Equal(
+            [-96.75, 40.78, -96.65, 40.86],
+            cache.GetProperty("bbox").EnumerateArray().Select(e => e.GetDouble()).ToArray());
+        Assert.Equal(12, cache.GetProperty("minZoom").GetInt32());
+        Assert.Equal(16, cache.GetProperty("maxZoom").GetInt32());
+        Assert.Equal(143, cache.GetProperty("tiles").GetInt32());
+        Assert.Equal(4, cache.GetProperty("panels").GetInt32());
+        Assert.Equal(86400, cache.GetProperty("sourceCacheMaxAgeSeconds").GetInt32());
+    }
+
+    [Fact]
+    public async Task An_unproxied_render_records_its_coverage_with_no_registry_source()
+    {
+        // The worker fetched its built-in basemap directly: the coverage is real, but
+        // no registry row stands behind it, so the source fields are null rather than
+        // borrowed from whatever row happens to be the default.
+        var pdfs = new RecordingPdfService();
+        var worker = new StubWorkerClient(
+            req => new RenderWorkerResult(
+                req.OutputFileName, 1, "USGS", null,
+                new RenderTileCoverage([-96.75, 40.78, -96.65, 40.86], 16, 16, 20, 1)));
+
+        await RunnerFor(pdfs, worker).RunAsync(SampleJob());
+
+        var completed = Assert.Single(pdfs.Updates.Where(u => u.Status == "Completed"));
+        using var doc = JsonDocument.Parse(completed.SourceMetadataSnapshot!);
+        var cache = doc.RootElement.GetProperty("tileCache");
+        Assert.Equal(JsonValueKind.Null, cache.GetProperty("sourceKey").ValueKind);
+        Assert.Equal(JsonValueKind.Null, cache.GetProperty("sourceUrl").ValueKind);
+        // The credit the PDF printed still stands in for the attribution.
+        Assert.Equal("USGS", cache.GetProperty("attribution").GetString());
+        Assert.Equal(20, cache.GetProperty("tiles").GetInt32());
+    }
+
+    [Fact]
+    public async Task A_render_with_no_basemap_records_a_null_tile_cache()
+    {
+        var pdfs = new RecordingPdfService();
+        var worker = new StubWorkerClient(req => new RenderWorkerResult(req.OutputFileName, 3, "USGS", null));
+
+        await RunnerFor(pdfs, worker).RunAsync(SampleJob());
+
+        var completed = Assert.Single(pdfs.Updates.Where(u => u.Status == "Completed"));
+        using var doc = JsonDocument.Parse(completed.SourceMetadataSnapshot!);
+        Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("tileCache").ValueKind);
+    }
+
+    /// <summary>
     /// The page count from the finished render reaches the record even when no
     /// progress report did.
     /// </summary>

@@ -845,6 +845,21 @@ describe("renderAtlas with a basemap", { timeout: BASEMAP_TEST_TIMEOUT_MS }, () 
     expect(result.deliveredDpi).toBeUndefined();
   });
 
+  it("[CONTROL] reports no tile coverage for a render that drew no basemap", async () => {
+    // A render that fetched nothing has no coverage to record. An empty bbox or
+    // a zero-tile record would read, in the provenance, as a render that asked
+    // the cache for nothing and got it.
+    const result = await renderAndCaptureResult({
+      mode: "location",
+      center: { lng: -98, lat: 41 },
+      scalePresetId: "1-100000",
+      tier: 1,
+      basemap: false,
+    });
+
+    expect(result.tileCoverage).toBeUndefined();
+  });
+
   /**
    * The same measurement again, on the PAPER.
    *

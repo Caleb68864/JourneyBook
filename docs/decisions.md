@@ -1270,3 +1270,10 @@ Each entry follows this shape:
 - Watch: sampled at whole degrees. Between samples a cliff can shift by a sub-pixel rounding amount. Only Letter exists; another sheet size would need its own check.
 - Commit: (pending)
 
+## 2026-11-16 — Render provenance records the tiles it pulled (Stage 7 cache metadata)
+- Symptom: Stage 7's Done-when asks cache metadata to record source URL, source date, bbox, zoom range, attribution and expiration. A finished render's `SourceMetadataSnapshot` had the attribution and a source key, and none of the rest.
+- Fix: `renderAtlas` returns `tileCoverage` (bbox enclosing every drawn panel, min/max zoom, tile requests, panels; undefined with no basemap). `JobStore.complete` takes it as a required-but-undefined parameter like `deliveredDpi`. `HttpRenderWorkerClient` reads it into `RenderWorkerResult.TileCoverage`. `RenderService` snapshots the proxied registry row (`RenderTileSourceSnapshot`) onto `RenderJob` in the query that already read `MaxZoom`. `RenderJobRunner.TileCacheOf` writes `tileCache`.
+- Evidence: the new tests fail on the old code and pass on the new. TS: 4 dry-run agreement cases and 1 worker case. .NET: 1 wire test, 3 runner tests and 1 Docker test, which fails with only `RenderService` reverted.
+- Surfaces: packages/render-cli/src/render.ts, services/render-worker/src/jobs.ts, services/render-worker/src/render-route.ts, dotnet/JourneyBook.Application/Rendering/RenderDtos.cs, dotnet/JourneyBook.Application/Rendering/RenderJobs.cs, dotnet/JourneyBook.Infrastructure/Rendering/HttpRenderWorkerClient.cs, dotnet/JourneyBook.Infrastructure/Rendering/RenderJobRunner.cs, dotnet/JourneyBook.Infrastructure/Rendering/RenderService.cs
+- Watch: no expiry is recorded, because nothing expires tiles. `sourceCacheMaxAgeSeconds` is the row's declared policy, which the proxy does not apply (it sends `TileCache:BrowserMaxAgeSeconds`). Unproxied renders have null source fields by design. `RenderWorkerResult.TileCoverage` defaults to null, so a new construction site can omit it silently. The client wire test is what pins it.
+- Commit: (pending)

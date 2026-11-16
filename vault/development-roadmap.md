@@ -1226,6 +1226,48 @@ What it says:
 - The UI now quotes, per step, the bold column (rounded): `OVERLAP_STEP_COST` in
   `PageSetup.tsx`, checked by `PageSetup.overlap-cost.test.ts`.
 
+## Stage 7 audit and render tile provenance — 2026-11-16
+
+Branch `work/stage-7` from `origin/master` at `5821e60` (PR #10). Not pushed. This repo's
+rule is push, read all four CI jobs, then merge, so **CI has not been read**.
+
+**Audit.** Every Stage 7 item, Stage 1D and Stage 6B Level 4 checked against the code. The
+table and its proof are in `staged-build-roadmap.md` under Stage 7, "Audit against the code".
+In short: Stage 7 has nothing done outright, six items partly done and one not started
+(`pmtiles extract`). Stage 1D lacks only crop marks and a locator inset, both layout
+decisions. Level 4 is not started.
+
+**Built: tile coverage in the render provenance.** This is the part of Stage 7's "cache
+metadata records source URL, source date, bbox, zoom range, attribution, and expiration"
+that needed no decision.
+
+- The engine counts what its panels pulled (`TileCoverage` on `RenderAtlasResult`: bbox,
+  min/max zoom, tile requests, panels). The worker's job record carries it, and
+  `HttpRenderWorkerClient` reads it.
+- `RenderService` snapshots the registry row the tiles are proxied through onto the
+  `RenderJob`. `RenderJobRunner` writes `tileCache` into `SourceMetadataSnapshot`.
+- Unproxied renders record coverage with null source fields. Renders with no basemap
+  record `tileCache: null`.
+- Tests, each watched failing first. `dry-run.test.ts` holds the coverage to the URLs a real
+  render fetched (4 cases). There is one worker job-record test, one client wire test and
+  three runner tests. Two `Api` tests (Docker) check a proxied render against the seeded
+  row read from the database, and an unproxied render with no source. The proxied one failed
+  with only `RenderService` reverted. Two controls (no basemap leaves the field undefined)
+  pass on old code too, as controls do.
+- Not given: an expiry. Nothing expires tiles. The row's declared max-age is recorded as
+  `sourceCacheMaxAgeSeconds`, and the comment says nothing enforces it.
+
+**Found, not fixed.** `TileCachePolicy.MaxAgeSeconds`/`OfflineAllowed` are stored and read by
+nothing that acts on them. The proxy's `Cache-Control` comes from the global
+`TileCache:BrowserMaxAgeSeconds` (7 days; the seed row says 1). The seeded `usgs-topo` row
+has no `SourceDate`. The PDF panel renderer draws raster only, so a vector PMTiles archive
+cannot be printed. Owner options for the remaining Stage 7 work are under the Stage 7 audit.
+
+Suites on this branch: TS atlas-core 102, pdf-client 71, map-sources 94, web 214, render-cli
+124, render-worker 38 (643). .NET 344/344 with Docker (243 unit + 101 Testcontainers
+integration). Harness checks lint, typecheck-covers-tests, golden-fixture,
+test-filter-partitions, migrations-current, secrets and project-references pass.
+
 ## Phase 1: Print Geometry
 Build the Docker-hosted React/Vite/shadcn/Tailwind web app skeleton, define the outdoor field-guide visual system, accept bounding boxes, create page grid, generate overview and detail pages, and validate Letter-size PDF output from the preferred client-side React PDF path.
 

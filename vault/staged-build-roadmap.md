@@ -330,6 +330,19 @@ Done when:
 
 ### Stage 1D: Headless PDF composition with page furniture — 🟡 mostly built (2026-06-24)
 
+> **Audited 2026-11-16.** The first Done-when line is met and the second mostly: `render --bbox` and `render
+> --location` emit multi-page Letter PDFs (`render.test.ts`, `dry-run.test.ts` count
+> the pages off the file), and the credit line is printed on map pages
+> (`pdf-client/src/attribution.test.ts`, which reads the PDF's text). That it sits
+> inside the margin follows from the fixed furniture layout; no test measures where
+> it lands, so that half is unverified. Build items: title, page ID, measured
+> scale bar, compass rose (tier ≥ 2), continuation labels, attribution footer, an
+> overview page and the 1-inch calibration tick plus print check page are **done**.
+> The landmark legend is drawn only when a page has landmarks, so a general "legend
+> stub" is **partly done**. Crop marks and a grid-locator inset are **not started**
+> (`AtlasDocument.tsx` draws neither); per the note below they are a layout decision
+> because each takes paper from the map box. Stays 🟡 only for those two.
+
 Delivered: `packages/pdf-client` renders an `AtlasContract` to a multi-page Letter PDF via `@react-pdf/renderer` in Node (`renderAtlasPdfToFile` / `renderAtlasPdfToBuffer`; reusable client-side later). Page furniture: title, page ID, neatline, **tier-aware** content — Level 1 shows the road-atlas locator + N/S/E/W continuation labels ("CONTINUE NORTH · A1"); Level 2+ adds a **true measured scale bar** (round-number `niceScaleBar`, unit-tested length) and a north-up compass rose; attribution footer inside the safe margin. The `tier` field (1–4) is now on the contract (`atlas-core` model, default Level 1). Wired into the CLI: `journeybook render --bbox … --scale … --out a.pdf [--tier N] [--basemap]` and `render --location …` — verified producing valid multi-page PDFs headlessly (36-page grid + 1-page location). With `--basemap` the panel now shows a **real USGS topo map** (Stage 1C). **Remaining for 1D-complete:** the ruler half is closed by the print check page (see Stage 1E, 2026-11-02). Crop marks and a grid-locator inset are still not drawn, and either one takes paper from the printed map box, so they are a layout decision rather than a task. The A-F × 1-8 reference grid is the locator every page has today.
 
 Spec:
@@ -530,6 +543,15 @@ Goal: implement the [Map Tiers (Learning Curve)](#map-tiers-learning-curve-featu
 
 **Status:** Levels 1–2 (road-atlas grid + true scale bar/compass) shipped in Stage 1D; **Level 3 (self-generated USNG/MGRS grid) is built, converged, and merged** (see Current Status). **Level 4 (full MGRS + azimuth/declination diagram + G-M conversion + worksheets) is deferred** — parked behind the map-generation work, now done.
 
+> **Level 4 audited 2026-11-16: not started.** No declination, G-M angle, azimuth or
+> worksheet code exists (`git grep -i declination` finds only comments).
+> `AtlasDocument.tsx` gates its extra furniture on `page.tier >= 3`, so tier 4 prints
+> as tier 3. `atlas-core/src/model.ts` says so on `MapTier`. `TierPicker.tsx` offers
+> only tiers 1–3, and the engine still accepts `--tier 4` (`render.ts` validates
+> 1–4). The first decision-free piece would be a declination value per page. It needs
+> a magnetic model (WMM coefficients and their 5-year epoch), and picking that
+> dependency is the first call to make.
+
 Folders touched: `packages/atlas-core/`, `packages/map-sources/`, `packages/pdf-client/`, `apps/web/`, `vault/source-docs/`, `docs/decisions/`.
 
 Build:
@@ -551,6 +573,54 @@ Done when:
 ## Stage 7: Tile Package Strategy and Render Reliability
 
 Goal: avoid giant server storage while supporting reliable renders.
+
+### Audit against the code — 2026-11-16
+
+The Current Status block above is dated 2026-09-09 and is left as it is: its
+status-date rule says to move it together with `README.md` and
+`harness/progress.json` or not at all. This audit is the current word on Stage 7.
+Branch `work/stage-7` (not pushed, so CI is unread).
+
+| Stage 7 item | State | Proof |
+|---|---|---|
+| Cache-manifest model in Postgres | **Partly done (2026-11-16)** | No table of its own. A finished render's `GeneratedPdf.SourceMetadataSnapshot` (jsonb) now carries `tileCache`: the registry row's key, kind, URL, source date and version, the attribution, the `[W,S,E,N]` bbox and zoom range the engine pulled, tile and panel counts, and the row's declared max-age. Written by `RenderJobRunner.TileCacheOf`; bbox and zooms come from the engine (`TileCoverage` in `render-cli/src/render.ts`). A table is only worth having once there are extracts to list; see below. |
+| Server-side short-lived tile cache for render jobs | **Partly done** | `TileCache` (`dotnet/.../Tiles/TileCache.cs`) is a disk cache under `data/cache` that the proxy reads and writes; compose routes the worker through it (`Tiles__ProxyBaseUrl`). It is not short-lived: nothing expires a tile by age, and the size prune is off (`TileCache:MaxSizeMb` = 0). |
+| Optional `pmtiles extract` for a selected bbox | **Not started** | No extract code, command or endpoint. Waits on the format/source decision below. |
+| PMTiles packaging, registered as a `TileSource` row | **Partly done** | Reading is done: `PmTilesReader`/`PmTilesFetcher` serve a `pmtiles` row from a local archive under `TileCache:PmTilesDir` (default `data/map-packages`) or over HTTP ranges, with tests (`PmTilesReaderTests`, `PmTilesTilesApiTests`). Making a package (Protomaps extract or Planetiler) is not started. The print path draws raster only: `renderMapPanel` composites tile bytes with sharp, so a vector (`pbf`) archive serves to MapLibre but cannot be drawn into a PDF panel. Compose mounts `data/cache` but not `data/map-packages`. |
+| Pruning for extracts and old render artifacts; size estimate before an extract | **Partly done** | Render artifacts: `GeneratedPdfRetentionService`. Tile cache: `TileCache.Prune` / `journeybook cache-prune`, off by default. Extracts: none to prune. Estimate: `render --dry-run` gives a tile count (`planAtlasRender`, held to real fetches by `dry-run.test.ts`) but no byte estimate, and no extract exists to estimate. |
+| Power User self-hosted tile server | **Partly done** | The registry accepts an `xyz-server` row and `RasterXyzFetcher` serves it. No TileServer-GL/Martin/pg_tileserv service in compose. Stays "later" by this section's own wording. |
+| Done when: renders without permanent map bloat; temp files prune safely | **Partly done** | Temp files: the prune removes abandoned `.tmp-` files older than an hour. Bloat: the tile cache grows without bound until a size is chosen. |
+| Done when: cache metadata records source URL, source date, bbox, zoom range, attribution, expiration | **Partly done (2026-11-16)** | All but expiration are recorded per render (row 1). Gaps: the seeded `usgs-topo` row has no `SourceDate`, so that field is null for it; and there is no expiry to record, because nothing expires tiles. The snapshot records the row's declared `sourceCacheMaxAgeSeconds` under that name and invents no date. |
+
+Found while auditing, not fixed:
+
+- **A source's cache policy is stored and not used.** `TileCachePolicy.MaxAgeSeconds`
+  (86,400 on the seed) and `OfflineAllowed` (false) are read by nothing that acts on them. The
+  proxy sends `Cache-Control: max-age` from the global `TileCache:BrowserMaxAgeSeconds`
+  (604,800), so USGS tiles are offered to browsers for 7 days against the row's 1. Which value
+  should win is a policy choice, so it is left alone. `OfflineAllowed` should gate any extract
+  once one exists.
+
+What is left needs an owner decision. The options:
+
+1. **Which offline package format and source** (the open question under Resolved vs.
+   Remaining Decisions).
+   - *A. Protomaps prebuilt planet, `pmtiles extract` per bbox.* No build pipeline, ODbL
+     attribution. The tiles are **vector**, so printing them needs a vector-to-raster step
+     the panel renderer does not have (maplibre-native, the Stage 1C path not taken). Good
+     for MapLibre preview and Android, not for the PDF yet.
+   - *B. Planetiler region builds.* The same vector problem, plus a JVM build step and
+     disk for the OSM extract.
+   - *C. Raster PMTiles built from tiles the proxy already fetches* (USGS is public domain,
+     so packaging it raises no licence question). Prints today with no new renderer, covers
+     the US only, and the archives are large.
+   - *D. MBTiles instead of PMTiles.* Only if a consumer needs SQLite. None does: the reader
+     built in Stage 3 is PMTiles.
+2. **How long tiles are kept.** Pick `TileCache:MaxSizeMb`, an age limit (code to write), or
+   both. That also settles the expiry field in the provenance.
+3. **Whether a source's own `MaxAgeSeconds` should replace the global browser max-age.**
+4. **Whether to build a cache-manifest table now.** A table needs rows, and there will be
+   rows once packages exist (1). Until then the per-render snapshot holds the same facts.
 
 Folders touched: `packages/map-sources/`, `apps/api/`, `infra/db/migrations/`, `data/cache/`, `data/map-packages/`, `infra/compose/`.
 
