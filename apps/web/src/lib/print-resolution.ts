@@ -39,10 +39,18 @@ export interface PresetResolution extends ResolutionBand {
   samples: { lat: number; zoom: number; clamped: boolean; dpi: number }[];
 }
 
+/** Mirrors `PageSetupSpread` in map-sources: how far the table moves on other page setups. */
+export interface PageSetupSpread {
+  pages: string[];
+  maxDpiDelta: number;
+  zoomChanges: number;
+}
+
 export interface PrintResolutionTable {
   doc: string;
   targetDpi: number;
   page: { description: string; orientation: string; mapBoxWidthIn: number };
+  otherPages: PageSetupSpread;
   basemap: { id: string; maxZoom: number };
   latitudes: { from: number; to: number; step: number };
   presets: PresetResolution[];
@@ -110,17 +118,32 @@ export function latitudeRuns(lats: readonly number[], step: number): string {
  *    clear it everywhere.
  */
 /**
- * Which page every figure above describes.
+ * Which page every figure above describes — and whether that matters to the
+ * user's page.
  *
- * The whole table is measured for one page geometry, and changing orientation,
- * margins or the gutter moves the zoom cliffs to other latitudes — so a figure
- * quoted without its page is the same class of half-truth as a DPI quoted
- * without its latitude, which has already reached the owner wrong three times.
- * The description comes from the generated table, not from prose here, so it
- * cannot describe a page the figures were not measured for.
+ * The table is measured for one page geometry, and Page Setup lets the user pick
+ * orientation, margins and a gutter. This caveat used to say only which page the
+ * figures were for, which on a landscape project read as "these are not your
+ * figures". Re-measured, they are: every preset's request is rescaled to the map
+ * box, and the ground a page covers scales with it, so each latitude selects the
+ * same tile zoom on every page the app can produce. The generator measures that
+ * (`otherPages`), and the sentence quotes the measurement — including saying so
+ * if a change to the engine ever makes the zoom move.
  */
-export function pageCaveat(): string {
-  return `Figures are for ${PRINT_RESOLUTION.page.description}.`;
+export function pageCaveat(table: PrintResolutionTable = PRINT_RESOLUTION): string {
+  const o = table.otherPages;
+  const base = `Measured on ${table.page.description}.`;
+  if (o.zoomChanges === 0) {
+    return (
+      `${base} Your orientation, margins and gutter do not change them: re-measured on ` +
+      `${o.pages.length} other page setups, the same tile zoom at each sampled latitude, ` +
+      `within ${o.maxDpiDelta} DPI.`
+    );
+  }
+  return (
+    `${base} On other page setups they can differ: ${o.zoomChanges} of the re-measured ` +
+    `pages land on a different tile zoom, by up to ${o.maxDpiDelta} DPI.`
+  );
 }
 
 export function describePresetResolution(

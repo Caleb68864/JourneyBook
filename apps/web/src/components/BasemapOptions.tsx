@@ -8,6 +8,7 @@ import {
   type PanelFormat,
   type RenderOptionsState,
 } from "../lib/render-options";
+import type { PanelStepChoice, PanelZoomStep } from "../lib/panel-resolution";
 
 /**
  * Basemap on/off, panel encoding, and JPEG quality.
@@ -25,14 +26,32 @@ import {
  *  - Quality is the only continuous lever on file size. Panel WIDTH is not: the
  *    engine crops at native tile resolution and never resamples, so a wider
  *    request changes nothing until it crosses a Web-Mercator zoom boundary and
- *    then costs about 4x. Which is why there is no width control here — it
- *    would be a knob that mostly does nothing and occasionally quadruples the
- *    file, and the per-preset widths already target 300 DPI for print.
+ *    then costs about 4x. So width is offered as zoom STEPS, not pixels — one
+ *    zoom coarser, the scale's default, one zoom finer — each a width that lands
+ *    exactly on its step (`lib/panel-resolution.ts`), with what it delivers at
+ *    the project's latitude beside it. Decision 7 put `PanelWidthPx` in scope:
+ *    the API and `--panel-px` could change it and the app could not.
  */
 
+export type BasemapOptionsValue = Pick<RenderOptionsState, "basemap" | "panelFormat" | "panelQuality"> & {
+  /** Tile zoom step relative to the scale's default; the editor turns it into `panelWidthPx`. */
+  panelZoomStep: PanelZoomStep;
+};
+
 export interface BasemapOptionsProps {
-  value: Pick<RenderOptionsState, "basemap" | "panelFormat" | "panelQuality">;
-  onChange: (next: Pick<RenderOptionsState, "basemap" | "panelFormat" | "panelQuality">) => void;
+  value: BasemapOptionsValue;
+  onChange: (next: BasemapOptionsValue) => void;
+  /**
+   * The three resolution steps for this project's scale, page and latitude, from
+   * `panelStepChoices`. The editor owns the geometry; this only shows it.
+   */
+  panelChoices: PanelStepChoice[];
+  /**
+   * Some pages resolve their own default width (a location's own scale or zoom
+   * ladder), so one width sized for the project's scale is not exactly one step
+   * for them.
+   */
+  mixedScales?: boolean;
   disabled?: boolean;
 }
 
@@ -41,7 +60,8 @@ const FORMAT_LABEL: Record<PanelFormat, string> = {
   png: "PNG — lossless, several times larger",
 };
 
-export function BasemapOptions({ value, onChange, disabled }: BasemapOptionsProps) {
+export function BasemapOptions({ value, onChange, panelChoices, mixedScales, disabled }: BasemapOptionsProps) {
+  const chosenStep = panelChoices.find((c) => c.step === value.panelZoomStep);
   const quality = value.panelQuality ?? PANEL_QUALITY_DEFAULT;
   const relative = relativeSizeAtQuality(quality);
   const isPng = value.panelFormat === "png";
@@ -124,6 +144,39 @@ export function BasemapOptions({ value, onChange, disabled }: BasemapOptionsProp
                   ? `Engine default (${PANEL_QUALITY_DEFAULT}). Lowering it is the only real lever on file size.`
                   : `About ${relative.toFixed(2)}x the file size of the default (${PANEL_QUALITY_DEFAULT}).`}
             </span>
+          </div>
+
+          <div className="flex flex-col gap-0.5">
+            <label htmlFor="panel-resolution" className="font-mono text-[10px] uppercase text-bark-500">
+              Panel resolution
+            </label>
+            <select
+              id="panel-resolution"
+              disabled={disabled}
+              value={String(value.panelZoomStep)}
+              onChange={(e) =>
+                onChange({ ...value, panelZoomStep: Number(e.target.value) as PanelZoomStep })
+              }
+              className="border border-bark-400 bg-cream-50 px-2 py-1 font-mono text-xs text-charcoal-900 focus:outline-none focus:ring-1 focus:ring-forest-700"
+            >
+              {panelChoices.map((choice) => (
+                <option key={choice.step} value={String(choice.step)}>
+                  {choice.noEffect ? `${choice.label} (no effect here)` : choice.label}
+                </option>
+              ))}
+            </select>
+            {/* What the chosen step delivers, at this project's latitude, read
+                from the generated print-resolution table — never typed. */}
+            <span data-testid="panel-resolution-note" className="font-mono text-[10px] text-bark-500">
+              {chosenStep?.note ??
+                "Steps by whole tile zooms: each step finer is about 4x the tiles and file. Set a box or a location to see the DPI."}
+            </span>
+            {mixedScales && value.panelZoomStep !== 0 && (
+              <span data-testid="panel-resolution-mixed" className="font-mono text-[10px] text-campfire-700">
+                One width is sent for every page, sized for the project's scale. Pages with their own scale or
+                zoom ladder may move by a different amount.
+              </span>
+            )}
           </div>
         </div>
       )}

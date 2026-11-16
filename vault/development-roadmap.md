@@ -1050,7 +1050,6 @@ Suites on this branch: TS atlas-core 102, pdf-client 71, map-sources 93 (one new
 render-cli 123 (with a 60 s timeout, see above), render-worker 37. .NET without Docker: 239
 (two new). The Docker `Api` suites were not run.
 
-||||||| d70705a
 
 ## Decision 7 re-verified — 2026-11-09
 
@@ -1090,26 +1089,142 @@ the code rather than the earlier note, looking for the half-wired shape.
   reaches the `options` `GenerateButton` posts. Mutation-checked, each break restored:
   a no-op `onChange` (1 test fails), overlap defaulted to 0 (2 fail), `setPanelQuality`
   removed (1 fails), `panelFormat: null` on Generate (1 fails).
-- [ ] **`panelWidthPx` is reachable through the API but has no control.** `RenderProjectRequest.PanelWidthPx`
-  and `--panel-px` exist. `3a58665` left it out on purpose: the engine never resamples, so
-  width does nothing until it crosses a zoom boundary and then costs about 4x. Decision 7
-  as worded ("any route ... is in scope") covers it, so **the owner needs to confirm the
-  exception** or ask for a control that snaps to zoom boundaries.
-- [ ] **Other CLI-only knobs, not audited one by one against the rule:** `--tile-source`,
-  `--tile-max-zoom`, `--max-mb`, `--no-print-check` (`packages/render-cli/src/cli.ts`). Most
-  of these are operator settings rather than user settings, but each needs a yes or no.
-- [ ] **`render-cli` basemap tests time out under load.** At load average ~36, 1–4 of the
-  "renderAtlas with a basemap" mixed-scale cases in `packages/render-cli/src/render.test.ts`
-  hit vitest's 5 s default, and a `sharp`/wasm "expected magic word" line shows up on
-  stderr. They pass on an idle machine (123/123 earlier the same day). Give them an
-  explicit timeout, or find out why they take so long.
-- [ ] **No measured overlap cost above 5%.** The sweep covers 5% only. The 10–25% options
-  have just theory and the per-box figure. Re-run the sweep at 2/10/15/20/25%
-  (`pageGridSize`, same extents) if the UI is to quote a range for each step
-  (`PageSetup.tsx` `OVERLAP_STEPS`).
-- [ ] **The picker's DPI caveat** (J16/J17, `../../ROADMAP.md` 2026-09-11 row) gave figures
-  for Letter portrait at 0.5in. Now that orientation and margins are user-settable, check
-  whether it still describes the user's page.
+- [x] ~~**`panelWidthPx` is reachable through the API but has no control.**~~ ✅ 2026-11-16
+  (`work/2026-11-16-open-items`). The control the note asked for: one that **snaps to zoom
+  boundaries**. "Panel resolution" in `BasemapOptions` offers *one tile zoom coarser*, *scale
+  default*, *one tile zoom finer* — never pixels. `lib/panel-resolution.ts` turns a step into
+  a width: step 0 sends nothing (the engine keeps its per-page, per-preset widths); ±1 sends
+  `panelWidthPxFor(scale, the project's page)` doubled, or halved and rounded up. Because
+  `zoomForBBox` picks the smallest zoom covering the request and native width doubles per
+  zoom, that lands on exactly one zoom. Pinned in `map-sources` (`tilemath.test.ts`, "zoom
+  steps by doubling and halving the request") over every preset, 18–72°N at 0.25° and four
+  page setups: doubling is always exactly +1 zoom; halving is −1 zoom except on a page within
+  a pixel of its own boundary, where it is no change — 6 of 6,510 cases. `ceil` was chosen
+  because it fails to "no change"; `floor` failed 9 cases, some by **two** zooms.
+  Beside the select is what the step delivers at the project's latitude (extent centre, else
+  the first location), read from the generated print-resolution table — and the steps that
+  do nothing are named: finer on a page already at z16 (1:24,000 at 41°N), coarser on a
+  clamped page, and "may have no effect" where the table shows a page sitting on its
+  boundary. The editor keeps the *step*, not pixels, so changing scale or page setup
+  re-derives the width. Limits, stated in the UI: the wire carries **one width for every
+  page**, so pages with their own scale or zoom ladder move by a different amount (a warning
+  appears when the project has any), and the override also sets the overview page's panel
+  (`overviewPanelWidthPx`). Tests: `BasemapOptions.test.tsx` (6 new, real select → body),
+  `panel-resolution.test.ts` (6), `render-options.test.ts` (1), `ProjectEditorPage.test.tsx`
+  (1 new, width sized for the project's landscape page with margins). Against the old code,
+  the 9 new wiring tests fail (the module itself is new).
+- [x] ~~**Other CLI-only knobs, not audited one by one against the rule.**~~ ✅ 2026-11-16.
+  Every `render-cli` flag against the app (`packages/render-cli/src/cli.ts` HELP, checked
+  against `ProjectEditorPage.tsx`, `BasemapOptions.tsx`, `PageSetup.tsx`, `LocationList.tsx`,
+  `RenderProjectRequest` and `RenderService`). One gap, now closed (`--panel-px`, above);
+  no other clear gap.
+
+  | flag | in the app? | verdict |
+  |---|---|---|
+  | `--bbox`, `--location(s)`, `--cover`, `--route` | extent draw/entry, locations + CSV import, Cover and Route checkboxes | yes |
+  | `--zoom-levels` | per-location ladder in `LocationList` | yes |
+  | `--tier`, `--overlap` | `TierPicker`, `PageSetup` | yes |
+  | `--title`, `--explorer`, `--date` | project name, `TitlePageFields` | yes |
+  | `--no-toc`, `--no-overview`, `--no-notes`, `--no-reference-grid` | four checkboxes | yes |
+  | `--basemap`, `--panel-format`, `--panel-quality` | `BasemapOptions` | yes |
+  | `--panel-px` | was **no** | **fixed** — "Panel resolution" |
+  | `--landmarks` | landmark import + Include landmarks | yes |
+  | `--tile-base-url`, `--tile-source`, `--tile-max-zoom` | server config (`Tiles:ProxyBaseUrl`, `Tiles:DefaultSource`) and the registry's `TileSource.MaxZoom`; registry writes are behind `AdminApiKeyGate`; `RenderProjectRequest` has no member | **no — operator**. No user route changes them, so Decision 7 does not reach them. If the owner wants a per-project tile source, that is a new feature (an API member first). |
+  | `--tile-cache-dir`, `cache-prune --max-mb` | `TileCache:CacheDir`, `TileCache:MaxSizeMb`, scheduled prune | **no — operator** |
+  | `--no-print-check` (validate) | the API renders and measures; nothing to skip | **no — CLI diagnostic** |
+  | `--dry-run`, `grid`, `validate` | inspection commands, not settings; the editor shows the page count, not the tile count | **no — not a setting**. A tile-count preview would be a feature, not a gap. |
+  | `calibration` | `PrintCheckLink` serves the generated `print-check.pdf` | yes |
+- [x] ~~**`render-cli` basemap tests time out under load.**~~ ✅ 2026-11-16
+  (`work/2026-11-16-open-items`). Two causes, not one.
+  **(1) The "expected magic word" line was a real bug in the test, not noise.** The cases
+  stub the *global* `fetch` to return a PNG for every call, and yoga-layout (under
+  @react-pdf) loads its inlined WebAssembly with `fetch("data:…")` the first time a PDF is
+  laid out in the process. It got the PNG (`found 89 50 4e 47`) and aborted. A full run
+  passed only because an earlier, unstubbed test had loaded yoga first: run on its own
+  (`vitest run src/render.test.ts -t "mixed-scale zoom ladder"`) the case failed **every
+  time**, on an idle machine, on the old code. The stub (`tileFetchStub`) now answers
+  http(s) only and hands everything else to the real `fetch`; the same command passes.
+  **(2) The time is real CPU, not a hang.** Each case composites a tile mosaic in sharp,
+  mozjpeg-encodes a 1,900–3,800 px panel per page and lays out the PDF; only the network
+  is stubbed. Measured at load average 13: 0.25–3.4 s per case, and the three-page
+  zoom-ladder case crossed 5 s. The `describe` now carries a 60 s timeout
+  (`BASEMAP_TEST_TIMEOUT_MS`). Proved under load: with six CPU burners pinned to the same
+  two cores (`taskset -c 0,1`), the old file failed 1 of 35 (zoom ladder, 5030 ms) and the
+  new one passed 35/35. A timed-out case can no longer leak late tile requests into the
+  next case's mock (the `[12, 16]` vs `[12]` failure noted above), because it no longer
+  times out at 5 s.
+- [x] ~~**No measured overlap cost above 5%.**~~ ✅ 2026-11-16 — see "Overlap cost at every
+  step" below. Every step the select offers now quotes its own measured range
+  (`OVERLAP_STEP_COST`, `overlapTypicalCost`), and `PageSetup.overlap-cost.test.ts`
+  re-measures the table through `pageGridSize` so it cannot drift. Against the old code the
+  6 measurement tests and all 3 changed `PageSetup` tests fail.
+- [x] ~~**The picker's DPI caveat** (J16/J17).~~ ✅ 2026-11-16. Rechecked by measurement:
+  **the figures still describe the user's page; the caveat was the part that had gone
+  wrong.** J16's own Watch note predicted it ("if 2J14 ever lets a user pick orientation or
+  margins, the picker's figures stop being true for their page"), and
+  `docs/print-resolution.md` said orientation and margins "change how much ground a page
+  covers, so the cliffs fall at different latitudes". Neither holds since `panelWidthPxFor`:
+  the request and the ground a page covers both scale with the map box width, so the zoom
+  each latitude selects does not move. Re-measured every preset at 18–72°N on Letter
+  landscape, 0.25 in / 1 in / 2 in margins, a 0.75 in gutter, and landscape with 2 in
+  margins plus a 2 in gutter: **0 zoom changes, at most 2 DPI** (rounding) — every band,
+  every below-300 latitude and every steepest cliff in the table is the same. So
+  "Figures are for US Letter, portrait, default 0.5 in margins", shown to a landscape user,
+  read as "not your figures" and was the misleading part. Now the generator measures that
+  spread into the table (`otherPages`: 5 setups at the Page Setup extremes,
+  `maxDpiDelta` 2, `zoomChanges` 0), the picker's `pageCaveat()` quotes it ("…re-measured on
+  5 other page setups, the same tile zoom at each sampled latitude, within 2 DPI"), and says
+  the opposite, with the counts, if a future engine change ever makes the zoom move. The
+  doc paragraph is generated from the same fields. Against the old code all three
+  `pageCaveat` tests fail. Not done here: the J16 Watch note lives in `../../ROADMAP.md`,
+  outside this repo, and still reads as if the caveat became the bug.
+  Also corrected: `ScalePreset.panelWidthPx`'s comment gave the Letter-portrait map box as
+  5.7639 in; it is 6.2083 in (`print-resolution.json` `mapBoxWidthIn`) — it now names
+  `mapBoxInches(LETTER_PORTRAIT)` instead of a number.
+
+**State of this branch** (`work/2026-11-16-open-items`, not pushed; this repo's rule is push,
+open a PR, read all four CI jobs, then merge — **CI has not been read**). Suites:
+TS atlas-core 102, pdf-client 71, map-sources 94, web 214, render-cli 123, render-worker 37
+(641); .NET 338/338 with Docker (239 unit + 99 Testcontainers integration). Harness checks
+print-resolution, page-count, print-check, golden-fixture, lint/typecheck pass.
+
+### Overlap cost at every step — 2026-11-16
+
+Re-run the way the 5% sweep was: `pageGridSize`, square extents about 41°N / 98°W at
+1:24,000, Letter portrait with default margins, each extent counted at 0% and at the step.
+Two square constructions (naive metres-per-degree, and a square in the page-centred
+projection) agree to within 0.4 points; the page-centred one is what the app's test uses.
+
+**The 5% figures in the older tables above no longer reproduce.** That sweep predates the
+map box growing to 6.2083 in (it used 5.7639 in, a 3,513.67 m footprint; today's is 3,784.6
+m), so its per-size rows (7 km 4→6, 40 km 108→130, …) and the "+11%" are a different
+geometry. Today 7 km is 4→4 and 40 km 99→120 (naive construction).
+
+Aggregate page increase / boxes that pay nothing / worst single box, page-centred squares:
+
+| overlap | theory `(1/(1-o))²-1` | 5–60 km, 0.5 km (111) | 5–60 km, 0.1 km (551) |
+|---|---|---|---|
+| 2% | +4.1% | +4.1%, 80 free (72%), worst +50% | **+4.1%, 393 free (71%), worst +50%** |
+| 5% | +10.8% | +10.6%, 43 free (39%), worst +50% | **+10.5%, 211 free (38%), worst +50%** |
+| 10% | +23.5% | +22.4%, 17 free (15%), worst +50% | **+22.4%, 85 free (15%), worst +67%** |
+| 15% | +38.4% | +36.6%, 7 free (6%), worst +67% | **+36.4%, 39 free (7%), worst +67%** |
+| 20% | +56.3% | +52.9%, 3 free (3%), worst +125% | **+53.2%, 11 free (2%), worst +125%** |
+| 25% | +77.8% | +74.0%, 2 free (2%), worst +125% | **+73.6%, 7 free (1%), worst +125%** |
+
+Coarser sample sets (naive squares) for comparison, aggregate: 5–50 km at 1 km +3.4 / +9.8
+/ +21.2 / +35.6 / +50.2 / +72.4%; 10–40 km at 1 km +3.6 / +9.8 / +21.5 / +35.5 / +49.1 /
++72.1%; 5–50 km at 5 km +3.4 / +11.3 / +20.7 / +38.4 / +54.6 / +74.8%.
+
+What it says:
+
+- **Theory is a good guide above 5% and slightly high everywhere** (the `ceil()` slack): the
+  dense aggregate sits 0–4 points under it.
+- **"Free" boxes vanish fast.** About 7 in 10 boxes gain no page at 2%, 4 in 10 at 5%, 1 in
+  7 at 10%, and almost none from 20% up.
+- **Worst cases are small boxes.** +125% at 20–25% is a 2-page box becoming 4–5 pages; it is
+  a floor on the worst case, since finer sampling has only ever made it worse.
+- The UI now quotes, per step, the bold column (rounded): `OVERLAP_STEP_COST` in
+  `PageSetup.tsx`, checked by `PageSetup.overlap-cost.test.ts`.
 
 ## Phase 1: Print Geometry
 Build the Docker-hosted React/Vite/shadcn/Tailwind web app skeleton, define the outdoor field-guide visual system, accept bounding boxes, create page grid, generate overview and detail pages, and validate Letter-size PDF output from the preferred client-side React PDF path.

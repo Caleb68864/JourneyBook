@@ -219,9 +219,11 @@ one to trust.
 ## What this table covers
 
 - **Page:** ${table.page.description} (map box ${table.page.mapBoxWidthIn} in wide).
-  Each preset's panel request is rescaled to the page you actually print, so it
-  asks for the same DPI on any page setup — but orientation, margins and gutter
-  change how much ground a page covers, so the cliffs fall at different latitudes.
+  Each preset's panel request is rescaled to the page you actually print, and the
+  ground a page covers scales with its map box too, so the tile zoom each latitude
+  selects does not depend on the page setup. Measured, not assumed: re-run on
+  ${table.otherPages.pages.length} other setups (${table.otherPages.pages.join("; ")}), ${table.otherPages.zoomChanges === 0 ? "the zoom is the same at every sampled latitude" : `${table.otherPages.zoomChanges} samples land on a different zoom`},
+  and the DPI moves by at most ${table.otherPages.maxDpiDelta}.
 - **Basemap:** ${table.basemap.id}, deepest zoom z${table.basemap.maxZoom}.
 - **Latitudes:** every whole degree from ${table.latitudes.from}°N to ${table.latitudes.to}°N, the band USGS Topo covers.
   Between samples the figure can sit a little outside the sampled extremes — an

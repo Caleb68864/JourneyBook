@@ -1218,7 +1218,6 @@ Each entry follows this shape:
 - Watch: `Retry-After` on a 429 is still ignored (fixed 200/400 ms backoff). Holes under the failure threshold still pass silently apart from `tilesMissing`.
 - Commit: (pending)
 
-||||||| d70705a
 
 
 ## 2026-11-09 — Decision 7 re-verified: the two untested hops, and overlap cost before an extent
@@ -1236,3 +1235,38 @@ Each entry follows this shape:
 - Surfaces: apps/web/src/routes/ProjectEditorPage.test.tsx
 - Watch: the probes record props, not rendering. A child that ignores a prop it is given is caught by that child's own test file, not here.
 - Commit: (pending)
+
+## 2026-11-16 — render-cli basemap tests: fetch stub answered yoga's wasm load, and a timeout sized to the work
+- Symptom: under load, 1–4 "renderAtlas with a basemap" cases hit vitest's 5 s default, with "expected magic word 00 61 73 6d, found 89 50 4e 47" on stderr. Run on its own with `-t`, the zoom-ladder case failed every time, even idle.
+- Cause: the cases stub the global `fetch` to return a PNG for every call. yoga-layout loads its inlined wasm via `fetch("data:...")` on first PDF layout, got the PNG and aborted; a full run passed only because an earlier unstubbed test had loaded yoga. Separately, the cases are CPU-bound (sharp composite, mozjpeg encode, PDF layout), 0.25–3.4 s each at load 13.
+- Fix: `tileFetchStub` answers http(s) only and delegates other URLs to the real `fetch`; the block has a 60 s timeout (`BASEMAP_TEST_TIMEOUT_MS`).
+- Evidence: isolated case fails on the old file, passes on the new. With six CPU burners pinned to two cores, old 34/35 (zoom ladder at 5030 ms), new 35/35.
+- Also: removed a stray diff3 base marker (`||||||| d70705a`) left in this file and in `vault/development-roadmap.md` by merge `1f3d0d9`.
+- Surfaces: packages/render-cli/src/render.test.ts
+- Watch: any other test file that stubs the global `fetch` around a PDF render has the same trap if it is the first to lay a PDF out.
+- Commit: (pending)
+
+## 2026-11-16 — Panel resolution control: panelWidthPx as tile-zoom steps
+- Symptom: `RenderProjectRequest.PanelWidthPx` and `--panel-px` could set the panel width; the app could not (Decision 7). A free pixel field would mostly do nothing (the engine never resamples; width only picks a zoom) and occasionally quadruple the file.
+- Fix: "Panel resolution" in `BasemapOptions` offers one zoom coarser / scale default / one zoom finer. `panelWidthForStep` sends `panelWidthPxFor(scale, page)` x2, or /2 rounded up; step 0 sends nothing. The note beside it reads the delivered DPI at the project's latitude from the generated print-resolution table and names steps that do nothing (z16 ceiling, clamped pages, pages on a boundary). The editor stores the step and re-derives the width from the current scale and page setup.
+- Evidence: `tilemath.test.ts` pins that doubling is always +1 zoom and halving-ceil is -1 or (6 of 6,510 cases) no change, never -2. The 9 new wiring tests fail against the old components.
+- Surfaces: apps/web/src/lib/panel-resolution.ts, apps/web/src/components/BasemapOptions.tsx, apps/web/src/lib/render-options.ts, apps/web/src/routes/ProjectEditorPage.tsx, apps/web/src/api/client.ts, packages/map-sources/src/tilemath.test.ts
+- Watch: one width goes to every page. Pages with their own scale or zoom ladder move by a different amount (the UI warns), and the overview panel uses the same override. A per-page "zoom offset" on the wire would fix both; it would be a new engine/API member. The CLI-knob audit found no other gap (roadmap, Decision 7 re-verified).
+- Commit: (pending)
+
+## 2026-11-16 — Overlap cost measured at every step, and checked by the engine
+- Symptom: the overlap select offers 2–25%, and beside every option it quoted the 5% sweep ("0% to +50%, about +11%"). Nothing above 5% had been measured. The 5% figure itself no longer reproduced: it was measured before the map box grew from 5.7639 in to 6.2083 in.
+- Fix: swept 2/5/10/15/20/25% with `pageGridSize` (5–60 km squares at 0.1 km, 41N 98W, 1:24,000). `OVERLAP_STEP_COST` holds average / worst / share-free per step and `overlapTypicalCost` quotes the selected step. `PageSetup.overlap-cost.test.ts` recomputes the sweep through the engine and fails if any figure drifts.
+- Evidence: 5% is now +10% (not +11%), 0–50%, 38% free; 25% is +74%, 0–125%, 1% free. Full table in vault/development-roadmap.md, "Overlap cost at every step".
+- Surfaces: apps/web/src/components/PageSetup.tsx, apps/web/src/components/PageSetup.test.tsx, apps/web/src/components/PageSetup.overlap-cost.test.ts
+- Watch: the figures are for 1:24,000 on Letter portrait at 41N. Other scales and page setups shift which boxes are free, not the theory. The per-box figure under the select is still the one to trust.
+- Commit: (pending)
+
+## 2026-11-16 — Print-resolution caveat: the figures hold on every page setup, so say so
+- Symptom: the scale picker ended every note with "Figures are for US Letter, portrait, default 0.5 in margins", and docs/print-resolution.md said orientation and margins move the zoom cliffs. Page Setup made those user-settable, so a landscape user was told the figures were not theirs.
+- Cause: measured, the figures are theirs. `panelWidthPxFor` rescales each preset's request with the map box, and the ground a page covers scales with it too, so each latitude selects the same zoom on any page. Every preset at 18-72N on 5 setups at the Page Setup extremes: 0 zoom changes, at most 2 DPI.
+- Fix: `buildPrintResolutionTable` measures that spread into the table (`otherPages`: pages, maxDpiDelta, zoomChanges). `pageCaveat()` quotes it, and says the figures can differ, with counts, if zoomChanges is ever non-zero. The generated doc paragraph uses the same fields. Corrected a stale 5.7639 in figure in `ScalePreset.panelWidthPx`'s comment.
+- Surfaces: packages/map-sources/src/print-resolution.ts, scripts/generate-print-resolution.mjs, apps/web/src/generated/print-resolution.json, docs/print-resolution.md, apps/web/src/lib/print-resolution.ts, apps/web/src/lib/print-resolution.test.ts, packages/atlas-core/src/model.ts
+- Watch: sampled at whole degrees. Between samples a cliff can shift by a sub-pixel rounding amount. Only Letter exists; another sheet size would need its own check.
+- Commit: (pending)
+

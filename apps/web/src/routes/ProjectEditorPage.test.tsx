@@ -62,6 +62,8 @@ const PROJECT: Project = {
 };
 
 const { api } = await import("../api/client");
+const { toPageSpec } = await import("../lib/page-estimate");
+const { LETTER_PORTRAIT, SCALE_PRESETS, panelWidthPxFor } = await import("@journeybook/atlas-core");
 const { ProjectEditorPage } = await import("./ProjectEditorPage");
 
 beforeEach(() => {
@@ -127,23 +129,45 @@ describe("ProjectEditorPage wires page setup", () => {
 describe("ProjectEditorPage wires the basemap options", () => {
   it("[CONTROL] starts from the engine's defaults", async () => {
     await renderEditor();
-    expect(seen.basemap.at(-1)!.value).toEqual({ basemap: true, panelFormat: null, panelQuality: null });
-    expect(seen.generate.at(-1)!.options).toMatchObject({ basemap: true, panelFormat: null, panelQuality: null });
+    expect(seen.basemap.at(-1)!.value).toEqual({ basemap: true, panelFormat: null, panelQuality: null, panelZoomStep: 0 });
+    expect(seen.generate.at(-1)!.options).toMatchObject({
+      basemap: true,
+      panelFormat: null,
+      panelQuality: null,
+      panelWidthPx: null,
+    });
   });
 
   it("[BEHAVIORAL] a BasemapOptions change reaches what Generate posts", async () => {
     await renderEditor();
 
     await act(async () =>
-      seen.basemap.at(-1)!.onChange({ basemap: true, panelFormat: "jpeg", panelQuality: 60 }),
+      seen.basemap.at(-1)!.onChange({ basemap: true, panelFormat: "jpeg", panelQuality: 60, panelZoomStep: 0 }),
     );
 
-    expect(seen.basemap.at(-1)!.value).toEqual({ basemap: true, panelFormat: "jpeg", panelQuality: 60 });
+    expect(seen.basemap.at(-1)!.value).toEqual({ basemap: true, panelFormat: "jpeg", panelQuality: 60, panelZoomStep: 0 });
     expect(seen.generate.at(-1)!.options).toMatchObject({ basemap: true, panelFormat: "jpeg", panelQuality: 60 });
 
     await act(async () =>
-      seen.basemap.at(-1)!.onChange({ basemap: false, panelFormat: "jpeg", panelQuality: 60 }),
+      seen.basemap.at(-1)!.onChange({ basemap: false, panelFormat: "jpeg", panelQuality: 60, panelZoomStep: 0 }),
     );
     expect(seen.generate.at(-1)!.options.basemap).toBe(false);
+  });
+
+  it("[BEHAVIORAL] a resolution step reaches Generate as a width sized for the project's own page", async () => {
+    await renderEditor();
+    // The project is Landscape with non-default margins and a gutter, at 1:24,000.
+    const page = toPageSpec(PROJECT);
+    const base = panelWidthPxFor(SCALE_PRESETS.find((s) => s.id === "usgs-7-5-min")!, page);
+    expect(base).not.toBe(panelWidthPxFor(SCALE_PRESETS.find((s) => s.id === "usgs-7-5-min")!, LETTER_PORTRAIT));
+
+    // The choices handed to the control are this project's, at its extent's latitude.
+    expect(seen.basemap.at(-1)!.panelChoices.map((c) => c.panelWidthPx)).toEqual([Math.ceil(base / 2), null, base * 2]);
+    expect(seen.basemap.at(-1)!.panelChoices.find((c) => c.step === 0)!.note).toMatch(/41°N/);
+
+    await act(async () =>
+      seen.basemap.at(-1)!.onChange({ basemap: true, panelFormat: null, panelQuality: null, panelZoomStep: -1 }),
+    );
+    expect(seen.generate.at(-1)!.options.panelWidthPx).toBe(Math.ceil(base / 2));
   });
 });

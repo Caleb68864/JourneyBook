@@ -27,6 +27,7 @@ import { PageSetup, type PageSetupValue } from "../components/PageSetup";
 import { PrintCheckLink } from "../components/PrintCheckLink";
 import { TitlePageFields, type TitlePageValue } from "../components/TitlePageFields";
 import { BasemapOptions } from "../components/BasemapOptions";
+import { panelStepChoices, type PanelZoomStep } from "../lib/panel-resolution";
 
 interface ProjectEditorPageProps {
   projectId: string;
@@ -72,6 +73,10 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
   const [basemap, setBasemap] = useState(DEFAULT_RENDER_OPTIONS.basemap);
   const [panelFormat, setPanelFormat] = useState<PanelFormat | null>(DEFAULT_RENDER_OPTIONS.panelFormat);
   const [panelQuality, setPanelQuality] = useState<number | null>(DEFAULT_RENDER_OPTIONS.panelQuality);
+  // Panel resolution as a tile-zoom step, not pixels: 0 sends no width at all.
+  // Kept as a step so a later change of scale or page setup re-derives the width
+  // instead of carrying a pixel count sized for the old one.
+  const [panelZoomStep, setPanelZoomStep] = useState<PanelZoomStep>(0);
   // Render history (past generated PDFs).
   const [pdfHistory, setPdfHistory] = useState<GeneratedPdf[]>([]);
 
@@ -422,6 +427,18 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
   const savedPageCount = savedEstimate.pages;
   const savedOverLimit = savedEstimate.overLimit;
 
+  // The panel-resolution steps for THIS project's scale and page, with what each
+  // delivers at its latitude (extent centre, else the first location).
+  const projectLat =
+    project.extent !== null ? (project.extent[1] + project.extent[3]) / 2 : (locations[0]?.lat ?? null);
+  const panelChoices = scale ? panelStepChoices(scale, pageSpec, projectLat) : [];
+  const panelWidthPx = panelChoices.find((c) => c.step === panelZoomStep)?.panelWidthPx ?? null;
+  const mixedScales = locations.some(
+    (l) =>
+      (l.scalePresetId != null && l.scalePresetId !== project.scalePresetId) ||
+      (l.zoomLevels?.length ?? 0) > 0,
+  );
+
   const drawActive = drawMode !== "none";
   const drawCursor = drawMode === "bbox-first"
     ? "Click first corner"
@@ -761,11 +778,14 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
               </label>
               <div className="mb-3">
                 <BasemapOptions
-                  value={{ basemap, panelFormat, panelQuality }}
+                  value={{ basemap, panelFormat, panelQuality, panelZoomStep }}
+                  panelChoices={panelChoices}
+                  mixedScales={mixedScales}
                   onChange={(next) => {
                     setBasemap(next.basemap);
                     setPanelFormat(next.panelFormat);
                     setPanelQuality(next.panelQuality);
+                    setPanelZoomStep(next.panelZoomStep);
                   }}
                 />
               </div>
@@ -783,6 +803,7 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
                   basemap,
                   panelFormat,
                   panelQuality,
+                  panelWidthPx,
                 } satisfies RenderOptionsState}
                 disabled={!hasGeometry || savedOverLimit}
               />

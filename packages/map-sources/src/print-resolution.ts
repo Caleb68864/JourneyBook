@@ -90,11 +90,64 @@ export interface PresetPrintResolution extends Band {
   samples: PrintResolutionSample[];
 }
 
+/**
+ * How far the table moves on the other page setups the app can produce.
+ *
+ * The table is measured on one page, and the app lets the user change
+ * orientation, margins and gutter. Whether that makes the figures wrong for their
+ * page is a measurement, not a caveat to state: every preset's request is
+ * rescaled to the map box (`panelWidthPxFor`), and both the request and the
+ * ground a page covers scale with the map box width, so the zoom each latitude
+ * selects is expected not to move. This records how far it actually moved.
+ */
+export interface PageSetupSpread {
+  /** The page setups re-measured, described. */
+  pages: string[];
+  /** Largest |delivered DPI - the table's| over every preset, latitude and page. */
+  maxDpiDelta: number;
+  /** Samples (preset x latitude x page) whose tile zoom differs from the table's. */
+  zoomChanges: number;
+}
+
+/**
+ * The setups the spread is measured on: each extreme the web app's Page Setup
+ * allows (0.25–2 in margins, 0–2 in gutter, either orientation).
+ */
+const OTHER_PAGE_SETUPS: { description: string; page: PageSpec }[] = [
+  { description: "landscape, 0.5 in margins", page: { ...LETTER_PORTRAIT, orientation: "landscape" } },
+  {
+    description: "portrait, 0.25 in margins",
+    page: { ...LETTER_PORTRAIT, margins: { top: 0.25, right: 0.25, bottom: 0.25, left: 0.25 } },
+  },
+  {
+    description: "portrait, 2 in margins and a 2 in gutter",
+    page: { ...LETTER_PORTRAIT, margins: { top: 2, right: 2, bottom: 2, left: 2, gutter: 2 } },
+  },
+  {
+    description: "landscape, 0.25 in margins",
+    page: {
+      ...LETTER_PORTRAIT,
+      orientation: "landscape",
+      margins: { top: 0.25, right: 0.25, bottom: 0.25, left: 0.25 },
+    },
+  },
+  {
+    description: "landscape, 2 in margins and a 2 in gutter",
+    page: {
+      ...LETTER_PORTRAIT,
+      orientation: "landscape",
+      margins: { top: 2, right: 2, bottom: 2, left: 2, gutter: 2 },
+    },
+  },
+];
+
 export interface PrintResolutionTable {
   /** Repo-relative path of the generated documentation of this table. */
   doc: string;
   targetDpi: number;
   page: { description: string; orientation: string; mapBoxWidthIn: number };
+  /** How far these figures move on the other page setups the app allows. */
+  otherPages: PageSetupSpread;
   basemap: { id: string; maxZoom: number };
   latitudes: { from: number; to: number; step: number };
   presets: PresetPrintResolution[];
@@ -186,6 +239,36 @@ export function buildPrintResolutionTable(
   const targetRequestPx = panelWidthPxForDpi(boxIn, PRINT_DPI_TARGET);
   const lats = latitudes();
 
+  const presetRows = presets.map((scale) => {
+    const panelWidthPx = panelWidthPxFor(scale, page);
+    const samples = lats.map((lat) => deliveredPrintResolution(scale, page, lat, panelWidthPx, basemap));
+    const atTarget = lats.map((lat) => deliveredPrintResolution(scale, page, lat, targetRequestPx, basemap));
+    return {
+      id: scale.id,
+      label: scale.label,
+      ratio: scale.ratio,
+      panelWidthPx,
+      requestedDpi: wholeDpi(effectiveDpi(panelWidthPx, boxIn)),
+      ...bandOf(samples, PRINT_DPI_TARGET),
+      steepestStep: steepestStepOf(samples),
+      atTargetRequest: { panelWidthPx: targetRequestPx, ...bandOf(atTarget, PRINT_DPI_TARGET) },
+      samples,
+    };
+  });
+
+  let maxDpiDelta = 0;
+  let zoomChanges = 0;
+  for (const other of OTHER_PAGE_SETUPS) {
+    presets.forEach((scale, i) => {
+      const width = panelWidthPxFor(scale, other.page);
+      for (const ref of presetRows[i]!.samples) {
+        const got = deliveredPrintResolution(scale, other.page, ref.lat, width, basemap);
+        maxDpiDelta = Math.max(maxDpiDelta, Math.abs(got.dpi - ref.dpi));
+        if (got.zoom !== ref.zoom) zoomChanges++;
+      }
+    });
+  }
+
   return {
     doc: "docs/print-resolution.md",
     targetDpi: PRINT_DPI_TARGET,
@@ -194,24 +277,10 @@ export function buildPrintResolutionTable(
       orientation: page.orientation,
       mapBoxWidthIn: Math.round(boxIn * 1e4) / 1e4,
     },
+    otherPages: { pages: OTHER_PAGE_SETUPS.map((o) => o.description), maxDpiDelta, zoomChanges },
     basemap: { id: basemap.id, maxZoom: basemap.maxZoom },
     latitudes: { ...USGS_TOPO_LATITUDE_BAND },
-    presets: presets.map((scale) => {
-      const panelWidthPx = panelWidthPxFor(scale, page);
-      const samples = lats.map((lat) => deliveredPrintResolution(scale, page, lat, panelWidthPx, basemap));
-      const atTarget = lats.map((lat) => deliveredPrintResolution(scale, page, lat, targetRequestPx, basemap));
-      return {
-        id: scale.id,
-        label: scale.label,
-        ratio: scale.ratio,
-        panelWidthPx,
-        requestedDpi: wholeDpi(effectiveDpi(panelWidthPx, boxIn)),
-        ...bandOf(samples, PRINT_DPI_TARGET),
-        steepestStep: steepestStepOf(samples),
-        atTargetRequest: { panelWidthPx: targetRequestPx, ...bandOf(atTarget, PRINT_DPI_TARGET) },
-        samples,
-      };
-    }),
+    presets: presetRows,
   };
 }
 

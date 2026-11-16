@@ -47,7 +47,7 @@ export interface ScalePreset {
   ratio: number;
   /**
    * Basemap panel width this preset asks for, in pixels, measured across the
-   * **Letter-portrait** map box (5.7639 in). `panelWidthPxFor` rescales it to
+   * **Letter-portrait** map box (`mapBoxInches(LETTER_PORTRAIT)`). `panelWidthPxFor` rescales it to
    * whatever map box a page actually has, so the request survives landscape and
    * a binder gutter instead of being a portrait-only number.
    *

@@ -478,6 +478,8 @@ export const api = {
         basemap?: boolean;
         panelFormat?: "jpeg" | "png";
         panelQuality?: number;
+        /** One width for every page (`RenderProjectRequest.PanelWidthPx`); see `lib/panel-resolution.ts`. */
+        panelWidthPx?: number;
       },
     ) =>
       request<RenderResult>("POST", `/projects/${projectId}/render`, { tier, ...opts }),
