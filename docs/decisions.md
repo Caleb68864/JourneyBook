@@ -1316,3 +1316,11 @@ Each entry follows this shape:
 - Surfaces: dotnet/JourneyBook.Infrastructure/Persistence/Configurations/TileSourceConfiguration.cs, dotnet/JourneyBook.Infrastructure/Migrations/20261116171510_AllowUsgsTopoOffline.cs, dotnet/JourneyBook.Infrastructure/Migrations/JourneyBookDbContextModelSnapshot.cs, dotnet/JourneyBook.Application/Tiles/ITileService.cs, dotnet/JourneyBook.Infrastructure/Tiles/TileService.cs, apps/api/Endpoints/TileEndpoints.cs, packages/map-sources/src/panel.ts, packages/render-cli/src/package.ts, packages/render-cli/src/package.test.ts, dotnet/JourneyBook.Tests/Api/PmTilesTilesApiTests.cs, dotnet/JourneyBook.Tests/Api/TileSourcesApiTests.cs
 - Watch: a package made without `--tile-base-url` checks only the TS basemap's flag, because there is no registry to ask; that flag and the seed row must agree (both say true for USGS). The registry URL is derived by replacing a trailing `/tiles` on the tile base URL with `/tile-sources`, which holds for the api's `/api/tiles`; a proxy at another path would fail the lookup and so refuse, not pass. A package row registered by hand must set `cache.offlineAllowed: true` or the proxy will 403 it. How a render reacts to that 403 was not tested here; it should count as a failed tile like any other non-2xx.
 - Commit: (pending)
+
+
+## 2026-11-16 — Keep `data/map-packages/` in the repo with a `.gitkeep`
+- Symptom: the folder was ignored wholesale, so a clean clone lacked it and the first `docker compose up` (which mounts it read-only into the api) had Docker create it owned by root, so packages could not be copied in as the user.
+- Fix: `.gitignore` ignores `data/map-packages/*` but re-includes `data/map-packages/.gitkeep`, which is committed. Packages themselves stay ignored (and `*.pmtiles` is ignored separately).
+- Evidence: `git check-ignore data/map-packages/.gitkeep` reports nothing, and `git check-ignore data/map-packages/x.pmtiles` still reports it ignored.
+- Surfaces: .gitignore, data/map-packages/.gitkeep
+- Commit: (pending)

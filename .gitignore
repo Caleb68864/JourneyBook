@@ -142,7 +142,10 @@ env/
 # ============================================================
 data/generated/
 data/cache/
-data/map-packages/
+# Packages stay ignored; the folder itself is kept so Docker doesn't create it
+# root-owned on a clean clone (the api mounts it read-only).
+data/map-packages/*
+!data/map-packages/.gitkeep
 
 # Tile / map archives (large binaries)
 *.pmtiles
