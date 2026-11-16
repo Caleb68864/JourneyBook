@@ -61,7 +61,7 @@ public class PmTilesTilesApiTests(PmTilesApiFactory factory) : IClassFixture<PmT
 {
     private readonly HttpClient _client = factory.CreateAdminClient();
 
-    private async Task SeedSourceAsync(string key, string sourceUrl)
+    private async Task SeedSourceAsync(string key, string sourceUrl, bool offlineAllowed = true)
     {
         var create = new CreateTileSourceRequest(
             Key: key,
@@ -69,7 +69,7 @@ public class PmTilesTilesApiTests(PmTilesApiFactory factory) : IClassFixture<PmT
             SourceUrl: sourceUrl,
             Attribution: "© OpenStreetMap contributors",
             MaxZoom: 14,
-            Cache: new TileCachePolicyDto(0, false),
+            Cache: new TileCachePolicyDto(0, offlineAllowed),
             Kind: "pmtiles");
         var res = await _client.PostAsJsonAsync("/api/tile-sources", create);
         Assert.Equal(HttpStatusCode.Created, res.StatusCode);
@@ -104,5 +104,17 @@ public class PmTilesTilesApiTests(PmTilesApiFactory factory) : IClassFixture<PmT
 
         var res = await _client.GetAsync($"/api/tiles/pmt-escape/{PmTilesFixture.Z}/{PmTilesFixture.X}/{PmTilesFixture.Y}");
         Assert.Equal(HttpStatusCode.BadGateway, res.StatusCode);
+    }
+
+    [Fact]
+    public async Task Pmtiles_row_whose_terms_forbid_offline_use_is_refused_403()
+    {
+        // A pmtiles row is an offline copy of a source's tiles; serving one whose row says
+        // OfflineAllowed=false would be the offline use the terms forbid.
+        await SeedSourceAsync("pmt-no-offline", PmTilesApiFactory.FixtureFile, offlineAllowed: false);
+
+        var res = await _client.GetAsync($"/api/tiles/pmt-no-offline/{PmTilesFixture.Z}/{PmTilesFixture.X}/{PmTilesFixture.Y}");
+        Assert.Equal(HttpStatusCode.Forbidden, res.StatusCode);
+        Assert.Contains("do not allow offline use", await res.Content.ReadAsStringAsync());
     }
 }

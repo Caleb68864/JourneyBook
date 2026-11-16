@@ -22,7 +22,9 @@ public class TileSourceConfiguration : IEntityTypeConfiguration<TileSource>
         {
             TileSourceId = Guid.Parse("11111111-1111-1111-1111-111111111111"),
             MaxAgeSeconds = 86400,
-            OfflineAllowed = false
+            // USGS The National Map is public domain, and it is the only source packages are made
+            // from (owner decision 2026-11-16), so offline use is allowed. Migration AllowUsgsTopoOffline.
+            OfflineAllowed = true
         });
 
         builder.HasData(new

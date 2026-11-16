@@ -106,6 +106,46 @@ export function sniffRasterType(bytes: Uint8Array): RasterTileType | null {
   return null;
 }
 
+/** The API's tile-source registry, from the proxy's tile base URL (`…/api/tiles` → `…/api/tile-sources`). */
+export function registryUrlFor(tileBaseUrl: string, sourceId: string): string {
+  const base = tileBaseUrl.replace(/\/+$/, "").replace(/\/tiles$/, "/tile-sources");
+  return `${base}/by-key/${encodeURIComponent(sourceId)}`;
+}
+
+/**
+ * Refuse to package a source whose terms do not allow offline use (owner decision 2026-11-16).
+ * The basemap's own `offlineAllowed` is checked first; through the C# proxy the registry row is
+ * the authority, so its `cache.offlineAllowed` is read and must be `true` too. A row that cannot
+ * be read is a refusal, not a pass. Runs before any tile is fetched.
+ */
+export async function assertOfflineAllowed(basemap: RasterBasemap, tileBaseUrl?: string, sourceId?: string): Promise<void> {
+  if (basemap.offlineAllowed !== true) {
+    throw new Error(
+      `Source ${basemap.id} does not allow offline use, so it cannot be packaged. ` +
+        `Only sources whose terms allow offline use (OfflineAllowed) can be made into a package.`,
+    );
+  }
+  if (!tileBaseUrl || !sourceId) return;
+  const url = registryUrlFor(tileBaseUrl, sourceId);
+  let row: { cache?: { offlineAllowed?: unknown } } | undefined;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    row = (await res.json()) as typeof row;
+  } catch (err) {
+    throw new Error(
+      `Could not read tile source ${sourceId} from the registry (${url}: ${err instanceof Error ? err.message : String(err)}), ` +
+        `so its offline terms are unknown and no package was made.`,
+    );
+  }
+  if (row?.cache?.offlineAllowed !== true) {
+    throw new Error(
+      `Tile source ${sourceId} does not allow offline use (its registry row has OfflineAllowed false), ` +
+        `so it cannot be packaged.`,
+    );
+  }
+}
+
 /** Fetch every tile in the plan and write the archive. Throws on any failed or non-raster tile. */
 export async function buildRasterPackage(options: PackageOptions): Promise<PackageResult> {
   const basemap = options.basemap ?? USGS_TOPO;
@@ -116,6 +156,7 @@ export async function buildRasterPackage(options: PackageOptions): Promise<Packa
   if (plan.tiles > maxTiles) {
     throw new Error(`The package would hold ${plan.tiles} tiles, over the limit of ${maxTiles}. Raise --max-tiles to allow it.`);
   }
+  await assertOfflineAllowed(basemap, options.tileBaseUrl, options.sourceId ?? basemap.id);
   const cacheSource = options.sourceId ?? basemap.id;
   // `RenderPanelOptions.maxZoom` would clamp a panel's zoom; a package asks for exact zooms.
   const { maxZoom: _ignored, ...tileOptions } = options;

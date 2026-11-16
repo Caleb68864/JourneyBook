@@ -1260,7 +1260,8 @@ that needed no decision.
 **Found, not fixed.** `TileCachePolicy.MaxAgeSeconds`/`OfflineAllowed` are stored and read by
 nothing that acts on them. The proxy's `Cache-Control` comes from the global
 `TileCache:BrowserMaxAgeSeconds` (7 days; the seed row says 1). *(2026-11-16: `MaxAgeSeconds`
-now sets the proxy's `Cache-Control`, owner decision a; `OfflineAllowed` is still open. See
+now sets the proxy's `Cache-Control`, owner decision a; `OfflineAllowed` now gates `journeybook
+package` and pmtiles serving, and the `usgs-topo` seed says true (branch `feat/stage-7-compose-offline`). See
 the Stage 7 section of `vault/staged-build-roadmap.md`.)* The seeded `usgs-topo` row
 has no `SourceDate`. The PDF panel renderer draws raster only, so a vector PMTiles archive
 cannot be printed. Owner options for the remaining Stage 7 work are under the Stage 7 audit.

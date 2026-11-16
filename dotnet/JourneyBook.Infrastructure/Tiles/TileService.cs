@@ -34,6 +34,14 @@ public sealed class TileService(
             throw new InvalidOperationException($"Tile source '{sourceKey}' has no attribution; refusing to serve.");
         }
 
+        // A pmtiles row is an offline package: a copy of a source's tiles kept on disk. Serve it
+        // only when the row's terms allow offline use (owner decision 2026-11-16). Checked before
+        // the cache, so a row flipped to false stops serving tiles it already cached.
+        if (source.Kind == "pmtiles" && !source.Cache.OfflineAllowed)
+        {
+            return TileResult.OfflineNotAllowed();
+        }
+
         var fetcher = fetchers.FirstOrDefault(f => f.CanHandle(source.Kind))
             ?? throw new NotSupportedException($"No tile fetcher handles kind '{source.Kind}'.");
 

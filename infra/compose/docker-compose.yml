@@ -69,6 +69,13 @@ services:
       # Short-lived render artifacts / generated PDFs (kept out of the image).
       - ../../data/generated:/app/data/generated
       - ../../data/cache:/app/data/cache
+      # Offline map packages (`journeybook package` writes raster PMTiles). The api's
+      # PmTilesFetcher resolves a `pmtiles` row's local SourceUrl inside
+      # TileCache:PmTilesDir, whose default `data/map-packages` is relative to the
+      # api's working directory, /app. Copy a .pmtiles here and register it with
+      # `POST /api/tile-sources` (kind "pmtiles", SourceUrl = the file name).
+      # Read-only: the api only reads packages; they are made on the host.
+      - ../../data/map-packages:/app/data/map-packages:ro
 
   render-worker:
     build:
