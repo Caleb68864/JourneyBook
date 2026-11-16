@@ -14,10 +14,10 @@ import type { Margins } from "../api/client";
  * margin moves the printed footprint, and with it the ground each page covers
  * and how many pages a box tiles into.
  *
- * Which is why every control here shows its cost. Overlap especially: it is
- * around +11% pages on average and anywhere from 0% to +50% depending on the
- * extent, and the only place that used to surface was the page count minutes
- * later.
+ * Which is why every control here shows its cost. Overlap especially: at 5% it
+ * is around +10% pages on average and anywhere from 0% to +50% depending on the
+ * extent, rising to about +74% at 25% (`OVERLAP_STEP_COST`), and the only place
+ * that used to surface was the page count minutes later.
  *
  * Saving: each change is committed through `api.projects.patch`, which resends
  * the fields it is not changing — `PUT` replaces every grid field, so a partial
@@ -48,16 +48,43 @@ const MARGIN_SIDES = ["top", "right", "bottom", "left"] as const;
 export const OVERLAP_STEPS = [0, 0.02, 0.05, 0.1, 0.15, 0.2, 0.25] as const;
 
 /**
- * What overlap typically costs across extents, from the sweep in
- * vault/development-roadmap.md ("Overlap has no single rate"). That sweep was
- * measured at 5% overlap ONLY — aggregate about +10-11%, a third of boxes paying
- * nothing, worst +50% at 1 km sampling and +67% at finer sampling — so the
- * figure names its overlap. The select goes to 25%, where the theoretical cost
- * `(1/(1-o))² - 1` is about +78%; quoting the 5% range unqualified next to that
- * option would understate it several times over.
+ * What each overlap step typically costs across extents — measured, per step.
+ *
+ * Source: the 2026-11-16 sweep in vault/development-roadmap.md ("Overlap cost
+ * at every step"), run the way the original 5% sweep was: `pageGridSize`,
+ * square extents (page-centred projection) about 41°N / 98°W at 1:24,000 on
+ * Letter portrait, every size from 5 to 60 km at 0.1 km (551 boxes), each
+ * counted at 0% and at the step. `PageSetup.overlap-cost.test.ts` re-measures
+ * it through the engine and fails if any figure here drifts.
+ * `average` is the aggregate page increase, `worst` the largest single box,
+ * `free` the share of boxes that gained no page at all. Theory,
+ * `(1/(1-o))² - 1`, runs a little above each average (the ceil() slack).
+ *
+ * The 5% figures replace the original sweep's "+11%": that was measured before
+ * the map box grew, on a different geometry; today's dense figure is +10%.
+ * The worst case keeps growing the finer you sample, so it is a floor on the
+ * worst, not a bound.
  */
-export const OVERLAP_TYPICAL_COST =
-  "At 5% overlap a box typically costs 0% to +50% more pages, about +11% on average. More overlap costs more.";
+export const OVERLAP_STEP_COST: Readonly<Record<number, { average: number; worst: number; free: number }>> = {
+  0.02: { average: 4, worst: 50, free: 71 },
+  0.05: { average: 10, worst: 50, free: 38 },
+  0.1: { average: 22, worst: 67, free: 15 },
+  0.15: { average: 36, worst: 67, free: 7 },
+  0.2: { average: 53, worst: 125, free: 2 },
+  0.25: { average: 74, worst: 125, free: 1 },
+};
+
+/** The typical-cost sentence for one overlap step. A range, never a rate. */
+export function overlapTypicalCost(overlap: number): string {
+  if (overlap === 0) return "No overlap: pages meet edge to edge and cost nothing extra.";
+  const cost = OVERLAP_STEP_COST[overlap];
+  const pct = Math.round(overlap * 100);
+  if (!cost) return `At ${pct}% overlap the cost has not been measured; more overlap costs more pages.`;
+  return (
+    `At ${pct}% overlap a box typically costs about +${cost.average}% more pages, ` +
+    `anywhere from 0% to +${cost.worst}% for a given box; ${cost.free}% of boxes pay nothing.`
+  );
+}
 
 /** A margin the printer can actually manage; below this most home printers clip. */
 export const MIN_MARGIN_IN = 0.25;
@@ -213,14 +240,15 @@ export function PageSetup({ value, onChange, estimatePagesFor, disabled }: PageS
         {/* The typical range, stated beside the knob so it is visible before
             there is an extent to measure, and so the measured figure below has a
             frame. Source: the overlap sweep in vault/development-roadmap.md
-            ("Overlap has no single rate"). A range, never a rate. */}
+            ("Overlap cost at every step"), for the step selected. A range,
+            never a rate. */}
         <span data-testid="overlap-typical" className="font-mono text-[10px] text-bark-500">
-          {OVERLAP_TYPICAL_COST}
+          {overlapTypicalCost(value.overlap)}
         </span>
         {/* The cost, where the person turning the knob can see it. Overlap buys
-            pages: about +11% on average, 0% to +50% depending on the extent, and
-            roughly a third of extents pay nothing at all because the grid does
-            not gain a row or column. Showing the average would be a lie about
+            pages — at 5%, about +10% on average, 0% to +50% depending on the
+            extent, and over a third of extents pay nothing at all because the
+            grid does not gain a row or column. Showing the average would be a lie about
             THIS box; this is measured on the box they actually have. */}
         <span
           data-testid="overlap-cost"

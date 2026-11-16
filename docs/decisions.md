@@ -1254,3 +1254,11 @@ Each entry follows this shape:
 - Watch: one width goes to every page. Pages with their own scale or zoom ladder move by a different amount (the UI warns), and the overview panel uses the same override. A per-page "zoom offset" on the wire would fix both; it would be a new engine/API member. The CLI-knob audit found no other gap (roadmap, Decision 7 re-verified).
 - Commit: (pending)
 
+## 2026-11-16 — Overlap cost measured at every step, and checked by the engine
+- Symptom: the overlap select offers 2–25%, and beside every option it quoted the 5% sweep ("0% to +50%, about +11%"). Nothing above 5% had been measured. The 5% figure itself no longer reproduced: it was measured before the map box grew from 5.7639 in to 6.2083 in.
+- Fix: swept 2/5/10/15/20/25% with `pageGridSize` (5–60 km squares at 0.1 km, 41N 98W, 1:24,000). `OVERLAP_STEP_COST` holds average / worst / share-free per step and `overlapTypicalCost` quotes the selected step. `PageSetup.overlap-cost.test.ts` recomputes the sweep through the engine and fails if any figure drifts.
+- Evidence: 5% is now +10% (not +11%), 0–50%, 38% free; 25% is +74%, 0–125%, 1% free. Full table in vault/development-roadmap.md, "Overlap cost at every step".
+- Surfaces: apps/web/src/components/PageSetup.tsx, apps/web/src/components/PageSetup.test.tsx, apps/web/src/components/PageSetup.overlap-cost.test.ts
+- Watch: the figures are for 1:24,000 on Letter portrait at 41N. Other scales and page setups shift which boxes are free, not the theory. The per-box figure under the select is still the one to trust.
+- Commit: (pending)
+

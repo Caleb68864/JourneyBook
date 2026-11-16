@@ -1153,13 +1153,52 @@ the code rather than the earlier note, looking for the half-wired shape.
   new one passed 35/35. A timed-out case can no longer leak late tile requests into the
   next case's mock (the `[12, 16]` vs `[12]` failure noted above), because it no longer
   times out at 5 s.
-- [ ] **No measured overlap cost above 5%.** The sweep covers 5% only. The 10–25% options
-  have just theory and the per-box figure. Re-run the sweep at 2/10/15/20/25%
-  (`pageGridSize`, same extents) if the UI is to quote a range for each step
-  (`PageSetup.tsx` `OVERLAP_STEPS`).
+- [x] ~~**No measured overlap cost above 5%.**~~ ✅ 2026-11-16 — see "Overlap cost at every
+  step" below. Every step the select offers now quotes its own measured range
+  (`OVERLAP_STEP_COST`, `overlapTypicalCost`), and `PageSetup.overlap-cost.test.ts`
+  re-measures the table through `pageGridSize` so it cannot drift. Against the old code the
+  6 measurement tests and 2 of the 3 changed `PageSetup` tests fail.
 - [ ] **The picker's DPI caveat** (J16/J17, `../../ROADMAP.md` 2026-09-11 row) gave figures
   for Letter portrait at 0.5in. Now that orientation and margins are user-settable, check
   whether it still describes the user's page.
+
+### Overlap cost at every step — 2026-11-16
+
+Re-run the way the 5% sweep was: `pageGridSize`, square extents about 41°N / 98°W at
+1:24,000, Letter portrait with default margins, each extent counted at 0% and at the step.
+Two square constructions (naive metres-per-degree, and a square in the page-centred
+projection) agree to within 0.4 points; the page-centred one is what the app's test uses.
+
+**The 5% figures in the older tables above no longer reproduce.** That sweep predates the
+map box growing to 6.2083 in (it used 5.7639 in, a 3,513.67 m footprint; today's is 3,784.6
+m), so its per-size rows (7 km 4→6, 40 km 108→130, …) and the "+11%" are a different
+geometry. Today 7 km is 4→4 and 40 km 99→120 (naive construction).
+
+Aggregate page increase / boxes that pay nothing / worst single box, page-centred squares:
+
+| overlap | theory `(1/(1-o))²-1` | 5–60 km, 0.5 km (111) | 5–60 km, 0.1 km (551) |
+|---|---|---|---|
+| 2% | +4.1% | +4.1%, 80 free (72%), worst +50% | **+4.1%, 393 free (71%), worst +50%** |
+| 5% | +10.8% | +10.6%, 43 free (39%), worst +50% | **+10.5%, 211 free (38%), worst +50%** |
+| 10% | +23.5% | +22.4%, 17 free (15%), worst +50% | **+22.4%, 85 free (15%), worst +67%** |
+| 15% | +38.4% | +36.6%, 7 free (6%), worst +67% | **+36.4%, 39 free (7%), worst +67%** |
+| 20% | +56.3% | +52.9%, 3 free (3%), worst +125% | **+53.2%, 11 free (2%), worst +125%** |
+| 25% | +77.8% | +74.0%, 2 free (2%), worst +125% | **+73.6%, 7 free (1%), worst +125%** |
+
+Coarser sample sets (naive squares) for comparison, aggregate: 5–50 km at 1 km +3.4 / +9.8
+/ +21.2 / +35.6 / +50.2 / +72.4%; 10–40 km at 1 km +3.6 / +9.8 / +21.5 / +35.5 / +49.1 /
++72.1%; 5–50 km at 5 km +3.4 / +11.3 / +20.7 / +38.4 / +54.6 / +74.8%.
+
+What it says:
+
+- **Theory is a good guide above 5% and slightly high everywhere** (the `ceil()` slack): the
+  dense aggregate sits 0–4 points under it.
+- **"Free" boxes vanish fast.** About 7 in 10 boxes gain no page at 2%, 4 in 10 at 5%, 1 in
+  7 at 10%, and almost none from 20% up.
+- **Worst cases are small boxes.** +125% at 20–25% is a 2-page box becoming 4–5 pages; it is
+  a floor on the worst case, since finer sampling has only ever made it worse.
+- The UI now quotes, per step, the bold column (rounded): `OVERLAP_STEP_COST` in
+  `PageSetup.tsx`, checked by `PageSetup.overlap-cost.test.ts`.
 
 ## Phase 1: Print Geometry
 Build the Docker-hosted React/Vite/shadcn/Tailwind web app skeleton, define the outdoor field-guide visual system, accept bounding boxes, create page grid, generate overview and detail pages, and validate Letter-size PDF output from the preferred client-side React PDF path.

@@ -9,7 +9,9 @@ import {
   clampGutter,
   MIN_MARGIN_IN,
   MAX_MARGIN_IN,
-  OVERLAP_TYPICAL_COST,
+  OVERLAP_STEP_COST,
+  OVERLAP_STEPS,
+  overlapTypicalCost,
 } from "./PageSetup";
 import { api, type Project } from "../api/client";
 
@@ -148,14 +150,39 @@ describe("PageSetup shows what overlap costs", () => {
    */
   it("states the typical range beside the control, with or without an extent", () => {
     render(<Harness estimatePagesFor={() => null} />);
+    fireEvent.change(screen.getByLabelText(/page overlap/i), { target: { value: "0.05" } });
     const typical = screen.getByTestId("overlap-typical").textContent ?? "";
-    expect(typical).toBe(OVERLAP_TYPICAL_COST);
+    expect(typical).toBe(overlapTypicalCost(0.05));
     expect(typical).toMatch(/\b0%/);
     expect(typical).toContain("+50%");
-    expect(typical).toContain("+11%");
-    // The range was measured at 5% overlap only; it must say so, because the
-    // select offers up to 25%, where the cost is several times larger.
+    expect(typical).toContain("+10%");
     expect(typical).toMatch(/at 5% overlap/i);
+  });
+
+  /**
+   * The range used to be measured at 5% only, and the same 5% sentence sat
+   * beside every option up to 25%, where the measured average is about seven
+   * times larger. Each step now quotes its own measurement.
+   */
+  it("[BEHAVIORAL] quotes the measured cost of the step actually selected", () => {
+    render(<Harness estimatePagesFor={() => null} />);
+    fireEvent.change(screen.getByLabelText(/page overlap/i), { target: { value: "0.25" } });
+
+    const typical = screen.getByTestId("overlap-typical").textContent ?? "";
+    expect(typical).toMatch(/at 25% overlap/i);
+    expect(typical).toContain(`+${OVERLAP_STEP_COST[0.25]!.average}%`);
+    expect(typical).toContain(`+${OVERLAP_STEP_COST[0.25]!.worst}%`);
+    expect(typical).not.toMatch(/at 5% overlap/i);
+  });
+
+  it("[CONTROL] has a measured figure for every step the select offers", () => {
+    for (const step of OVERLAP_STEPS.filter((s) => s > 0)) {
+      expect(OVERLAP_STEP_COST[step], `overlap ${step}`).toBeDefined();
+      expect(overlapTypicalCost(step)).not.toMatch(/not been measured/);
+    }
+    // And the costs rise with the step, as they must.
+    const averages = OVERLAP_STEPS.filter((s) => s > 0).map((s) => OVERLAP_STEP_COST[s]!.average);
+    expect([...averages].sort((a, b) => a - b)).toEqual(averages);
   });
 });
 
