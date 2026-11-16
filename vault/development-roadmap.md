@@ -1089,14 +1089,51 @@ the code rather than the earlier note, looking for the half-wired shape.
   reaches the `options` `GenerateButton` posts. Mutation-checked, each break restored:
   a no-op `onChange` (1 test fails), overlap defaulted to 0 (2 fail), `setPanelQuality`
   removed (1 fails), `panelFormat: null` on Generate (1 fails).
-- [ ] **`panelWidthPx` is reachable through the API but has no control.** `RenderProjectRequest.PanelWidthPx`
-  and `--panel-px` exist. `3a58665` left it out on purpose: the engine never resamples, so
-  width does nothing until it crosses a zoom boundary and then costs about 4x. Decision 7
-  as worded ("any route ... is in scope") covers it, so **the owner needs to confirm the
-  exception** or ask for a control that snaps to zoom boundaries.
-- [ ] **Other CLI-only knobs, not audited one by one against the rule:** `--tile-source`,
-  `--tile-max-zoom`, `--max-mb`, `--no-print-check` (`packages/render-cli/src/cli.ts`). Most
-  of these are operator settings rather than user settings, but each needs a yes or no.
+- [x] ~~**`panelWidthPx` is reachable through the API but has no control.**~~ ✅ 2026-11-16
+  (`work/2026-11-16-open-items`). The control the note asked for: one that **snaps to zoom
+  boundaries**. "Panel resolution" in `BasemapOptions` offers *one tile zoom coarser*, *scale
+  default*, *one tile zoom finer* — never pixels. `lib/panel-resolution.ts` turns a step into
+  a width: step 0 sends nothing (the engine keeps its per-page, per-preset widths); ±1 sends
+  `panelWidthPxFor(scale, the project's page)` doubled, or halved and rounded up. Because
+  `zoomForBBox` picks the smallest zoom covering the request and native width doubles per
+  zoom, that lands on exactly one zoom. Pinned in `map-sources` (`tilemath.test.ts`, "zoom
+  steps by doubling and halving the request") over every preset, 18–72°N at 0.25° and four
+  page setups: doubling is always exactly +1 zoom; halving is −1 zoom except on a page within
+  a pixel of its own boundary, where it is no change — 6 of 6,510 cases. `ceil` was chosen
+  because it fails to "no change"; `floor` failed 9 cases, some by **two** zooms.
+  Beside the select is what the step delivers at the project's latitude (extent centre, else
+  the first location), read from the generated print-resolution table — and the steps that
+  do nothing are named: finer on a page already at z16 (1:24,000 at 41°N), coarser on a
+  clamped page, and "may have no effect" where the table shows a page sitting on its
+  boundary. The editor keeps the *step*, not pixels, so changing scale or page setup
+  re-derives the width. Limits, stated in the UI: the wire carries **one width for every
+  page**, so pages with their own scale or zoom ladder move by a different amount (a warning
+  appears when the project has any), and the override also sets the overview page's panel
+  (`overviewPanelWidthPx`). Tests: `BasemapOptions.test.tsx` (6 new, real select → body),
+  `panel-resolution.test.ts` (6), `render-options.test.ts` (1), `ProjectEditorPage.test.tsx`
+  (1 new, width sized for the project's landscape page with margins). Against the old code,
+  the 9 new wiring tests fail (the module itself is new).
+- [x] ~~**Other CLI-only knobs, not audited one by one against the rule.**~~ ✅ 2026-11-16.
+  Every `render-cli` flag against the app (`packages/render-cli/src/cli.ts` HELP, checked
+  against `ProjectEditorPage.tsx`, `BasemapOptions.tsx`, `PageSetup.tsx`, `LocationList.tsx`,
+  `RenderProjectRequest` and `RenderService`). One gap, now closed (`--panel-px`, above);
+  no other clear gap.
+
+  | flag | in the app? | verdict |
+  |---|---|---|
+  | `--bbox`, `--location(s)`, `--cover`, `--route` | extent draw/entry, locations + CSV import, Cover and Route checkboxes | yes |
+  | `--zoom-levels` | per-location ladder in `LocationList` | yes |
+  | `--tier`, `--overlap` | `TierPicker`, `PageSetup` | yes |
+  | `--title`, `--explorer`, `--date` | project name, `TitlePageFields` | yes |
+  | `--no-toc`, `--no-overview`, `--no-notes`, `--no-reference-grid` | four checkboxes | yes |
+  | `--basemap`, `--panel-format`, `--panel-quality` | `BasemapOptions` | yes |
+  | `--panel-px` | was **no** | **fixed** — "Panel resolution" |
+  | `--landmarks` | landmark import + Include landmarks | yes |
+  | `--tile-base-url`, `--tile-source`, `--tile-max-zoom` | server config (`Tiles:ProxyBaseUrl`, `Tiles:DefaultSource`) and the registry's `TileSource.MaxZoom`; registry writes are behind `AdminApiKeyGate`; `RenderProjectRequest` has no member | **no — operator**. No user route changes them, so Decision 7 does not reach them. If the owner wants a per-project tile source, that is a new feature (an API member first). |
+  | `--tile-cache-dir`, `cache-prune --max-mb` | `TileCache:CacheDir`, `TileCache:MaxSizeMb`, scheduled prune | **no — operator** |
+  | `--no-print-check` (validate) | the API renders and measures; nothing to skip | **no — CLI diagnostic** |
+  | `--dry-run`, `grid`, `validate` | inspection commands, not settings; the editor shows the page count, not the tile count | **no — not a setting**. A tile-count preview would be a feature, not a gap. |
+  | `calibration` | `PrintCheckLink` serves the generated `print-check.pdf` | yes |
 - [x] ~~**`render-cli` basemap tests time out under load.**~~ ✅ 2026-11-16
   (`work/2026-11-16-open-items`). Two causes, not one.
   **(1) The "expected magic word" line was a real bug in the test, not noise.** The cases

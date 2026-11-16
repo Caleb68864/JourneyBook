@@ -1245,3 +1245,12 @@ Each entry follows this shape:
 - Surfaces: packages/render-cli/src/render.test.ts
 - Watch: any other test file that stubs the global `fetch` around a PDF render has the same trap if it is the first to lay a PDF out.
 - Commit: (pending)
+
+## 2026-11-16 — Panel resolution control: panelWidthPx as tile-zoom steps
+- Symptom: `RenderProjectRequest.PanelWidthPx` and `--panel-px` could set the panel width; the app could not (Decision 7). A free pixel field would mostly do nothing (the engine never resamples; width only picks a zoom) and occasionally quadruple the file.
+- Fix: "Panel resolution" in `BasemapOptions` offers one zoom coarser / scale default / one zoom finer. `panelWidthForStep` sends `panelWidthPxFor(scale, page)` x2, or /2 rounded up; step 0 sends nothing. The note beside it reads the delivered DPI at the project's latitude from the generated print-resolution table and names steps that do nothing (z16 ceiling, clamped pages, pages on a boundary). The editor stores the step and re-derives the width from the current scale and page setup.
+- Evidence: `tilemath.test.ts` pins that doubling is always +1 zoom and halving-ceil is -1 or (6 of 6,510 cases) no change, never -2. The 9 new wiring tests fail against the old components.
+- Surfaces: apps/web/src/lib/panel-resolution.ts, apps/web/src/components/BasemapOptions.tsx, apps/web/src/lib/render-options.ts, apps/web/src/routes/ProjectEditorPage.tsx, apps/web/src/api/client.ts, packages/map-sources/src/tilemath.test.ts
+- Watch: one width goes to every page. Pages with their own scale or zoom ladder move by a different amount (the UI warns), and the overview panel uses the same override. A per-page "zoom offset" on the wire would fix both; it would be a new engine/API member. The CLI-knob audit found no other gap (roadmap, Decision 7 re-verified).
+- Commit: (pending)
+

@@ -725,3 +725,42 @@ describe("the generated print-resolution table is what the engine delivers", () 
     expect(row.samples.find((s) => s.lat === 41)!.dpi).toBe(338);
   });
 });
+
+/**
+ * The web app's "Panel resolution" control (`apps/web/src/lib/panel-resolution.ts`)
+ * offers tile-zoom steps and sends `panelWidthPx` = the page's own request
+ * doubled, or halved and rounded up. That only means "one zoom" because native
+ * width doubles per zoom and `zoomForBBox` picks the smallest zoom that covers the
+ * request. The web app cannot import this package (sharp), so the rule it relies
+ * on is pinned here, over every preset, the USGS band at quarter-degree steps,
+ * and the page setups the app can produce at their extremes.
+ */
+describe("zoom steps by doubling and halving the request", () => {
+  const pages: PageSpec[] = [
+    LETTER_PORTRAIT,
+    { ...LETTER_PORTRAIT, orientation: "landscape" },
+    { ...LETTER_PORTRAIT, margins: { top: 2, right: 2, bottom: 2, left: 2, gutter: 2 } },
+    { ...LETTER_PORTRAIT, orientation: "landscape", margins: { top: 0.25, right: 0.25, bottom: 0.25, left: 0.25 } },
+  ];
+
+  it("doubling selects exactly one zoom finer; halving (rounded up) one coarser or, on a boundary, none — never two", () => {
+    let boundary = 0;
+    let cases = 0;
+    for (const page of pages) {
+      for (const scale of SCALE_PRESETS) {
+        for (let lat = 18; lat <= 72; lat += 0.25) {
+          const bbox = buildLocationPage({ lng: -98, lat }, scale, page, "L1").bbox;
+          const base = panelWidthPxFor(scale, page);
+          const z = zoomForBBox(bbox, base);
+          expect(zoomForBBox(bbox, base * 2), `${scale.id} ${lat} finer`).toBe(z + 1);
+          const coarser = zoomForBBox(bbox, Math.ceil(base / 2));
+          expect([z - 1, z], `${scale.id} ${lat} coarser`).toContain(coarser);
+          if (coarser === z) boundary++;
+          cases++;
+        }
+      }
+    }
+    // The no-change case is a page within a pixel of its own zoom boundary: rare.
+    expect(boundary / cases).toBeLessThan(0.01);
+  });
+});

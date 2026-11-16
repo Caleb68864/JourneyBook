@@ -55,6 +55,13 @@ export interface RenderOptionsState {
   panelFormat: PanelFormat | null;
   /** JPEG quality, or null to let the engine choose (90). Ignored for png. */
   panelQuality: number | null;
+  /**
+   * One panel width for every page, or null to let the engine resolve each
+   * page's width from its own scale preset. The editor only ever sets this to a
+   * width that lands on a tile zoom step (`lib/panel-resolution.ts`), because any
+   * other width either changes nothing or quadruples the file.
+   */
+  panelWidthPx: number | null;
 }
 
 export const DEFAULT_RENDER_OPTIONS: RenderOptionsState = {
@@ -71,6 +78,7 @@ export const DEFAULT_RENDER_OPTIONS: RenderOptionsState = {
   basemap: true,
   panelFormat: null,
   panelQuality: null,
+  panelWidthPx: null,
 };
 
 /** The `POST /projects/{id}/render` body for a given panel state. */
@@ -86,12 +94,13 @@ export interface RenderRequestBody {
   basemap: boolean;
   panelFormat?: PanelFormat;
   panelQuality?: number;
+  panelWidthPx?: number;
 }
 
 /**
  * Build the request body.
  *
- * `panelFormat`/`panelQuality` are OMITTED when null rather than sent as a
+ * `panelFormat`/`panelQuality`/`panelWidthPx` are OMITTED when null rather than sent as a
  * value, so the engine keeps its own defaults — including the per-preset
  * `ScalePreset.panelWidthPx` chosen for each scale's print resolution. Sending
  * "the default" as a literal is how a UI silently takes a decision away from the
@@ -118,6 +127,9 @@ export function toRenderRequestBody(state: RenderOptionsState): RenderRequestBod
     basemap: state.basemap,
     ...(state.basemap && format ? { panelFormat: format } : {}),
     ...(sendQuality ? { panelQuality: state.panelQuality as number } : {}),
+    // Omitted when null for the same reason as the two above, and when the
+    // basemap is off because there is no panel to size.
+    ...(state.basemap && state.panelWidthPx !== null ? { panelWidthPx: state.panelWidthPx } : {}),
   };
 }
 

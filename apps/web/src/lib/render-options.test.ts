@@ -32,6 +32,14 @@ describe("toRenderRequestBody", () => {
     expect(body.basemap).toBe(true);
     expect("panelFormat" in body).toBe(false);
     expect("panelQuality" in body).toBe(false);
+    expect("panelWidthPx" in body).toBe(false);
+  });
+
+  it("carries a panel width when one is chosen, and drops it with the basemap", () => {
+    expect(toRenderRequestBody({ ...DEFAULT_RENDER_OPTIONS, panelWidthPx: 3726 }).panelWidthPx).toBe(3726);
+    expect(
+      "panelWidthPx" in toRenderRequestBody({ ...DEFAULT_RENDER_OPTIONS, basemap: false, panelWidthPx: 3726 }),
+    ).toBe(false);
   });
 
   it("carries every furniture toggle the panel offers", () => {
