@@ -126,13 +126,26 @@ public class RenderService(
         // Deliberately NOT a fallback constant: if the proxy is configured and the
         // source is not in the registry, send nothing and let the engine keep its own
         // default rather than invent a ceiling on the user's behalf.
+        //
+        // The same row, snapshotted, is what the finished record's provenance names
+        // as the source of its tiles (Stage 7 cache metadata). Read here, with the
+        // rest of the request, so the record states what the atlas was drawn from
+        // even if the row is re-pointed before the job runs.
         int? tileMaxZoom = null;
+        RenderTileSourceSnapshot? tileSource = null;
         if (tileProxyBaseUrl is not null)
         {
-            tileMaxZoom = await db.TileSources
+            var row = await db.TileSources
                 .Where(t => t.Key == tileSourceId)
-                .Select(t => (int?)t.MaxZoom)
+                .Select(t => new
+                {
+                    t.MaxZoom,
+                    Snapshot = new RenderTileSourceSnapshot(
+                        t.Key, t.Kind, t.SourceUrl, t.SourceDate, t.Version, t.Attribution, t.Cache.MaxAgeSeconds),
+                })
                 .FirstOrDefaultAsync(ct);
+            tileMaxZoom = row?.MaxZoom;
+            tileSource = row?.Snapshot;
         }
 
         // The atlas title: the project's own name. Whitespace-only names are left
@@ -183,7 +196,7 @@ public class RenderService(
         //    HTTP request's, and the request is about to end — cancelling the enqueue
         //    on it would drop the job the client has just been told is accepted.
         //    (The unbounded channel never blocks, so this cannot hang.)
-        await jobQueue.EnqueueAsync(new RenderJob(created.Id, projectId, workerReq), CancellationToken.None);
+        await jobQueue.EnqueueAsync(new RenderJob(created.Id, projectId, workerReq, tileSource), CancellationToken.None);
 
         logger.LogInformation(
             "Queued render for project {ProjectId} as {GeneratedPdfId}", projectId, created.Id);

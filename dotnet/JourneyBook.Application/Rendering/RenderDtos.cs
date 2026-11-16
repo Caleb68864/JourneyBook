@@ -200,11 +200,48 @@ public record RenderLocationDto(
 public record RenderDeliveredDpi(double Min, double Max, int Panels);
 
 /// <summary>
+/// The tiles a finished render pulled, as the engine counted them
+/// (<c>TileCoverage</c> in <c>packages/render-cli/src/render.ts</c>).
+/// </summary>
+/// <remarks>
+/// Stage 7's cache metadata: source URL, source date, bbox, zoom range, attribution
+/// and expiry. The bbox and zoom range are the engine's to state — it lays out the
+/// pages and picks each panel's zoom, and the API owns no geometry (ADR 0004) — so
+/// they arrive on the wire; the source half comes from the registry row the render
+/// was routed through (<see cref="RenderTileSourceSnapshot"/>).
+/// </remarks>
+/// <param name="Bbox">WGS84 <c>[W, S, E, N]</c> enclosing every panel that was drawn.</param>
+/// <param name="MinZoom">Shallowest panel zoom (the overview's, when there is one).</param>
+/// <param name="MaxZoom">Deepest panel zoom.</param>
+/// <param name="Tiles">Tile requests made, a tile shared by two panels counted twice.</param>
+/// <param name="Panels">Panels drawn. Never 0: no panels means no coverage at all.</param>
+public record RenderTileCoverage(double[] Bbox, int MinZoom, int MaxZoom, int Tiles, int Panels);
+
+/// <summary>
+/// The registry row a render's tiles were proxied through, read when the render was
+/// accepted (the same moment the rest of the request is read; see <see cref="RenderJob"/>).
+/// </summary>
+/// <remarks>
+/// A snapshot, not a key, because the provenance is a record of what the atlas was
+/// drawn from: re-pointing <c>usgs-topo</c> at a newer service later must not rewrite
+/// what an existing PDF says it came from.
+/// </remarks>
+public record RenderTileSourceSnapshot(
+    string Key,
+    string Kind,
+    string SourceUrl,
+    DateOnly? SourceDate,
+    string? Version,
+    string Attribution,
+    int CacheMaxAgeSeconds);
+
+/// <summary>
 /// Response from the render worker: output path, page count, optional attribution,
-/// and the print resolution the render achieved.
+/// the print resolution the render achieved, and the tiles it pulled.
 /// </summary>
 public record RenderWorkerResult(
     string OutputPath,
     int PageCount,
     string? Attribution,
-    RenderDeliveredDpi? DeliveredDpi);
+    RenderDeliveredDpi? DeliveredDpi,
+    RenderTileCoverage? TileCoverage = null);

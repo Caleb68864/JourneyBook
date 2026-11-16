@@ -240,6 +240,36 @@ describe("render-worker job protocol", () => {
     }
   });
 
+  /**
+   * The tiles the render pulled reach the job record by the same route, so the
+   * API can write them into the PDF's provenance (Stage 7 cache metadata).
+   */
+  it("[BEHAVIORAL] reports the tile coverage the render pulled on the job record", async () => {
+    stubSlowTiles(0);
+    try {
+      const record = await renderAndSettle({
+        ...validLocation,
+        basemap: true,
+        outputPath: "coverage.pdf",
+      });
+      expect(record.state).toBe("completed");
+      const coverage = record.tileCoverage!;
+      expect(coverage).toBeDefined();
+      // One location page at 1:24,000 lands on z16 (the DPI test above).
+      expect(coverage.panels).toBe(1);
+      expect(coverage.minZoom).toBe(16);
+      expect(coverage.maxZoom).toBe(16);
+      expect(coverage.tiles).toBeGreaterThan(0);
+      const [w, s, e, n] = coverage.bbox;
+      expect(w).toBeLessThan(validLocation.center.lng);
+      expect(e).toBeGreaterThan(validLocation.center.lng);
+      expect(s).toBeLessThan(validLocation.center.lat);
+      expect(n).toBeGreaterThan(validLocation.center.lat);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("[CONTROL] a render with no basemap reports no resolution rather than zero", async () => {
     // The control for the assertion above: a field that is always populated
     // cannot show that it was populated by a measurement. A render that drew no
@@ -251,6 +281,7 @@ describe("render-worker job protocol", () => {
     });
     expect(record.state).toBe("completed");
     expect(record.deliveredDpi).toBeUndefined();
+    expect(record.tileCoverage).toBeUndefined();
   });
 
   it("answers 404 for a job id it has never seen", async () => {

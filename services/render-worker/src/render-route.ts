@@ -347,6 +347,7 @@ export async function renderRoute(app: FastifyInstance, opts: RenderWorkerOption
           result.pageCount,
           result.attribution,
           result.deliveredDpi,
+          result.tileCoverage,
         );
         app.log.info({
           jobId,

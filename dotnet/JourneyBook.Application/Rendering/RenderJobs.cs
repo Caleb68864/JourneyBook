@@ -11,8 +11,18 @@ namespace JourneyBook.Application.Rendering;
 /// therefore needs no <c>DbContext</c> read of its own and cannot observe a project
 /// that was edited between the click and the render: the atlas that comes out is the
 /// atlas the user asked for at the moment they asked for it.
+/// <para>
+/// <see cref="TileSource"/> follows the same rule: the registry row the tiles will be
+/// proxied through is read here, on the request thread, and carried to the runner for
+/// the provenance. Null when the render is not proxied (the worker then fetches its
+/// built-in basemap directly, and the registry knows nothing about those tiles).
+/// </para>
 /// </remarks>
-public record RenderJob(Guid GeneratedPdfId, Guid ProjectId, RenderWorkerRequest WorkerRequest);
+public record RenderJob(
+    Guid GeneratedPdfId,
+    Guid ProjectId,
+    RenderWorkerRequest WorkerRequest,
+    RenderTileSourceSnapshot? TileSource = null);
 
 /// <summary>
 /// The hand-off between the HTTP request that accepts a render (202) and the

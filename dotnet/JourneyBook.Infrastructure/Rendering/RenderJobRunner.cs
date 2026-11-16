@@ -230,8 +230,56 @@ public sealed class RenderJobRunner(
             tier = job.WorkerRequest.Tier,
             tileSourceId = job.WorkerRequest.TileSourceId,
             basemap = job.WorkerRequest.Basemap,
+            tileCache = TileCacheOf(job, result),
             renderedAt = DateTimeOffset.UtcNow,
         });
+
+    /// <summary>
+    /// Stage 7's cache metadata for this render: what the tiles were, where they came
+    /// from, and how long the source lets them be cached.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Null when no basemap was drawn: no tiles were pulled, and an empty record would
+    /// read as a render that asked the cache for nothing.
+    /// </para>
+    /// <para>
+    /// The source fields are null on an unproxied render. The worker then fetched its
+    /// built-in basemap directly and no registry row stands behind the tiles; the
+    /// default row's URL here would be a claim about tiles that never went near it.
+    /// The attribution falls back to the credit the PDF printed, which the engine read
+    /// off the tiles themselves.
+    /// </para>
+    /// <para>
+    /// <c>sourceCacheMaxAgeSeconds</c> is the registry row's declared policy
+    /// (<c>TileCachePolicy.MaxAgeSeconds</c>), recorded as the source's terms and named
+    /// for what it is. It is NOT an expiry anything enforces: the tile proxy sends the
+    /// global <c>TileCache:BrowserMaxAgeSeconds</c> (default 7 days) and reads no row's
+    /// policy, and the server's disk cache keeps a tile until a size prune removes it
+    /// (<c>TileCache:MaxSizeMb</c>, off by default). How long tiles should be kept is
+    /// still the owner's decision, so no expiry date is invented here.
+    /// </para>
+    /// </remarks>
+    private static object? TileCacheOf(RenderJob job, RenderWorkerResult result)
+    {
+        if (result.TileCoverage is not { } coverage) return null;
+        var source = job.TileSource;
+        return new
+        {
+            sourceKey = source?.Key,
+            sourceKind = source?.Kind,
+            sourceUrl = source?.SourceUrl,
+            sourceDate = source?.SourceDate?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
+            sourceVersion = source?.Version,
+            attribution = source?.Attribution ?? result.Attribution,
+            bbox = coverage.Bbox,
+            minZoom = coverage.MinZoom,
+            maxZoom = coverage.MaxZoom,
+            tiles = coverage.Tiles,
+            panels = coverage.Panels,
+            sourceCacheMaxAgeSeconds = source?.CacheMaxAgeSeconds,
+        };
+    }
 
     /// <summary>Delays between attempts at the terminal write. Seam for tests.</summary>
     public TimeSpan[] OutcomeRetryDelays { get; init; } =

@@ -286,6 +286,7 @@ public class HttpRenderWorkerClient(HttpClient http, RenderWorkerPollOptions? po
         string? OutputPath,
         string? Attribution,
         RenderDeliveredDpi? DeliveredDpi,
+        RenderTileCoverage? TileCoverage,
         string? Error,
         string? ErrorKind);
 
@@ -338,7 +339,8 @@ public class HttpRenderWorkerClient(HttpClient http, RenderWorkerPollOptions? po
                         throw new InvalidOperationException(
                             $"Render worker job {job.Id} reported completed with no output path.");
                     return new RenderWorkerResult(
-                        job.OutputPath, job.PageCount, job.Attribution, job.DeliveredDpi);
+                        job.OutputPath, job.PageCount, job.Attribution, job.DeliveredDpi,
+                        job.TileCoverage);
 
                 case WorkerJobStates.Cancelled:
                     // Its own exception type, not an OperationCanceledException: an

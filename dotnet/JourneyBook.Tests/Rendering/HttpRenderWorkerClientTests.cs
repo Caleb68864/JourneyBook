@@ -607,6 +607,34 @@ public class HttpRenderWorkerClientTests
         var result = await ClientFor(handler).RenderAsync(JobRequest());
 
         Assert.Null(result.DeliveredDpi);
+        Assert.Null(result.TileCoverage);
+    }
+
+    /// <summary>
+    /// The tiles the render pulled (Stage 7 cache metadata) come off the wire with
+    /// the rest of the finished job.
+    /// </summary>
+    /// <remarks>
+    /// Pinned with values for the reason the DPI test above gives: a member missing
+    /// from <c>WorkerJob</c> deserializes to null in silence.
+    /// </remarks>
+    [Fact]
+    public async Task The_tile_coverage_the_render_pulled_is_carried_off_the_wire()
+    {
+        var handler = new FakeWorkerHandler(
+            "{\"id\":\"job-1\",\"state\":\"completed\",\"page\":3,\"pageCount\":3,\"phase\":\"done\"," +
+            "\"outputPath\":\"atlas-job.pdf\",\"attribution\":\"USGS\"," +
+            "\"tileCoverage\":{\"bbox\":[-96.75,40.78,-96.65,40.86],\"minZoom\":12,\"maxZoom\":16," +
+            "\"tiles\":143,\"panels\":4}}");
+
+        var result = await ClientFor(handler).RenderAsync(JobRequest());
+
+        Assert.NotNull(result.TileCoverage);
+        Assert.Equal([-96.75, 40.78, -96.65, 40.86], result.TileCoverage!.Bbox);
+        Assert.Equal(12, result.TileCoverage.MinZoom);
+        Assert.Equal(16, result.TileCoverage.MaxZoom);
+        Assert.Equal(143, result.TileCoverage.Tiles);
+        Assert.Equal(4, result.TileCoverage.Panels);
     }
 
     [Fact]

@@ -125,6 +125,38 @@ describe("planAtlasRender agrees with a real render", () => {
         expect(plan.uniqueTiles).toBe(new Set(urls).size);
         expect(plan.pages.map((p) => p.id)).toEqual(result.contract.pages.map((p) => p.id));
         expect(plan.pdfPages).toBe(measurePdfPages(readFileSync(outputPath)).length);
+
+        // The tile coverage the render reports (Stage 7: what a render pulled
+        // through the cache, recorded in the PDF's provenance) is held to the same
+        // fetches: every request counted once, at the zooms the URLs name, over
+        // ground that contains every page it drew.
+        const zooms = urls.map((u) => Number(/\/(\d+)\/\d+\/\d+(?:\.\w+)?(?:\?|$)/.exec(u)![1]));
+        const coverage = result.tileCoverage!;
+        expect(coverage).toBeDefined();
+        expect(coverage.tiles).toBe(urls.length);
+        expect(coverage.minZoom).toBe(Math.min(...zooms));
+        expect(coverage.maxZoom).toBe(Math.max(...zooms));
+        expect(coverage.panels).toBe(
+          result.contract.pages.length + (plan.overview ? 1 : 0),
+        );
+        const [w, s, e, n] = coverage.bbox;
+        for (const page of result.contract.pages) {
+          const [pw, ps, pe, pn] = page.bbox;
+          expect(pw).toBeGreaterThanOrEqual(w);
+          expect(ps).toBeGreaterThanOrEqual(s);
+          expect(pe).toBeLessThanOrEqual(e);
+          expect(pn).toBeLessThanOrEqual(n);
+        }
+        if (!plan.overview) {
+          // Nothing but the pages was drawn, so the coverage is exactly their union.
+          const bboxes = result.contract.pages.map((p) => p.bbox);
+          expect(coverage.bbox).toEqual([
+            Math.min(...bboxes.map((b) => b[0])),
+            Math.min(...bboxes.map((b) => b[1])),
+            Math.max(...bboxes.map((b) => b[2])),
+            Math.max(...bboxes.map((b) => b[3])),
+          ]);
+        }
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }

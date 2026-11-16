@@ -275,6 +275,51 @@ export interface DeliveredDpi {
   panels: number;
 }
 
+/**
+ * The tiles a render actually pulled, across every basemap panel it drew (the
+ * map pages and, when it rendered, the overview).
+ *
+ * Stage 7 asks for cache metadata that records the source, its date, the bbox,
+ * the zoom range, the attribution and the expiry. The source, date, attribution
+ * and expiry are the API's to supply — it owns the registry and the record — but
+ * the bbox and the zoom range are the engine's: only the engine knows which
+ * pages it laid out and which zoom each panel landed on (ADR 0004), so this is
+ * where they are counted. `dry-run.test.ts` holds it to the fetches a real
+ * render makes.
+ */
+export interface TileCoverage {
+  /** WGS84 [W,S,E,N] enclosing the ground of every panel that was drawn. */
+  bbox: BBox;
+  /** Shallowest zoom any drawn panel used (the overview, when there is one). */
+  minZoom: number;
+  /** Deepest zoom any drawn panel used. */
+  maxZoom: number;
+  /** Tile requests the panels made, counting a tile shared by two panels twice. */
+  tiles: number;
+  /** Panels drawn. A failed, skipped overview panel is not counted. Never 0. */
+  panels: number;
+}
+
+/** Folds drawn panels into a {@link TileCoverage}; undefined until one is added. */
+function tileCoverageTally() {
+  let coverage: TileCoverage | undefined;
+  return {
+    add(bbox: BBox, zoom: number, tiles: number): void {
+      if (!coverage) {
+        coverage = { bbox: [...bbox] as BBox, minZoom: zoom, maxZoom: zoom, tiles, panels: 1 };
+        return;
+      }
+      const [w, s, e, n] = coverage.bbox;
+      coverage.bbox = [Math.min(w, bbox[0]), Math.min(s, bbox[1]), Math.max(e, bbox[2]), Math.max(n, bbox[3])];
+      coverage.minZoom = Math.min(coverage.minZoom, zoom);
+      coverage.maxZoom = Math.max(coverage.maxZoom, zoom);
+      coverage.tiles += tiles;
+      coverage.panels += 1;
+    },
+    result: (): TileCoverage | undefined => coverage,
+  };
+}
+
 export interface RenderAtlasResult {
   outputPath: string;
   pageCount: number;
@@ -294,6 +339,11 @@ export interface RenderAtlasResult {
    * nothing at all. Same journey, done the same way.
    */
   deliveredDpi?: DeliveredDpi;
+  /**
+   * The tiles this render pulled, or undefined when no basemap was drawn. Carried
+   * to the `GeneratedPdf` provenance by the same route as `deliveredDpi`.
+   */
+  tileCoverage?: TileCoverage;
   /** The assembled contract (pages, per-page scale, margins) that was rendered. */
   contract: AtlasContract;
   /** USNG grid overlays built for tier-3+ pages (empty for tier 1–2). */
@@ -846,6 +896,7 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
   // The summary that leaves this function on the result. Undefined until a panel
   // has actually been measured, so "no basemap" and "0 dpi" cannot be confused.
   let delivered: DeliveredDpi | undefined;
+  const coverage = tileCoverageTally();
   if (input.basemap) {
     panels = {};
     for (const page of contract.pages) {
@@ -863,6 +914,7 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
         throwIfCancelled();
         const panel = await renderMapPanel(page.bbox, pageWidthPx, undefined, panelOptions);
         panels[page.id] = `data:${panel.mimeType};base64,${panel.bytes.toString("base64")}`;
+        coverage.add(page.bbox, panel.zoom, panel.tilesRequested);
         if (panel.attribution && !attributions.includes(panel.attribution)) {
           attributions.push(panel.attribution);
         }
@@ -1017,6 +1069,7 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
       try {
         const panel = await renderMapPanel(overview.bbox, overviewWidthPx, undefined, panelOptions);
         overviewPanel = `data:${panel.mimeType};base64,${panel.bytes.toString("base64")}`;
+        coverage.add(overview.bbox, panel.zoom, panel.tilesRequested);
         stderr.write(`  overview panel (z${panel.zoom})\n`);
         report("overview");
       } catch (err) {
@@ -1071,6 +1124,7 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
     // The resolution this atlas will actually print at. Omitted, not zeroed, when
     // no basemap was drawn.
     ...(delivered ? { deliveredDpi: delivered } : {}),
+    ...(coverage.result() ? { tileCoverage: coverage.result()! } : {}),
     contract,
     grids: grids ?? {},
     landmarks,
