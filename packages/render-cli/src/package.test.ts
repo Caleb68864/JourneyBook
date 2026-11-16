@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { measurePdfPages } from "@journeybook/pdf-client";
 import {
+  USGS_TOPO,
   readPmTilesHeader,
   readPmTilesTile,
   writePmTiles,
@@ -36,17 +37,26 @@ async function tilePng(_z: number): Promise<Buffer> {
   return TILE_PNG;
 }
 
-/** The fake upstream: answers tile URLs with a PNG and counts them; anything else goes to the real fetch. */
-function fakeUpstream() {
+/**
+ * The fake upstream: answers tile URLs with a PNG and counts them; anything else goes to the real fetch.
+ * A registry lookup (`/api/tile-sources/by-key/{key}`) gets a row whose `cache.offlineAllowed` is
+ * `offlineAllowed`, and is recorded in `registry`, not `calls`.
+ */
+function fakeUpstream(offlineAllowed = true) {
   const calls: string[] = [];
+  const registry: string[] = [];
   const fn = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     if (!/^https?:/i.test(url)) return realFetch(input, init);
+    if (url.includes("/tile-sources/by-key/")) {
+      registry.push(url);
+      return Response.json({ key: url.split("/").pop(), cache: { maxAgeSeconds: 86400, offlineAllowed } });
+    }
     calls.push(url);
     const [z] = zxyOf(url);
     return new Response(new Uint8Array(await tilePng(z)), { status: 200, headers: { "content-type": "image/png" } });
   });
-  return { fn, calls };
+  return { fn, calls, registry };
 }
 
 describe("planPackage", () => {
@@ -119,6 +129,41 @@ describe("buildRasterPackage", () => {
       sourceId: "usgs-topo",
     });
     expect(up.calls[0]).toMatch(/^http:\/\/localhost:5180\/api\/tiles\/usgs-topo\/10\/\d+\/\d+$/);
+    // The registry row is the authority on offline terms, and USGS's says yes.
+    expect(up.registry).toEqual(["http://localhost:5180/api/tile-sources/by-key/usgs-topo"]);
+  });
+
+  it("allows USGS: public domain, the only package source", () => {
+    expect(USGS_TOPO.offlineAllowed).toBe(true);
+  });
+
+  it("refuses a basemap that does not allow offline use, before fetching a tile", async () => {
+    const up = fakeUpstream();
+    vi.stubGlobal("fetch", up.fn);
+    const closed = { id: "closed-topo", urlTemplate: "https://example.test/{z}/{x}/{y}", attribution: "Closed", maxZoom: 16 };
+    await expect(buildRasterPackage({ bbox, minZoom: 10, maxZoom: 10, basemap: closed })).rejects.toThrow(
+      /closed-topo does not allow offline use, so it cannot be packaged/,
+    );
+    await expect(
+      buildRasterPackage({ bbox, minZoom: 10, maxZoom: 10, basemap: { ...closed, offlineAllowed: false } }),
+    ).rejects.toThrow(/does not allow offline use/);
+    expect(up.calls).toHaveLength(0);
+  });
+
+  it("refuses when the proxy's registry row says OfflineAllowed false, before fetching a tile", async () => {
+    const up = fakeUpstream(false);
+    vi.stubGlobal("fetch", up.fn);
+    await expect(
+      buildRasterPackage({ bbox, minZoom: 10, maxZoom: 10, tileBaseUrl: "http://localhost:5180/api/tiles", sourceId: "usgs-topo" }),
+    ).rejects.toThrow(/Tile source usgs-topo does not allow offline use .*OfflineAllowed false/);
+    expect(up.calls).toHaveLength(0);
+  });
+
+  it("refuses when the registry row cannot be read", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 404 })));
+    await expect(
+      buildRasterPackage({ bbox, minZoom: 10, maxZoom: 10, tileBaseUrl: "http://localhost:5180/api/tiles", sourceId: "nope" }),
+    ).rejects.toThrow(/Could not read tile source nope .*HTTP 404.*no package was made/);
   });
 
   it("writes nothing when a tile fails, and refuses an oversized package", async () => {
@@ -268,6 +313,26 @@ describe("cli package", () => {
       const code = await runCli(["package", "--bbox", "-96.71,40.81,-96.69,40.82", "--min-zoom", "10", "--max-zoom", "11", "--out", file]);
       expect(code).toBe(0);
       expect(readPmTilesHeader(readFileSync(file))).toMatchObject({ tileType: 2, minZoom: 10, maxZoom: 11 });
+    } finally {
+      spy.mockRestore();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses, with the reason and no file, a source whose registry row forbids offline use", async () => {
+    vi.stubGlobal("fetch", fakeUpstream(false).fn);
+    const dir = mkdtempSync(join(tmpdir(), "jb-package-cli-"));
+    const err: string[] = [];
+    const spy = vi.spyOn(process.stderr, "write").mockImplementation((s) => (err.push(String(s)), true));
+    try {
+      const file = join(dir, "closed.pmtiles");
+      const code = await runCli([
+        "package", "--bbox", "-96.71,40.81,-96.69,40.82", "--min-zoom", "10", "--max-zoom", "10", "--out", file,
+        "--tile-base-url", "http://localhost:5180/api/tiles", "--tile-source", "closed-topo",
+      ]);
+      expect(code).toBe(2);
+      expect(err.join("")).toMatch(/Tile source closed-topo does not allow offline use/);
+      expect(existsSync(file)).toBe(false);
     } finally {
       spy.mockRestore();
       rmSync(dir, { recursive: true, force: true });

@@ -232,4 +232,14 @@ public class TileSourcesApiTests(PostgisApiFactory factory) : IClassFixture<Post
         Assert.NotNull(result);
         Assert.Equal("usgs-raster", result!.Kind);
     }
+
+    [Fact]
+    public async Task Seeded_usgs_topo_allows_offline_use()
+    {
+        // Owner decision 2026-11-16: USGS is public domain and the only package source, so the
+        // seed (migration AllowUsgsTopoOffline) says true. Packaging and pmtiles serving gate on it.
+        var result = await _client.GetFromJsonAsync<TileSourceResponse>("/api/tile-sources/by-key/usgs-topo");
+        Assert.NotNull(result);
+        Assert.True(result!.Cache.OfflineAllowed);
+    }
 }

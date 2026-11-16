@@ -554,7 +554,7 @@ namespace JourneyBook.Infrastructure.Migrations
                                 {
                                     TileSourceId = new Guid("11111111-1111-1111-1111-111111111111"),
                                     MaxAgeSeconds = 86400,
-                                    OfflineAllowed = false
+                                    OfflineAllowed = true
                                 });
                         });
 

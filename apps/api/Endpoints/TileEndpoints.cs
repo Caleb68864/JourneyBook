@@ -55,6 +55,10 @@ public static class TileEndpoints
                     return Results.StatusCode(StatusCodes.Status502BadGateway);
                 case TileStatus.Empty:
                     return Results.StatusCode(StatusCodes.Status204NoContent);
+                case TileStatus.OfflineNotAllowed:
+                    return Results.Json(
+                        new { error = $"Tile source '{source}' is an offline package, but its terms do not allow offline use (OfflineAllowed is false)." },
+                        statusCode: StatusCodes.Status403Forbidden);
             }
 
             response.Headers[HeaderNames.ETag] = tile.ETag;

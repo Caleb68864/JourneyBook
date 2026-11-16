@@ -604,10 +604,19 @@ with Docker; harness checks all pass.
   browsers with 1 day, the seed row's value, not 7.
 - **(b) Tile packages are raster PMTiles of USGS topo only.** No MBTiles, no vector formats.
   That picks option C below and rules out A, B and D.
+- **(c) USGS allows offline use.** It is public domain and the only package source, so the
+  seeded `usgs-topo` row's `OfflineAllowed` is `true`, and packaging and pmtiles serving refuse
+  a source with it `false`. **Done** on `feat/stage-7-compose-offline` (see below).
 
 Found while auditing, not fixed:
 
-- **`OfflineAllowed` gates nothing yet: open.** It should gate building a package, but the
+- ~~**`OfflineAllowed` gates nothing yet: open.**~~ **Done 2026-11-16** on branch
+  `feat/stage-7-compose-offline` (owner decision: USGS is public domain and the only package
+  source). Migration `AllowUsgsTopoOffline` flips the seed to `true`. `journeybook package`
+  refuses a basemap without `offlineAllowed: true`, and through the proxy reads the registry
+  row (`/api/tile-sources/by-key/{key}`) and refuses unless `cache.offlineAllowed` is true;
+  the proxy answers 403 for a `pmtiles` row with it false. Not pushed, so CI is unread. Suites
+  there: TS 665, .NET 350/350 with Docker, harness checks all pass. As found: It should gate building a package, but the
   seeded `usgs-topo` row says `false` while USGS is public domain and is now the one source
   packages are made from (decision b). Gating on it today would forbid the only allowed
   package. Settle it together: flip the seed (a migration) to `true`, then refuse to package a
