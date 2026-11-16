@@ -146,6 +146,7 @@ data/map-packages/
 
 # Tile / map archives (large binaries)
 *.pmtiles
+!data/fixtures/raster-package/package.pmtiles
 *.mbtiles
 *.pbf
 *.mvt

@@ -585,26 +585,44 @@ Branch `work/stage-7` (not pushed, so CI is unread).
 |---|---|---|
 | Cache-manifest model in Postgres | **Partly done (2026-11-16)** | No table of its own. A finished render's `GeneratedPdf.SourceMetadataSnapshot` (jsonb) now carries `tileCache`: the registry row's key, kind, URL, source date and version, the attribution, the `[W,S,E,N]` bbox and zoom range the engine pulled, tile and panel counts, and the row's declared max-age. Written by `RenderJobRunner.TileCacheOf`; bbox and zooms come from the engine (`TileCoverage` in `render-cli/src/render.ts`). A table is only worth having once there are extracts to list; see below. |
 | Server-side short-lived tile cache for render jobs | **Partly done** | `TileCache` (`dotnet/.../Tiles/TileCache.cs`) is a disk cache under `data/cache` that the proxy reads and writes; compose routes the worker through it (`Tiles__ProxyBaseUrl`). It is not short-lived: nothing expires a tile by age, and the size prune is off (`TileCache:MaxSizeMb` = 0). |
-| Optional `pmtiles extract` for a selected bbox | **Not started** | No extract code, command or endpoint. Waits on the format/source decision below. |
-| PMTiles packaging, registered as a `TileSource` row | **Partly done** | Reading is done: `PmTilesReader`/`PmTilesFetcher` serve a `pmtiles` row from a local archive under `TileCache:PmTilesDir` (default `data/map-packages`) or over HTTP ranges, with tests (`PmTilesReaderTests`, `PmTilesTilesApiTests`). Making a package (Protomaps extract or Planetiler) is not started. The print path draws raster only: `renderMapPanel` composites tile bytes with sharp, so a vector (`pbf`) archive serves to MapLibre but cannot be drawn into a PDF panel. Compose mounts `data/cache` but not `data/map-packages`. |
-| Pruning for extracts and old render artifacts; size estimate before an extract | **Partly done** | Render artifacts: `GeneratedPdfRetentionService`. Tile cache: `TileCache.Prune` / `journeybook cache-prune`, off by default. Extracts: none to prune. Estimate: `render --dry-run` gives a tile count (`planAtlasRender`, held to real fetches by `dry-run.test.ts`) but no byte estimate, and no extract exists to estimate. |
+| Optional `pmtiles extract` for a selected bbox | **Built as raster packaging (2026-11-16)** | Not `pmtiles extract` (that cuts a vector planet, ruled out by decision b). `journeybook package --bbox W,S,E,N --min-zoom a --max-zoom b --out f.pmtiles` fetches every tile through `loadTile` (the render's own path: `--tile-base-url` for the C# proxy's `TileCache`/fetchers, `--tile-cache-dir` for the shared disk cache) and writes raster PMTiles v3 (`writePmTiles`, `packages/map-sources/src/pmtiles.ts`). Strict: any failed tile or a mix of png/jpeg fails the package. CLI only; no endpoint, no UI. |
+| PMTiles packaging, registered as a `TileSource` row | **Partly done** | *(2026-11-16: making a package is built, row above. Round-trip proven without network: `package.test.ts` packages from a fake source and renders a one-page atlas whose every tile is served from the archive; the C# `PmTilesReader` reads the shared fixture `data/fixtures/raster-package/` (`RasterPackageFixtureTests`), and the proxy serves it as a `pmtiles` row (`RasterPackageTilesApiTests`). Registering the row is still by hand: copy the file under `TileCache:PmTilesDir`, `POST /api/tile-sources` with `kind: "pmtiles"`.)* Reading is done: `PmTilesReader`/`PmTilesFetcher` serve a `pmtiles` row from a local archive under `TileCache:PmTilesDir` (default `data/map-packages`) or over HTTP ranges, with tests (`PmTilesReaderTests`, `PmTilesTilesApiTests`). Making a package (Protomaps extract or Planetiler) is not started. The print path draws raster only: `renderMapPanel` composites tile bytes with sharp, so a vector (`pbf`) archive serves to MapLibre but cannot be drawn into a PDF panel. Compose mounts `data/cache` but not `data/map-packages`. |
+| Pruning for extracts and old render artifacts; size estimate before an extract | **Partly done** *(2026-11-16: `package --dry-run` gives tiles per zoom and the total, no bytes)* | Render artifacts: `GeneratedPdfRetentionService`. Tile cache: `TileCache.Prune` / `journeybook cache-prune`, off by default. Extracts: none to prune. Estimate: `render --dry-run` gives a tile count (`planAtlasRender`, held to real fetches by `dry-run.test.ts`) but no byte estimate, and no extract exists to estimate. |
 | Power User self-hosted tile server | **Partly done** | The registry accepts an `xyz-server` row and `RasterXyzFetcher` serves it. No TileServer-GL/Martin/pg_tileserv service in compose. Stays "later" by this section's own wording. |
 | Done when: renders without permanent map bloat; temp files prune safely | **Partly done** | Temp files: the prune removes abandoned `.tmp-` files older than an hour. Bloat: the tile cache grows without bound until a size is chosen. |
 | Done when: cache metadata records source URL, source date, bbox, zoom range, attribution, expiration | **Partly done (2026-11-16)** | All but expiration are recorded per render (row 1). Gaps: the seeded `usgs-topo` row has no `SourceDate`, so that field is null for it; and there is no expiry to record, because nothing expires tiles. The snapshot records the row's declared `sourceCacheMaxAgeSeconds` under that name and invents no date. |
 
+**Owner decisions, 2026-11-16** (also in `docs/decisions.md`). Built on branch
+`feat/stage-7-raster-pmtiles`, not pushed, so CI is unread. Suites there: TS 660 (atlas-core
+102, pdf-client 71, map-sources 98, web 214, render-cli 137, render-worker 38); .NET 348/348
+with Docker; harness checks all pass.
+
+- **(a) A source's own `MaxAgeSeconds` wins** over the global `TileCache:BrowserMaxAgeSeconds`,
+  which becomes the fallback. **Done** on `feat/stage-7-raster-pmtiles`: `TileService` puts the
+  row's value on `TileResult.MaxAgeSeconds` and `TileEndpoints` sends it, on a miss and a hit;
+  a row with 0 gets the global value (`TilesApiTests.Cache_control_*`). USGS tiles now go to
+  browsers with 1 day, the seed row's value, not 7.
+- **(b) Tile packages are raster PMTiles of USGS topo only.** No MBTiles, no vector formats.
+  That picks option C below and rules out A, B and D.
+
 Found while auditing, not fixed:
 
-- **A source's cache policy is stored and not used.** `TileCachePolicy.MaxAgeSeconds`
-  (86,400 on the seed) and `OfflineAllowed` (false) are read by nothing that acts on them. The
-  proxy sends `Cache-Control: max-age` from the global `TileCache:BrowserMaxAgeSeconds`
-  (604,800), so USGS tiles are offered to browsers for 7 days against the row's 1. Which value
-  should win is a policy choice, so it is left alone. `OfflineAllowed` should gate any extract
-  once one exists.
+- **`OfflineAllowed` gates nothing yet: open.** It should gate building a package, but the
+  seeded `usgs-topo` row says `false` while USGS is public domain and is now the one source
+  packages are made from (decision b). Gating on it today would forbid the only allowed
+  package. Settle it together: flip the seed (a migration) to `true`, then refuse to package a
+  row with `false`. The package command added on this branch fetches tiles by URL and does not
+  read the registry row, so the gate has nowhere to sit until packaging goes through the API.
+- **Package follow-ups, not built:** no byte estimate (USGS tile size varies with terrain, so a
+  per-tile guess would be invented; measuring a sample would be the honest way); no API
+  endpoint or UI; no automatic row registration; compose still does not mount
+  `data/map-packages`; not tried against live USGS, which may mix png and jpeg (the package
+  refuses a mix rather than re-encode). No manifest table yet (option 4).
 
 What is left needs an owner decision. The options:
 
-1. **Which offline package format and source** (the open question under Resolved vs.
-   Remaining Decisions).
+1. ~~**Which offline package format and source**~~ Decided 2026-11-16: **C**, raster
+   PMTiles of USGS topo only (decision b above). The options as they were weighed:
    - *A. Protomaps prebuilt planet, `pmtiles extract` per bbox.* No build pipeline, ODbL
      attribution. The tiles are **vector**, so printing them needs a vector-to-raster step
      the panel renderer does not have (maplibre-native, the Stage 1C path not taken). Good
@@ -618,7 +636,8 @@ What is left needs an owner decision. The options:
      built in Stage 3 is PMTiles.
 2. **How long tiles are kept.** Pick `TileCache:MaxSizeMb`, an age limit (code to write), or
    both. That also settles the expiry field in the provenance.
-3. **Whether a source's own `MaxAgeSeconds` should replace the global browser max-age.**
+3. ~~**Whether a source's own `MaxAgeSeconds` should replace the global browser max-age.**~~
+   Decided 2026-11-16: it does (decision a above), and it is built.
 4. **Whether to build a cache-manifest table now.** A table needs rows, and there will be
    rows once packages exist (1). Until then the per-render snapshot holds the same facts.
 

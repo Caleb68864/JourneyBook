@@ -1,0 +1,287 @@
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { measurePdfPages } from "@journeybook/pdf-client";
+import {
+  readPmTilesHeader,
+  readPmTilesTile,
+  writePmTiles,
+  type PackageTile,
+} from "@journeybook/map-sources";
+import { buildRasterPackage, planPackage, sniffRasterType } from "./package.js";
+import { assembleContract, planAtlasRender, renderAtlas, type RenderAtlasInput } from "./render.js";
+import { runCli } from "./cli.js";
+
+const realFetch = globalThis.fetch;
+afterEach(() => vi.unstubAllGlobals());
+
+const TILE_URL = /\/tile\/(\d+)\/(\d+)\/(\d+)$|\/(\d+)\/(\d+)\/(\d+)$/;
+
+/** z/x/y from a USGS template URL ({z}/{y}/{x}) or a proxy URL ({z}/{x}/{y}). */
+function zxyOf(url: string): [number, number, number] {
+  const m = TILE_URL.exec(url)!;
+  if (m[1] !== undefined) return [Number(m[1]), Number(m[3]), Number(m[2])];
+  return [Number(m[4]), Number(m[5]), Number(m[6])];
+}
+
+/** A real 256 px PNG (the one `render.test.ts` serves), so the render test composites real pixels. */
+const TILE_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAIAAADTED8xAAAACXBIWXMAAAPoAAAD6AG1e1JrAAACAElEQVR42u3TMQ0AAAgEsVfMjAhEM6OBJlVwyaWn4K1IgAHAAGAAMAAYAAwABgADgAHAAGAAMAAYAAwABgADgAHAAGAAMAAYAAwABgADgAHAAGAAMAAYAAwABgADgAHAAGAAMAAYAAwABgADgAHAAGAAMAAYAAwABgADgAHAAGAADKACBgADgAHAAGAAMAAYAAwABgADgAHAAGAAMAAYAAwABgADgAHAAGAAMAAYAAwABgADgAHAAGAAMAAYAAwABgADgAHAAGAAMAAYAAwABgADgAHAAGAAMAAYAAwABgADgAEwABgADAAGAAOAAcAAYAAwABgADAAGAAOAAcAAYAAwABgADAAGAAOAAcAAYAAwABgADAAGAAOAAcAAYAAwABgADAAGAAOAAcAAYAAwABgADAAGAAOAAcAAYAAwABgADIABVMAAYAAwABgADAAGAAOAAcAAYAAwABgADAAGAAOAAcAAYAAwABgADAAGAAOAAcAAYAAwABgADAAGAAOAAcAAYAAwABgADAAGAAOAAcAAYAAwABgADAAGAAOAAcAAYAAwAAYAA4ABwABgADAAGAAMAAYAA4ABwABgADAAGAAMAAYAA4ABwABgADAAGAAMAAYAA4ABwABgADAAGAAMAAYAA4ABwABgADAAGAAMAAYAA4ABwABgADAAGAAMANcCwUIVr6HMf/cAAAAASUVORK5CYII=",
+  "base64",
+);
+async function tilePng(_z: number): Promise<Buffer> {
+  return TILE_PNG;
+}
+
+/** The fake upstream: answers tile URLs with a PNG and counts them; anything else goes to the real fetch. */
+function fakeUpstream() {
+  const calls: string[] = [];
+  const fn = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (!/^https?:/i.test(url)) return realFetch(input, init);
+    calls.push(url);
+    const [z] = zxyOf(url);
+    return new Response(new Uint8Array(await tilePng(z)), { status: 200, headers: { "content-type": "image/png" } });
+  });
+  return { fn, calls };
+}
+
+describe("planPackage", () => {
+  it("counts tiles per zoom from the engine's tile range", () => {
+    const plan = planPackage([-96.71, 40.81, -96.69, 40.82], 10, 12);
+    expect(plan.zooms.map((z) => z.z)).toEqual([10, 11, 12]);
+    expect(plan.tiles).toBe(plan.zooms.reduce((a, z) => a + z.tiles, 0));
+    expect(plan.zooms[0]!.tiles).toBe(1);
+  });
+
+  it("refuses a zoom deeper than the source has and a bad bbox", () => {
+    expect(() => planPackage([-96.71, 40.81, -96.69, 40.82], 15, 17, 16)).toThrow(/deeper than the source/);
+    expect(() => planPackage([-96.69, 40.81, -96.71, 40.82], 10, 12)).toThrow(/W < E/);
+    expect(() => planPackage([-96.71, 40.81, -96.69, 40.82], 12, 10)).toThrow(/min <= max/);
+  });
+});
+
+describe("sniffRasterType", () => {
+  it("reads png, jpeg and webp magic, and nothing else", () => {
+    expect(sniffRasterType(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0, 0]))).toBe("png");
+    expect(sniffRasterType(new Uint8Array([0xff, 0xd8, 0xff, 0xe0]))).toBe("jpeg");
+    expect(sniffRasterType(Buffer.from("RIFF\0\0\0\0WEBPVP8 "))).toBe("webp");
+    expect(sniffRasterType(new Uint8Array([0x1a, 0x45]))).toBeNull();
+  });
+});
+
+describe("buildRasterPackage", () => {
+  const bbox: [number, number, number, number] = [-96.71, 40.81, -96.69, 40.82];
+
+  it("packages every planned tile from the source and reads each one back", async () => {
+    const up = fakeUpstream();
+    vi.stubGlobal("fetch", up.fn);
+    const { archive, plan, tileType } = await buildRasterPackage({ bbox, minZoom: 10, maxZoom: 13 });
+    expect(tileType).toBe("png");
+    expect(up.calls).toHaveLength(plan.tiles);
+    const header = readPmTilesHeader(archive);
+    expect(header).toMatchObject({ tileType: 2, minZoom: 10, maxZoom: 13, addressedTiles: plan.tiles });
+    expect(header.metadata.attribution).toBe("USGS The National Map");
+    for (const zr of plan.zooms) {
+      const back = readPmTilesTile(archive, zr.z, zr.minX, zr.minY);
+      expect(back?.equals(await tilePng(zr.z))).toBe(true);
+    }
+    // Outside the bbox: absent.
+    expect(readPmTilesTile(archive, 13, plan.zooms[3]!.maxX + 1, plan.zooms[3]!.minY)).toBeNull();
+  });
+
+  it("goes through the shared tile cache: a second package needs no fetch", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jb-package-cache-"));
+    try {
+      vi.stubGlobal("fetch", fakeUpstream().fn);
+      const first = await buildRasterPackage({ bbox, minZoom: 10, maxZoom: 12, cacheDir: dir });
+      const down = vi.fn(async () => new Response(null, { status: 503 }));
+      vi.stubGlobal("fetch", down);
+      const second = await buildRasterPackage({ bbox, minZoom: 10, maxZoom: 12, cacheDir: dir, tileAttempts: 1 });
+      expect(down).not.toHaveBeenCalled();
+      expect(second.archive.equals(first.archive)).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("routes through the C# proxy URL when given one", async () => {
+    const up = fakeUpstream();
+    vi.stubGlobal("fetch", up.fn);
+    await buildRasterPackage({
+      bbox,
+      minZoom: 10,
+      maxZoom: 10,
+      tileBaseUrl: "http://localhost:5180/api/tiles",
+      sourceId: "usgs-topo",
+    });
+    expect(up.calls[0]).toMatch(/^http:\/\/localhost:5180\/api\/tiles\/usgs-topo\/10\/\d+\/\d+$/);
+  });
+
+  it("writes nothing when a tile fails, and refuses an oversized package", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 404 })));
+    await expect(buildRasterPackage({ bbox, minZoom: 10, maxZoom: 11 })).rejects.toThrow(/tiles failed .*HTTP 404/);
+    await expect(buildRasterPackage({ bbox, minZoom: 10, maxZoom: 16, maxTiles: 10 })).rejects.toThrow(/over the limit of 10/);
+  });
+
+  it("refuses a source that mixes raster types", async () => {
+    let n = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(new Uint8Array(n++ === 0 ? [0xff, 0xd8, 0xff, 0xe0] : await tilePng(1)), { status: 200 })),
+    );
+    await expect(buildRasterPackage({ bbox, minZoom: 10, maxZoom: 12 })).rejects.toThrow(/one raster type/);
+  });
+
+  it("renders an atlas page with every tile served from the package", async () => {
+    const input: RenderAtlasInput = {
+      mode: "location",
+      center: { lng: -96.7026, lat: 40.8136 },
+      scalePresetId: "usgs-7-5-min",
+      tier: 1,
+      basemap: true,
+      panelWidthPx: 512,
+      overview: false,
+      tableOfContents: false,
+      outputPath: "",
+    };
+    const page = assembleContract(input).contract.pages[0]!;
+    const zoom = planAtlasRender(input).pages[0]!.panel!.zoom;
+
+    vi.stubGlobal("fetch", fakeUpstream().fn);
+    const { archive } = await buildRasterPackage({ bbox: page.bbox, minZoom: zoom - 1, maxZoom: zoom });
+
+    // The renderer's only tile source is now the archive.
+    const misses: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (req: string | URL | Request, init?: RequestInit) => {
+        const url = typeof req === "string" ? req : req instanceof URL ? req.href : req.url;
+        if (!/^https?:/i.test(url)) return realFetch(req, init);
+        const [z, x, y] = zxyOf(url);
+        const bytes = readPmTilesTile(archive, z, x, y);
+        if (!bytes) {
+          misses.push(url);
+          return new Response(null, { status: 404 });
+        }
+        return new Response(new Uint8Array(bytes), { status: 200, headers: { "content-type": "image/png" } });
+      }),
+    );
+    const dir = mkdtempSync(join(tmpdir(), "jb-package-render-"));
+    try {
+      const out = join(dir, "from-package.pdf");
+      const res = await renderAtlas({ ...input, outputPath: out, panelFormat: "png" });
+      expect(misses).toEqual([]);
+      expect(res.pageCount).toBe(1);
+      expect(measurePdfPages(readFileSync(out))[0]!.images).toHaveLength(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
+});
+
+/**
+ * The cross-language fixture. `PmTilesReader` (C#) reads this file in
+ * `RasterPackageFixtureTests`; this test holds the TS writer to it byte for byte,
+ * so the C# side is reading what the current writer makes. The tiles are short
+ * PNG-signed payloads, not images, so no encoder version can change them; leaves
+ * are forced so the C# reader's leaf-directory path is exercised too.
+ * Regenerate with UPDATE_FIXTURES=1.
+ */
+describe("raster-package fixture", () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), "../../../data/fixtures/raster-package");
+  const manifestPath = join(root, "manifest.json");
+  const archivePath = join(root, "package.pmtiles");
+
+  function fixtureTiles(): PackageTile[] {
+    const tiles: PackageTile[] = [];
+    // z10..12 over a 2x2 / 3x3 / 4x4 patch, plus a run of identical tiles at z12.
+    for (const [z, x0, y0, side] of [
+      [10, 236, 387, 2],
+      [11, 472, 774, 3],
+      [12, 944, 1548, 4],
+    ] as const) {
+      for (let x = x0; x < x0 + side; x++) {
+        for (let y = y0; y < y0 + side; y++) {
+          const same = z === 12 && x === x0; // one column of identical bytes: dedupe + run lengths
+          const tail = same ? "same" : `${z}/${x}/${y}`;
+          tiles.push({ z, x, y, bytes: Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from(tail)]) });
+        }
+      }
+    }
+    return tiles;
+  }
+
+  it("is what the writer makes", () => {
+    const tiles = fixtureTiles();
+    const archive = writePmTiles(tiles, {
+      tileType: "png",
+      bounds: [-97.0, 40.5, -96.5, 41.0],
+      minZoom: 10,
+      maxZoom: 12,
+      metadata: { name: "fixture", attribution: "USGS The National Map", source: "usgs-topo", format: "png" },
+      leafSize: 5,
+    });
+    const manifest = {
+      note: "Written by packages/render-cli/src/package.test.ts; read by dotnet/JourneyBook.Tests/RasterPackageFixtureTests.cs.",
+      tileType: 2,
+      minZoom: 10,
+      maxZoom: 12,
+      tiles: tiles.map((t) => ({ z: t.z, x: t.x, y: t.y, sha256: createHash("sha256").update(t.bytes).digest("hex") })),
+      absent: [{ z: 12, x: 943, y: 1548 }, { z: 9, x: 0, y: 0 }],
+    };
+    if (process.env.UPDATE_FIXTURES === "1") {
+      mkdirSync(root, { recursive: true });
+      writeFileSync(archivePath, archive);
+      writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    }
+    expect(readFileSync(archivePath).equals(archive)).toBe(true);
+    expect(JSON.parse(readFileSync(manifestPath, "utf8"))).toEqual(manifest);
+    for (const t of tiles) expect(readPmTilesTile(archive, t.z, t.x, t.y)?.equals(Buffer.from(t.bytes))).toBe(true);
+    for (const a of manifest.absent) expect(readPmTilesTile(archive, a.z, a.x, a.y)).toBeNull();
+  });
+});
+
+describe("cli package", () => {
+  it("--dry-run prints the tile count and writes nothing", async () => {
+    const out: string[] = [];
+    const spy = vi.spyOn(process.stdout, "write").mockImplementation((s) => (out.push(String(s)), true));
+    try {
+      const code = await runCli(["package", "--bbox", "-96.71,40.81,-96.69,40.82", "--min-zoom", "10", "--max-zoom", "12", "--dry-run"]);
+      expect(code).toBe(0);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(out.join("")).toMatch(/z10: 1 tile/);
+    expect(out.join("")).toMatch(/total \d+ tiles/);
+  });
+
+  it("writes a .pmtiles file", async () => {
+    vi.stubGlobal("fetch", fakeUpstream().fn);
+    const dir = mkdtempSync(join(tmpdir(), "jb-package-cli-"));
+    const spy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    try {
+      const file = join(dir, "lincoln.pmtiles");
+      const code = await runCli(["package", "--bbox", "-96.71,40.81,-96.69,40.82", "--min-zoom", "10", "--max-zoom", "11", "--out", file]);
+      expect(code).toBe(0);
+      expect(readPmTilesHeader(readFileSync(file))).toMatchObject({ tileType: 2, minZoom: 10, maxZoom: 11 });
+    } finally {
+      spy.mockRestore();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("needs --bbox, zooms and --out", async () => {
+    const spy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      expect(await runCli(["package", "--min-zoom", "10", "--max-zoom", "11", "--out", "x.pmtiles"])).toBe(2);
+      expect(await runCli(["package", "--bbox", "-96.71,40.81,-96.69,40.82", "--max-zoom", "11", "--out", "x.pmtiles"])).toBe(2);
+      expect(await runCli(["package", "--bbox", "-96.71,40.81,-96.69,40.82", "--min-zoom", "10", "--max-zoom", "11"])).toBe(2);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
