@@ -65,6 +65,12 @@ export interface RasterBasemap {
    * rendered at this zoom instead of asking for pixels that do not exist.
    */
   maxZoom?: number;
+  /**
+   * Whether the source's terms allow keeping its tiles for offline use, the same fact as a
+   * registry row's `Cache.OfflineAllowed`. `journeybook package` refuses a source unless this is
+   * `true`; absent means not allowed.
+   */
+  offlineAllowed?: boolean;
 }
 
 /**
@@ -82,6 +88,9 @@ export const USGS_TOPO: RasterBasemap = {
     "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}",
   attribution: "USGS The National Map",
   maxZoom: 16,
+  // Public domain, and the only package source (owner decision 2026-11-16); matches the seeded
+  // `usgs-topo` row (migration AllowUsgsTopoOffline).
+  offlineAllowed: true,
 };
 
 /** Encoded image formats a panel can be emitted in (both embeddable in a PDF). */

@@ -8,6 +8,7 @@ public enum TileStatus
     UnknownSource,  // 404 — no registry row for the key
     ZoomOutOfRange, // 400 — z exceeds the source's MaxZoom
     UpstreamError,  // 502 — fetch failed (network/timeout/non-2xx/corrupt archive)
+    OfflineNotAllowed, // 403 — a pmtiles (offline package) row whose source terms do not allow offline use
 }
 
 /// <summary>
@@ -28,6 +29,7 @@ public record TileResult(
     public static TileResult UnknownSource() => new(TileStatus.UnknownSource, [], "", "", "", false);
     public static TileResult ZoomOutOfRange() => new(TileStatus.ZoomOutOfRange, [], "", "", "", false);
     public static TileResult UpstreamError() => new(TileStatus.UpstreamError, [], "", "", "", false);
+    public static TileResult OfflineNotAllowed() => new(TileStatus.OfflineNotAllowed, [], "", "", "", false);
     public static TileResult EmptyTile(string attribution) => new(TileStatus.Empty, [], "", attribution, "", false);
 }
 

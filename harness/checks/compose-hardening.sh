@@ -78,7 +78,26 @@ else
   failed=1
 fi
 
+# 6. The api reads every host directory it is configured to use. A `pmtiles` row
+#    resolves its archive inside TileCache:PmTilesDir (default `data/map-packages`,
+#    relative to the api's WORKDIR /app), so without this mount no offline package
+#    can be served from the stack. Same for the shared tile cache and the PDFs.
+api_block=$(awk '/^  api:/{f=1;next} /^  [a-z][a-z-]*:/{f=0} f' "$COMPOSE")
+for mount in \
+  "../../data/generated:/app/data/generated" \
+  "../../data/cache:/app/data/cache" \
+  "../../data/map-packages:/app/data/map-packages"; do
+  if ! printf '%s\n' "$api_block" | grep -qE "^\s*-\s*${mount//./\\.}(:ro)?\s*$"; then
+    echo "FAIL: the api service does not mount $mount."
+    failed=1
+  fi
+done
+if ! grep -qE '^WORKDIR /app$' "$REPO_ROOT/infra/docker/api.Dockerfile"; then
+  echo "FAIL: the api image's WORKDIR is not /app, so the relative data/ defaults miss the mounts."
+  failed=1
+fi
+
 if [ "$failed" -eq 0 ]; then
-  echo "PASS: compose ships no default DB password, no Development default, DB port on loopback"
+  echo "PASS: compose ships no default DB password, no Development default, DB port on loopback; api mounts generated, cache and map-packages"
 fi
 exit "$failed"
