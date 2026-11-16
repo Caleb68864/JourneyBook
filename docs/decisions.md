@@ -1300,3 +1300,10 @@ Each entry follows this shape:
 - Surfaces: packages/map-sources/src/pmtiles.ts, packages/map-sources/src/pmtiles.test.ts, packages/map-sources/src/panel.ts, packages/map-sources/src/index.ts, packages/render-cli/src/package.ts, packages/render-cli/src/package.test.ts, packages/render-cli/src/cli.ts, data/fixtures/raster-package/, dotnet/JourneyBook.Tests/RasterPackageFixtureTests.cs, dotnet/JourneyBook.Tests/Api/RasterPackageTilesApiTests.cs
 - Watch: never run against live USGS. If it serves a mix of png and jpeg the package refuses rather than re-encode. The whole archive is built in memory (fine for the default 20,000-tile cap, not for a state). `OfflineAllowed` is not checked (open, Stage 7). `--dry-run` gives no byte estimate. Regenerate the fixture with `UPDATE_FIXTURES=1` and the C# tests must still pass. `*.pmtiles` is gitignored; `.gitignore` re-includes this one fixture, without which both suites' fixture tests fail on a clean clone.
 - Commit: (pending)
+
+## 2026-11-16 — Keep `data/map-packages/` in the repo with a `.gitkeep`
+- Symptom: the folder was ignored wholesale, so a clean clone lacked it and the first `docker compose up` (which mounts it read-only into the api) had Docker create it owned by root, so packages could not be copied in as the user.
+- Fix: `.gitignore` ignores `data/map-packages/*` but re-includes `data/map-packages/.gitkeep`, which is committed. Packages themselves stay ignored (and `*.pmtiles` is ignored separately).
+- Evidence: `git check-ignore data/map-packages/.gitkeep` reports nothing, and `git check-ignore data/map-packages/x.pmtiles` still reports it ignored.
+- Surfaces: .gitignore, data/map-packages/.gitkeep
+- Commit: (pending)
