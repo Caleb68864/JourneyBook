@@ -1657,3 +1657,10 @@ Each entry follows this shape:
 - Surfaces: packages/map-sources/src/usng-grid.ts, packages/map-sources/src/mgrs-labels.test.ts
 - Watch: the UTM path still clamps ends, which is right there (lines within a few degrees of the panel axes); a UTM page within a degree of 84°N near a zone edge would show it first.
 - Commit: (pending)
+
+## 2026-11-22 — Review fixes to the printed text: worksheet header widths, 360.0°, junction caption order
+- Symptom (final independent review, verified): (1) the worksheet and answer-key header's "From, to" cell had no width (it used the rows' text style, not `stopsBox`), so "Grid azimuth", "Magnetic azimuth" and "Distance" printed about 122 pt left of their columns. (2) `formatAzimuth(359.97)` printed "360.0°", outside 0 ≤ a < 360. (3) The zone-junction caption put the west zone first by sorting on convergence, which is only right north of the equator: at 6°E 30°S it read "(32) / (31)".
+- Fix: the header cell takes `stopsBox` (150 pt). `formatAzimuth` rounds to tenths, then wraps 3600 → 0. The caption orders zones by central meridian with the 180° wrap (zone 60 west of zone 1).
+- Evidence: `worksheet-pages.test.ts`: the "Grid azimuth" and "Distance" headers sit within 1 pt of their first values' x (old: 122 pt off); 359.97° prints "0.0°", 359.94° "359.9°". `declination-diagram.test.ts`: at 6.01°E 30°S the caption reads (31) then (32), and across the date line (60) then (1). Each fails on the old renderer. pdf-client 98.
+- Surfaces: packages/pdf-client/src/AtlasDocument.tsx, packages/pdf-client/src/worksheet-pages.test.ts, packages/pdf-client/src/declination-diagram.test.ts
+- Commit: (pending)

@@ -318,13 +318,15 @@ export function northsCaption(n: ThreeNorths): [string, string] {
   const rate = n.declinationPerYear;
   const drift = Math.abs(rate) < 0.05 ? "steady" : `MN moves ${formatEastWest(rate)}/yr`;
   if (n.otherZone) {
-    // A zone junction: each side's grid north and G-M, named by zone, west zone first.
-    // The western zone's grid north lies east of true north here (the point is east of its
-    // central meridian), so sorting by convergence, largest first, puts the west zone first.
+    // A zone junction: each side's grid north and G-M, named by zone, west zone first. West is
+    // decided by the zones' central meridians (with the 180° wrap), not by convergence, whose
+    // sign flips south of the equator.
+    const centralMeridian = (z: number) => z * 6 - 183;
+    const eastOf = (a: number, b: number) => ((centralMeridian(a) - centralMeridian(b) + 540) % 360) - 180 > 0;
     const sides = [
       { zone: n.utmZone, gn: n.gridConvergence, gm: n.gmAngle },
       { zone: n.otherZone.utmZone, gn: n.otherZone.gridConvergence, gm: n.otherZone.gmAngle },
-    ].sort((x, y) => y.gn - x.gn);
+    ].sort((x, y) => (eastOf(x.zone, y.zone) ? 1 : -1));
     const a = sides[0]!;
     const b = sides[1]!;
     return [
@@ -1313,7 +1315,9 @@ interface TocEntry {
  */
 /** "36.9°" for an azimuth, "5.00 km" / "850 m" for a distance. */
 export function formatAzimuth(deg: number): string {
-  return `${deg.toFixed(1)}°`;
+  // Round, then wrap: 359.97 rounds to 360.0, which is 0.0 (azimuths are 0 ≤ a < 360).
+  const tenths = Math.round(deg * 10) % 3600;
+  return `${(((tenths + 3600) % 3600) / 10).toFixed(1)}°`;
 }
 export function formatDistance(m: number): string {
   return m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`;
@@ -1390,7 +1394,8 @@ function WorksheetPages({ title, legs, model }: { title: string; legs: Worksheet
   const HeadRow = () => (
     <View style={worksheetStyles.head} fixed>
       <Text style={[worksheetStyles.leg, worksheetStyles.headCell]}>{columns[0]}</Text>
-      <Text style={[worksheetStyles.stops, worksheetStyles.headCell]}>{columns[1]}</Text>
+      {/* The same width as the rows' stops cell, or every column after it starts too far left. */}
+      <Text style={[worksheetStyles.stopsBox, worksheetStyles.headCell]}>{columns[1]}</Text>
       <Text style={[worksheetStyles.cell, worksheetStyles.headCell]}>{columns[2]}</Text>
       <Text style={[worksheetStyles.cell, worksheetStyles.headCell]}>{columns[3]}</Text>
       <Text style={[worksheetStyles.cell, worksheetStyles.headCell]}>{columns[4]}</Text>

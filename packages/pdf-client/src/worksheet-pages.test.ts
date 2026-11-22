@@ -77,4 +77,20 @@ describe("azimuth worksheet pages", () => {
     // A leg with no page list (pages not computed) prints none.
     expect(pages[1]!.texts.filter((t) => t.startsWith("pages "))).toHaveLength(1);
   });
+
+  it("[BEHAVIORAL] an azimuth that rounds to 360 prints as 0.0°", () => {
+    expect(formatAzimuth(359.97)).toBe("0.0°");
+    expect(formatAzimuth(359.94)).toBe("359.9°");
+    expect(formatAzimuth(0.04)).toBe("0.0°");
+  });
+
+  it("[BEHAVIORAL] each column header sits over its column on the answer key", async () => {
+    const pages = measurePdfPages(await renderAtlasPdfToBuffer({ contract, tableOfContents: false, worksheet: { legs: LEGS } }));
+    const key = pages[2]!.textItems;
+    const header = (text: string) => key.find((t) => t.text === text)!;
+    const firstValue = key.find((t) => t.text.startsWith("36.9°"))!;
+    const distance = key.find((t) => t.text.startsWith("5.00"))!; // shown as "5.00 " + "km"
+    expect(Math.abs(header("Grid azimuth").x - firstValue.x)).toBeLessThan(1);
+    expect(Math.abs(header("Distance").x - distance.x)).toBeLessThan(1);
+  });
 });

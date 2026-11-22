@@ -93,3 +93,16 @@ describe("northsCaption on a zone junction", () => {
     expect(line2).toMatch(/^G-M \d\.\d° [EW] \(13\) \/ \d\.\d° [EW] \(14\) · WMM2025 2026\.5$/);
   });
 });
+
+describe("review fixes to the footer and worksheet text", () => {
+  it("[BEHAVIORAL] the junction caption puts the west zone first in the south too", () => {
+    const n = threeNorths({ lng: 6.01, lat: -30 }, MID_2026, 31);
+    expect(n.utmZone).toBe(32);
+    const [line1, line2] = northsCaption(n);
+    expect(line1).toMatch(/GN \d\.\d° [EW] \(31\) \/ \d\.\d° [EW] \(32\)/);
+    expect(line2).toMatch(/\(31\) \/ .* \(32\)/);
+    // And across the date line: zone 60 is west of zone 1.
+    const dateLine = threeNorths({ lng: -179.99, lat: 40 }, MID_2026, 60);
+    expect(northsCaption(dateLine)[0]).toMatch(/\(60\) \/ .* \(1\)/);
+  });
+});

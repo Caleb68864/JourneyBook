@@ -1423,6 +1423,8 @@ Not fixed from the review: none; all eight findings were verified and fixed on t
   the panel, labelled where they meet the border. At 45°E a line labelled 2421000 lay 264 m off
   its easting; now within 5 m. Also: an equator page printed "-4000mN" (now 9996000mN), and a
   junction page's squares were not listed centre-first.
+- [x] ~~**Worksheet header row 122 pt off its columns; "360.0°"; southern junction caption east-first.**~~ ✅
+  (independent review) Each fails on the old renderer.
 
 ## Phase 1: Print Geometry
 Build the Docker-hosted React/Vite/shadcn/Tailwind web app skeleton, define the outdoor field-guide visual system, accept bounding boxes, create page grid, generate overview and detail pages, and validate Letter-size PDF output from the preferred client-side React PDF path.
