@@ -9,9 +9,15 @@ namespace JourneyBook.Infrastructure.GeneratedPdfs;
 /// How often expired generated-PDF records are swept. Zero or negative disables the
 /// sweep entirely (the manual <c>POST /api/generated-pdfs/prune</c> still works).
 /// </summary>
-public sealed record GeneratedPdfRetentionOptions(TimeSpan Interval)
+public sealed record GeneratedPdfRetentionOptions(TimeSpan Interval, TimeSpan OrphanSweepMinAge = default)
 {
     public bool Enabled => Interval > TimeSpan.Zero;
+
+    /// <summary>
+    /// Whether each sweep also removes PDFs no record points at (<see cref="GeneratedPdfOrphanSweeper"/>).
+    /// Off unless <c>GeneratedPdf:OrphanSweepMinAgeHours</c> is set.
+    /// </summary>
+    public bool SweepsOrphans => OrphanSweepMinAge > TimeSpan.Zero;
 }
 
 /// <summary>
@@ -80,6 +86,15 @@ public sealed class GeneratedPdfRetentionService(
             if (removed > 0)
             {
                 logger.LogInformation("Retention sweep removed {Count} expired generated-PDF record(s).", removed);
+            }
+
+            if (options.SweepsOrphans && scope.ServiceProvider.GetService<GeneratedPdfOrphanSweeper>() is { } sweeper)
+            {
+                var orphans = await sweeper.SweepAsync(options.OrphanSweepMinAge, ct: ct);
+                if (orphans > 0)
+                {
+                    logger.LogInformation("Retention sweep removed {Count} generated PDF(s) that no record pointed at.", orphans);
+                }
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)

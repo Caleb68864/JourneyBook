@@ -54,7 +54,12 @@ public static class DependencyInjection
         // GeneratedPdf:PruneIntervalHours to 0 to go back to manual-only.
         var pruneIntervalHours =
             double.TryParse(configuration["GeneratedPdf:PruneIntervalHours"], out var pih) ? pih : 6;
-        services.AddSingleton(new GeneratedPdfRetentionOptions(TimeSpan.FromHours(pruneIntervalHours)));
+        var orphanSweepHours =
+            double.TryParse(configuration["GeneratedPdf:OrphanSweepMinAgeHours"], out var osh) ? osh : 0;
+        services.AddSingleton(new GeneratedPdfRetentionOptions(
+            TimeSpan.FromHours(pruneIntervalHours),
+            orphanSweepHours > 0 ? TimeSpan.FromHours(orphanSweepHours) : TimeSpan.Zero));
+        services.AddScoped<GeneratedPdfOrphanSweeper>();
         services.AddHostedService<GeneratedPdfRetentionService>();
 
         // --- Tile proxy (Stage 3) -------------------------------------------
