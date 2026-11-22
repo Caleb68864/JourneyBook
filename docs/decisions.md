@@ -1455,3 +1455,18 @@ Each entry follows this shape:
 - Surfaces: services/render-worker/src/package-route.ts, services/render-worker/src/package-route.test.ts, services/render-worker/src/server.ts, packages/render-cli/src/index.ts, dotnet/JourneyBook.Infrastructure/Tiles/MapPackageJobs.cs, dotnet/JourneyBook.Infrastructure/DependencyInjection.cs, apps/api/Endpoints/MapPackageEndpoints.cs, infra/compose/docker-compose.yml, dotnet/JourneyBook.Tests/Api/MapPackageJobsApiTests.cs
 - Watch: job status lives in memory on both sides. An API restart forgets the job; the package still lands and shows in the manifest unregistered, and `POST /api/map-packages/register` finishes it. The worker builds the whole archive in memory (default cap 20,000 tiles). Not run in Docker here (no compose plugin on this host), and not against live USGS.
 - Commit: (pending)
+
+## 2026-11-22 — `RenderJobRunnerTests` uses `Assert.Single`'s filter overload (xUnit2031)
+- Symptom: eleven `Assert.Single(x.Where(...))` calls in `dotnet/JourneyBook.Tests/Rendering/RenderJobRunnerTests.cs` raised analyzer warning xUnit2031, some copied into tests added on the 2026-11-21 branches.
+- Fix: `Assert.Single(x, predicate)`. Test-only; commit `b6a9262`, which was made with `--no-verify` and so skipped this log. This entry is that commit's record. The hook is not to be bypassed again.
+- Evidence: `dotnet build --no-incremental` reports no xUnit2031; RenderJobRunnerTests 33/33.
+- Surfaces: dotnet/JourneyBook.Tests/Rendering/RenderJobRunnerTests.cs
+- Commit: b6a9262
+
+## 2026-11-22 — The web app shows the offline map packages (read-only)
+- Symptom: `GET /api/map-packages` (the Stage 7 manifest) had no reader in the app, so which packages existed, what they covered and whether a render could use them was visible only with curl.
+- Fix: `api.mapPackages.list()` and the `MapPackage` type in `apps/web/src/api/client.ts`. `MapPackagesPanel` (on the project list, under the atlases) lists each package's file, `[W,S,E,N]` coverage as degrees N/S/E/W, zoom range, tile count and type, size, and either "Served as <key>" or "Not registered as a tile source yet". An unreadable file shows the server's reason; an empty list and a failed load each say so. Read-only by decision: making and registering are admin-key registry writes and the app holds no key, so it does not offer buttons that would always 401.
+- Evidence: `MapPackagesPanel.test.tsx` (4) runs the real panel and client against a stubbed fetch: the three kinds of row, the empty and error states, the formatters. `ProjectListPage.test.tsx` checks the page renders the panel with a package in it; with the old `ProjectListPage.tsx` it fails. Web 221.
+- Surfaces: apps/web/src/api/client.ts, apps/web/src/components/MapPackagesPanel.tsx, apps/web/src/components/MapPackagesPanel.test.tsx, apps/web/src/routes/ProjectListPage.tsx, apps/web/src/routes/ProjectListPage.test.tsx
+- Watch: loads once on mount; no refresh button (a package made meanwhile shows on the next visit).
+- Commit: (pending)

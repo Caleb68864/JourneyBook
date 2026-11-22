@@ -632,7 +632,10 @@ Found while auditing, not fixed:
   maxTiles?}, admin-gated, 202: the worker's new `POST /package` job builds it through the
   api's tile proxy into `data/map-packages` (compose mounts it read-write into the worker,
   `PACKAGES_DIR`), and the api registers it when it lands; `GET /api/map-packages/jobs/{id}`
-  reports packaging, registering, registered, or failed with the reason)*, no UI; ~~no automatic row registration~~ *(2026-11-22:
+  reports packaging, registering, registered, or failed with the reason)*, ~~no UI~~
+  *(2026-11-22: "Offline map packages" on the project list reads the manifest, read-only:
+  coverage, zooms, tile count, size, and whether a tile source serves each; making and
+  registering stay admin-only, so the app, which holds no admin key, does not offer them)*; ~~no automatic row registration~~ *(2026-11-22:
   `POST /api/map-packages/register` {file, key?}, admin-gated, creates the `pmtiles` row from
   the archive: max zoom from its header, credit and origin from its metadata, refused unless
   the origin row exists and allows offline use)*; ~~compose still does not mount

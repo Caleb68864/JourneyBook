@@ -283,11 +283,36 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   }
 }
 
+/**
+ * One offline package on the server, as its own PMTiles header describes it
+ * (`GET /api/map-packages`, C# `MapPackageEntry`). The header fields are null when
+ * the file could not be read, and `error` says why.
+ */
+export interface MapPackage {
+  file: string;
+  bytes: number;
+  modifiedAt: string;
+  tileType: string | null;
+  minZoom: number | null;
+  maxZoom: number | null;
+  /** [W, S, E, N] in degrees. */
+  bbox: BBox | null;
+  addressedTiles: number | null;
+  /** Keys of the tile sources that serve this file; empty when none is registered. */
+  sourceKeys: string[];
+  error: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // API
 // ---------------------------------------------------------------------------
 
 export const api = {
+  mapPackages: {
+    /** The offline packages on the server. Read-only: making and registering need the admin key. */
+    list: () => request<MapPackage[]>("GET", "/map-packages"),
+  },
+
   projects: {
     list: async (): Promise<Project[]> =>
       (await request<ApiProject[]>("GET", "/projects")).map(normalizeProject),
