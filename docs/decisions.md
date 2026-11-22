@@ -1560,3 +1560,9 @@ Each entry follows this shape:
 - Surfaces: packages/atlas-core/src/model.ts, packages/map-sources/src/usng-grid.ts, packages/map-sources/src/mgrs-labels.test.ts, packages/pdf-client/src/AtlasDocument.tsx, packages/render-cli/src/render.ts, packages/render-cli/src/furniture.test.ts
 - Watch: a page spanning two UTM zones is labelled in its centre's zone only, as the Level 3 grid is drawn. Southern hemisphere stays unsupported (the grid is empty there). A page touching four squares would need about 165 pt of collar; at 1:24,000 a page touches at most two in practice.
 - Commit: (pending)
+
+## 2026-11-22 — The tier picker names MGRS for Tier 4
+- Change: Tier 4's description is now "Tier 3 + full MGRS labels, declination diagram & grid-magnetic angle", and `TierPicker.test.ts` requires "MGRS" in it while still forbidding "azimuth" and "worksheet" (not built). The test used to forbid "mgrs" because nothing drew it; the previous commit draws it.
+- Evidence: `TierPicker.test.ts` fails on the old description (no "MGRS") and passes now.
+- Surfaces: apps/web/src/components/TierPicker.tsx, apps/web/src/components/TierPicker.test.ts
+- Commit: (pending)
