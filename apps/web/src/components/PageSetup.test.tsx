@@ -207,6 +207,9 @@ describe("PageSetup reaches the PUT body", () => {
     createdAt: "2026-09-09T00:00:00Z",
     updatedAt: "2026-09-09T00:00:00Z",
     worksheetLegs: [],
+    mapTier: null,
+    worksheet: false,
+    worksheetLandmarks: false,
   };
 
   afterEach(() => vi.unstubAllGlobals());

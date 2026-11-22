@@ -32,6 +32,15 @@ public class Project : EntityBase
     /// </summary>
     public List<WorksheetLegRef> WorksheetLegs { get; set; } = [];
 
+    /// <summary>The editor's map tier (1–4); null until chosen, when the editor's default applies.</summary>
+    public int? MapTier { get; set; }
+
+    /// <summary>The editor's Azimuth Worksheet switch (used only at tier 4).</summary>
+    public bool Worksheet { get; set; }
+
+    /// <summary>The editor's "Legs To Nearby Landmarks" switch (used only with landmarks included).</summary>
+    public bool WorksheetLandmarks { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 

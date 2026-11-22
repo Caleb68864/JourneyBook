@@ -26,6 +26,9 @@ public class ProjectConfiguration : IEntityTypeConfiguration<Project>
                     v => v.ToList()))
             .HasDefaultValueSql("'[]'::jsonb")
             .IsRequired();
+        // Saved editor render choices; existing rows get MapTier null ("not chosen") and both
+        // switches off (the migration's column default), which is what the editor showed.
+        builder.ToTable(t => t.HasCheckConstraint("CK_Projects_MapTier", "\"MapTier\" IS NULL OR \"MapTier\" BETWEEN 1 AND 4"));
 
         builder.HasOne(p => p.Extent)
             .WithOne(e => e.Project!)

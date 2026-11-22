@@ -25,7 +25,11 @@ public record UpdateProjectRequest(
     string? AtlasDate = null,
     // Saved worksheet legs ("loc:<id>" / "lm:<name>" ends). Null leaves them as they are, so a
     // client that does not know the field cannot wipe them; an empty list clears them.
-    IReadOnlyList<WorksheetLegDto>? WorksheetLegs = null);
+    IReadOnlyList<WorksheetLegDto>? WorksheetLegs = null,
+    // Saved editor render choices; each null leaves the saved value as it is.
+    int? MapTier = null,
+    bool? Worksheet = null,
+    bool? WorksheetLandmarks = null);
 
 /// <summary>A saved worksheet leg: each end "loc:&lt;location id&gt;" or "lm:&lt;landmark name&gt;".</summary>
 public record WorksheetLegDto(string From, string To);
@@ -42,4 +46,7 @@ public record ProjectResponse(
     DateTimeOffset UpdatedAt,
     string? ExplorerName = null,
     string? AtlasDate = null,
-    IReadOnlyList<WorksheetLegDto>? WorksheetLegs = null);
+    IReadOnlyList<WorksheetLegDto>? WorksheetLegs = null,
+    int? MapTier = null,
+    bool Worksheet = false,
+    bool WorksheetLandmarks = false);

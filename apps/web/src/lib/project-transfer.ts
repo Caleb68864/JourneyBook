@@ -1,4 +1,4 @@
-import { DEFAULT_SCALE_PRESET_ID, type BBox } from "@journeybook/atlas-core";
+import { DEFAULT_SCALE_PRESET_ID, type BBox, type MapTier } from "@journeybook/atlas-core";
 import type { Location, Margins, Project } from "../api/client";
 
 /**
@@ -30,6 +30,10 @@ export interface ProjectExport {
      * so the file carries the L-number, which import maps back onto the new locations.
      */
     worksheetLegs?: { from: string; to: string }[];
+    /** Saved render choices; absent in older files, when import leaves the defaults. */
+    mapTier?: number | null;
+    worksheet?: boolean;
+    worksheetLandmarks?: boolean;
   };
   locations: ExportedLocation[];
 }
@@ -60,6 +64,9 @@ export function buildProjectExport(project: Project, locations: Location[]): Pro
       explorerName: project.explorerName,
       atlasDate: project.atlasDate,
       worksheetLegs: legsByPosition(project.worksheetLegs ?? [], locations),
+      mapTier: project.mapTier,
+      worksheet: project.worksheet,
+      worksheetLandmarks: project.worksheetLandmarks,
     },
     locations: locations.map((l) => ({
       name: l.name,
@@ -85,6 +92,8 @@ export interface ParsedProjectImport {
   titlePage: { explorerName: string | null; atlasDate: string | null } | null;
   /** Saved worksheet legs by position (L-number) or landmark; [] when the file has none. */
   worksheetLegs: { from: string; to: string }[];
+  /** Saved render choices, present only when the file carried them. */
+  renderChoices: { mapTier?: MapTier; worksheet?: boolean; worksheetLandmarks?: boolean } | null;
   locations: ExportedLocation[];
 }
 
@@ -151,6 +160,13 @@ export function parseProjectImport(raw: unknown): ParsedProjectImport {
             typeof l === "object" && l !== null && typeof (l as { from?: unknown }).from === "string" && typeof (l as { to?: unknown }).to === "string",
         )
       : [],
+    renderChoices: (() => {
+      const c: { mapTier?: MapTier; worksheet?: boolean; worksheetLandmarks?: boolean } = {};
+      if (p.mapTier === 1 || p.mapTier === 2 || p.mapTier === 3 || p.mapTier === 4) c.mapTier = p.mapTier;
+      if (typeof p.worksheet === "boolean") c.worksheet = p.worksheet;
+      if (typeof p.worksheetLandmarks === "boolean") c.worksheetLandmarks = p.worksheetLandmarks;
+      return Object.keys(c).length > 0 ? c : null;
+    })(),
     locations: Array.isArray(data.locations) ? (data.locations as ExportedLocation[]) : [],
   };
 }

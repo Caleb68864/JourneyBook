@@ -122,6 +122,7 @@ export function ProjectListPage({ onOpen }: ProjectListPageProps) {
       // The file's legs name locations by position; map them onto the ids just created.
       const legs = legsByPlace(parsed.worksheetLegs, createdIds);
       if (legs.length > 0) proj = await api.projects.patch(proj, { worksheetLegs: legs });
+      if (parsed.renderChoices) proj = await api.projects.patch(proj, parsed.renderChoices);
       setProjects((ps) => [proj, ...ps]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to import — is it a JourneyBook export?");

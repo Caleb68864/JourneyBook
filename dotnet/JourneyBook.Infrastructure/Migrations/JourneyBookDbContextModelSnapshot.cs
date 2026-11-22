@@ -297,6 +297,9 @@ namespace JourneyBook.Infrastructure.Migrations
                         .HasMaxLength(120)
                         .HasColumnType("character varying(120)");
 
+                    b.Property<int?>("MapTier")
+                        .HasColumnType("integer");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -304,6 +307,12 @@ namespace JourneyBook.Infrastructure.Migrations
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("Worksheet")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("WorksheetLandmarks")
+                        .HasColumnType("boolean");
 
                     b.Property<string>("WorksheetLegs")
                         .IsRequired()
@@ -313,7 +322,10 @@ namespace JourneyBook.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Projects");
+                    b.ToTable("Projects", t =>
+                        {
+                            t.HasCheckConstraint("CK_Projects_MapTier", "\"MapTier\" IS NULL OR \"MapTier\" BETWEEN 1 AND 4");
+                        });
                 });
 
             modelBuilder.Entity("JourneyBook.Domain.Entities.ScalePreset", b =>

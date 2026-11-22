@@ -602,7 +602,9 @@ Goal: implement the [Map Tiers (Learning Curve)](#map-tiers-learning-curve-featu
 > they apply) is split there into bands, each gridded by its own rule, with the line drawn and
 > labelled. All grid lines are now clipped to the panel along the true grid line, not clamped
 > end by end, which also fixes tilted UTM lines (zone 32 at 4°E, up to ~17 m) and lines that
-> started inside the page where an edge meridian bulges between the corners.)*
+> started inside the page where an edge meridian bulges between the corners. Every zone
+> boundary is labelled with its two zone numbers on its own segment (2026-11-22), so one that
+> lies only in the band below a rule line is no longer labelled at the top of the page.)*
 > *(2026-11-22: a page that spans two UTM zones is drawn as a zone junction: each zone's grid
 > only on its own side of the boundary meridian, numbered in its own zone (first eastings in
 > full on both sides, northing labels on each zone's outer edge), both zones' 100 km squares
@@ -641,7 +643,9 @@ Goal: implement the [Map Tiers (Learning Curve)](#map-tiers-learning-curve-featu
 > worksheet needs Tier 4, where the grid and the G-M angle it is measured with are printed. Hand-picked legs are now saved with the project (2026-11-22, migration
 > `AddProjectWorksheetLegs`, a `jsonb` column defaulting to `[]`): kept by place
 > (`loc:<id>`/`lm:<name>`), dropped when their location is deleted, remapped on duplicate, and
-> carried by L-number in exports.)* **The teaching text stays blocked:** the current TC 3-25.26 (15 Nov 2013)
+> carried by L-number in exports. The tier, the Azimuth Worksheet switch and landmark legs are
+> saved too (migration `AddProjectRenderChoices`), and saved legs the worksheet leaves out are
+> listed under the legs with the reason and a Delete button.)* **The teaching text stays blocked:** the current TC 3-25.26 (15 Nov 2013)
 > carries "Distribution authorized to U.S. government agencies and their contractors" per
 > every copy found, not a public-release statement, and its official armypubs listing could not
 > be reached to confirm otherwise. Only the superseded FM 3-25.26 (2001) is marked "approved for

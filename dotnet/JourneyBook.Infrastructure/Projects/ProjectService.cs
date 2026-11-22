@@ -66,6 +66,10 @@ public class ProjectService(JourneyBookDbContext db, GeneratedPdfArtifacts artif
         project.AtlasDate = TitlePageText(request.AtlasDate, "Date", ProjectLimits.AtlasDateMaxLength);
         if (request.WorksheetLegs is { } legs)
             project.WorksheetLegs = await ValidLegsAsync(project.Id, legs, ct);
+        if (request.MapTier is { } tier)
+            project.MapTier = tier is >= 1 and <= 4 ? tier : throw new ProjectValidationException($"Map tier must be 1–4 (got {tier}).");
+        if (request.Worksheet is { } worksheet) project.Worksheet = worksheet;
+        if (request.WorksheetLandmarks is { } worksheetLandmarks) project.WorksheetLandmarks = worksheetLandmarks;
         project.UpdatedAt = DateTimeOffset.UtcNow;
         project.PageGrid ??= new AtlasPageGrid { ScalePresetId = request.ScalePresetId };
         project.PageGrid.ScalePresetId = request.ScalePresetId;
@@ -112,6 +116,9 @@ public class ProjectService(JourneyBookDbContext db, GeneratedPdfArtifacts artif
             Name = $"{source.Name} (copy)",
             ExplorerName = source.ExplorerName,
             AtlasDate = source.AtlasDate,
+            MapTier = source.MapTier,
+            Worksheet = source.Worksheet,
+            WorksheetLandmarks = source.WorksheetLandmarks,
             CreatedAt = now,
             UpdatedAt = now,
             PageGrid = source.PageGrid is null ? null : new AtlasPageGrid
@@ -261,7 +268,10 @@ public class ProjectService(JourneyBookDbContext db, GeneratedPdfArtifacts artif
             p.UpdatedAt,
             p.ExplorerName,
             p.AtlasDate,
-            p.WorksheetLegs.Select(l => new WorksheetLegDto(l.From, l.To)).ToList());
+            p.WorksheetLegs.Select(l => new WorksheetLegDto(l.From, l.To)).ToList(),
+            p.MapTier,
+            p.Worksheet,
+            p.WorksheetLandmarks);
     }
 
     /// <summary>

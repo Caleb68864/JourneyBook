@@ -24,6 +24,9 @@ const PROJECT: Project = {
   createdAt: "2026-09-09T00:00:00Z",
   updatedAt: "2026-09-09T00:00:00Z",
   worksheetLegs: [],
+  mapTier: null,
+  worksheet: false,
+  worksheetLandmarks: false,
 };
 
 /** Echo the request back as an API project so normalizeProject has something real. */
@@ -224,5 +227,23 @@ describe("api.locations.update", () => {
       pinColor: "#b03a2e",
       zoomLevels: ["1-100000", "usgs-7-5-min"],
     });
+  });
+});
+
+describe("api.projects.patch and the saved worksheet and tier fields", () => {
+  it("[BEHAVIORAL] sends them only when they change, so a stale copy cannot put an old value back", async () => {
+    const stale = { ...PROJECT, mapTier: 2 as const, worksheet: true, worksheetLegs: [{ from: "loc:a", to: "loc:b" }] };
+    const fetchMock = stubApi();
+    await api.projects.patch(stale, { name: "Renamed" });
+    const body = sentBody(fetchMock);
+    expect(body).not.toHaveProperty("mapTier");
+    expect(body).not.toHaveProperty("worksheet");
+    expect(body).not.toHaveProperty("worksheetLandmarks");
+    expect(body).not.toHaveProperty("worksheetLegs");
+
+    fetchMock.mockClear();
+    await api.projects.patch(stale, { mapTier: 4, worksheetLandmarks: true });
+    expect(sentBody(fetchMock)).toMatchObject({ mapTier: 4, worksheetLandmarks: true });
+    expect(sentBody(fetchMock)).not.toHaveProperty("worksheet");
   });
 });

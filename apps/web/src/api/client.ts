@@ -46,6 +46,10 @@ export interface Project {
    * "lm:<landmark name>" (C# `WorksheetLegDto`). Empty when none.
    */
   worksheetLegs: { from: string; to: string }[];
+  /** Saved editor choices: map tier (null until chosen), Azimuth Worksheet, landmark legs. */
+  mapTier: MapTier | null;
+  worksheet: boolean;
+  worksheetLandmarks: boolean;
 }
 
 export interface Location {
@@ -221,6 +225,9 @@ interface ApiProject {
   createdAt: string;
   updatedAt: string;
   worksheetLegs?: { from: string; to: string }[] | null;
+  mapTier?: number | null;
+  worksheet?: boolean | null;
+  worksheetLandmarks?: boolean | null;
 }
 
 /** Page setup the API falls back to when a project has no stored grid yet. */
@@ -254,6 +261,9 @@ function normalizeProject(p: ApiProject): Project {
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
     worksheetLegs: p.worksheetLegs ?? [],
+    mapTier: p.mapTier === 1 || p.mapTier === 2 || p.mapTier === 3 || p.mapTier === 4 ? p.mapTier : null,
+    worksheet: p.worksheet ?? false,
+    worksheetLandmarks: p.worksheetLandmarks ?? false,
   };
 }
 
@@ -340,7 +350,7 @@ export const api = {
      * edit therefore goes through here, resending the project's current values
      * for the fields it is not changing.
      */
-    patch: async (p: Project, changes: Partial<Pick<Project, "name" | "scalePresetId" | "orientation" | "overlap" | "margins" | "explorerName" | "atlasDate" | "worksheetLegs">>): Promise<Project> =>
+    patch: async (p: Project, changes: Partial<Pick<Project, "name" | "scalePresetId" | "orientation" | "overlap" | "margins" | "explorerName" | "atlasDate" | "worksheetLegs" | "mapTier" | "worksheet" | "worksheetLandmarks">>): Promise<Project> =>
       normalizeProject(
         await request<ApiProject>("PUT", `/projects/${p.id}`, {
           name: changes.name ?? p.name,
@@ -351,7 +361,12 @@ export const api = {
           // Not `??`: null here means the user cleared the field.
           explorerName: changes.explorerName !== undefined ? changes.explorerName : p.explorerName,
           atlasDate: changes.atlasDate !== undefined ? changes.atlasDate : p.atlasDate,
-          worksheetLegs: changes.worksheetLegs ?? p.worksheetLegs,
+          // Sent only when changed: the API keeps a saved value it is not sent, so a save made
+          // from a stale copy of the project (two quick edits) cannot put an old value back.
+          ...(changes.worksheetLegs !== undefined ? { worksheetLegs: changes.worksheetLegs } : {}),
+          ...(changes.mapTier != null ? { mapTier: changes.mapTier } : {}),
+          ...(changes.worksheet !== undefined ? { worksheet: changes.worksheet } : {}),
+          ...(changes.worksheetLandmarks !== undefined ? { worksheetLandmarks: changes.worksheetLandmarks } : {}),
         }),
       ),
     rename: (p: Project, name: string): Promise<Project> => api.projects.patch(p, { name }),

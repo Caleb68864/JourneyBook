@@ -60,6 +60,9 @@ const PROJECT: Project = {
   createdAt: "2026-09-09T00:00:00Z",
   updatedAt: "2026-09-09T00:00:00Z",
   worksheetLegs: [],
+  mapTier: null,
+  worksheet: false,
+  worksheetLandmarks: false,
 };
 
 const { api } = await import("../api/client");
@@ -277,5 +280,48 @@ describe("ProjectEditorPage wires the worksheet's legs", () => {
         worksheetLegs: [{ from: "loc:b", to: "loc:a" }, { from: "loc:a", to: "loc:b" }, { from: "loc:a", to: "lm:Water Tower" }],
       }),
     );
+  });
+
+  it("[BEHAVIORAL] opens with the tier and worksheet switches saved with the project, and saves a change", async () => {
+    vi.spyOn(api.projects, "get").mockResolvedValue({ ...PROJECT, mapTier: 4, worksheet: true, worksheetLandmarks: true });
+    vi.spyOn(api.landmarks, "list").mockResolvedValue([]);
+    const patch = vi.spyOn(api.projects, "patch").mockImplementation(async (p, changes) => ({ ...p, ...changes }));
+    await renderEditor();
+    await waitFor(() => expect(seen.generate.at(-1)!.options).toMatchObject({ tier: 4, worksheet: true, worksheetLandmarks: true }));
+    expect((screen.getByRole("checkbox", { name: /azimuth worksheet/i }) as HTMLInputElement).checked).toBe(true);
+
+    fireEvent.change(screen.getByLabelText("Map Tier"), { target: { value: "3" } });
+    await waitFor(() => expect(patch).toHaveBeenCalledWith(expect.anything(), { mapTier: 3 }));
+    fireEvent.change(screen.getByLabelText("Map Tier"), { target: { value: "4" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: /legs to nearby landmarks/i }));
+    await waitFor(() => expect(patch).toHaveBeenCalledWith(expect.anything(), { worksheetLandmarks: false }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /azimuth worksheet/i }));
+    await waitFor(() => expect(patch).toHaveBeenCalledWith(expect.anything(), { worksheet: false }));
+  });
+
+  it("[BEHAVIORAL] says which saved legs are left out and why, and can delete one", async () => {
+    vi.spyOn(api.projects, "get").mockResolvedValue({
+      ...PROJECT,
+      mapTier: 4,
+      worksheet: true,
+      worksheetLegs: [{ from: "loc:a", to: "lm:Old Mill" }, { from: "loc:a", to: "loc:a" }],
+    });
+    vi.spyOn(api.locations, "list").mockResolvedValue([{ id: "a", projectId: "p1", name: "Capitol", lng: -96.7, lat: 40.81, label: "L1" }] as never);
+    vi.spyOn(api.landmarks, "list").mockResolvedValue([{ id: "w", projectId: "p1", name: "Water Tower", lng: -96.7, lat: 40.81, category: "Tower" }] as never);
+    const patch = vi.spyOn(api.projects, "patch").mockImplementation(async (p, changes) => ({ ...p, ...changes }));
+    await renderEditor();
+
+    // Its landmark is gone (renamed or removed): said, not silently dropped.
+    const note = await screen.findByRole("status");
+    expect(note.textContent).toMatch(/1 saved leg is not in the worksheet/);
+    expect(note.textContent).toMatch(/L1 Capitol to Old Mill: left out because no landmark named "Old Mill" is in this project now/);
+
+    // With Include Landmarks off, the reason changes.
+    fireEvent.click(screen.getByRole("checkbox", { name: /include landmarks/i }));
+    expect((await screen.findByRole("status")).textContent).toMatch(/Include Landmarks is off/);
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete saved leg L1 Capitol to Old Mill" }));
+    await waitFor(() => expect(patch).toHaveBeenCalledWith(expect.anything(), { worksheetLegs: [{ from: "loc:a", to: "loc:a" }] }));
+    expect(screen.queryByRole("status")).toBeNull();
   });
 });

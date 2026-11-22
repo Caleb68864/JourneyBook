@@ -15,6 +15,9 @@ const PROJECT: Project = {
   createdAt: "2026-09-09T00:00:00Z",
   updatedAt: "2026-09-09T00:00:00Z",
   worksheetLegs: [],
+  mapTier: null,
+  worksheet: false,
+  worksheetLandmarks: false,
 };
 
 const LOCATION: Location = {
@@ -176,5 +179,13 @@ describe("worksheet legs in an export", () => {
     expect(exported.project.worksheetLegs).toEqual([{ from: "L1", to: "lm:Tower" }]);
     expect(parseProjectImport(JSON.parse(JSON.stringify(exported))).worksheetLegs).toEqual([{ from: "L1", to: "lm:Tower" }]);
     expect(parseProjectImport({ project: {} }).worksheetLegs).toEqual([]);
+  });
+});
+
+describe("saved render choices in an export", () => {
+  it("[BEHAVIORAL] are written and read back; an older file carries none", () => {
+    const exported = buildProjectExport({ ...PROJECT, mapTier: 4, worksheet: true, worksheetLandmarks: false } as never, []);
+    expect(parseProjectImport(JSON.parse(JSON.stringify(exported))).renderChoices).toEqual({ mapTier: 4, worksheet: true, worksheetLandmarks: false });
+    expect(parseProjectImport({ project: { mapTier: 9, worksheet: "yes" } }).renderChoices).toBeNull();
   });
 });

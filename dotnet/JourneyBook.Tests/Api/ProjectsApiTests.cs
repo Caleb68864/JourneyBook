@@ -219,4 +219,33 @@ public class ProjectsApiTests(PostgisApiFactory factory) : IClassFixture<Postgis
         var after = await _client.GetFromJsonAsync<ProjectResponse>($"/api/projects/{project.Id}");
         Assert.Equal([new WorksheetLegDto($"loc:{b}", "lm:Water Tower")], after!.WorksheetLegs);
     }
+
+    [Fact]
+    public async Task Tier_and_worksheet_switches_are_saved_kept_by_null_and_copied_on_duplicate()
+    {
+        var (project, _, _) = await ProjectWithTwoStopsAsync("Saved Choices");
+        Assert.Null(project.MapTier);
+        Assert.False(project.Worksheet);
+        Assert.False(project.WorksheetLandmarks);
+
+        var put = await _client.PutAsJsonAsync($"/api/projects/{project.Id}",
+            Put(project, null) with { MapTier = 4, Worksheet = true, WorksheetLandmarks = true });
+        Assert.Equal(HttpStatusCode.OK, put.StatusCode);
+        var got = await _client.GetFromJsonAsync<ProjectResponse>($"/api/projects/{project.Id}");
+        Assert.Equal((4, true, true), (got!.MapTier, got.Worksheet, got.WorksheetLandmarks));
+
+        // A save that does not send them (a rename, an older client) keeps them.
+        var rename = await _client.PutAsJsonAsync($"/api/projects/{project.Id}", Put(project, null) with { Name = "Renamed" });
+        var kept = (await rename.Content.ReadFromJsonAsync<ProjectResponse>())!;
+        Assert.Equal((4, true, true), (kept.MapTier, kept.Worksheet, kept.WorksheetLandmarks));
+
+        var copy = (await (await _client.PostAsync($"/api/projects/{project.Id}/duplicate", null)).Content.ReadFromJsonAsync<ProjectResponse>())!;
+        Assert.Equal((4, true, true), (copy.MapTier, copy.Worksheet, copy.WorksheetLandmarks));
+
+        foreach (var bad in new[] { 0, 5 })
+        {
+            var res = await _client.PutAsJsonAsync($"/api/projects/{project.Id}", Put(project, null) with { MapTier = bad });
+            Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+        }
+    }
 }
