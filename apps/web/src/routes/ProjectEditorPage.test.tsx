@@ -184,7 +184,70 @@ describe("ProjectEditorPage wires the Stage 1D furniture", () => {
     expect(seen.generate.at(-1)!.options).toMatchObject({ cropMarks: true, locatorInset: true });
 
     expect(seen.generate.at(-1)!.options).toMatchObject({ worksheet: false });
+    fireEvent.change(screen.getByLabelText("Map Tier"), { target: { value: "4" } });
     fireEvent.click(screen.getByRole("checkbox", { name: /azimuth worksheet/i }));
     expect(seen.generate.at(-1)!.options).toMatchObject({ worksheet: true });
+  });
+});
+
+describe("ProjectEditorPage wires the worksheet's legs", () => {
+  it("[BEHAVIORAL] the landmark-legs box and a hand-picked leg reach what Generate posts", async () => {
+    vi.spyOn(api.locations, "list").mockResolvedValue([
+      { id: "a", projectId: "p1", name: "Capitol", lng: -96.7, lat: 40.81, label: "L1" },
+      { id: "b", projectId: "p1", name: "Haymarket", lng: -96.71, lat: 40.82, label: "L2" },
+    ] as never);
+    const landmarks = vi.spyOn(api.landmarks, "list").mockResolvedValue([{ id: "w", projectId: "p1", name: "Water Tower", lng: -96.7, lat: 40.81, category: "Tower" }] as never);
+    await renderEditor();
+
+    // Nothing to pick until the worksheet is on; then the landmarks are fetched.
+    expect(screen.queryByLabelText("Leg start")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Map Tier"), { target: { value: "4" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: /azimuth worksheet/i }));
+    await waitFor(() => expect(landmarks).toHaveBeenCalledWith("p1"));
+    // Both selects offer it (start and finish).
+    expect(await screen.findAllByRole("option", { name: "Water Tower (landmark)" })).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /legs to nearby landmarks/i }));
+    // Options carry the location's id and the landmark's name; the request gets "L2" for the
+    // location's current position, so deleting another location cannot rebind the leg.
+    fireEvent.change(screen.getByLabelText("Leg start"), { target: { value: "loc:b" } });
+    fireEvent.change(screen.getByLabelText("Leg finish"), { target: { value: "lm:Water Tower" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add leg" }));
+
+    expect(seen.generate.at(-1)!.options).toMatchObject({
+      worksheet: true,
+      worksheetLandmarks: true,
+      worksheetLegs: [{ from: "L2", to: "Water Tower" }],
+    });
+  });
+
+  it("[BEHAVIORAL] with Include Landmarks off, no landmark legs are offered or sent", async () => {
+    vi.spyOn(api.locations, "list").mockResolvedValue([
+      { id: "a", projectId: "p1", name: "Capitol", lng: -96.7, lat: 40.81, label: "L1" },
+      { id: "b", projectId: "p1", name: "Haymarket", lng: -96.71, lat: 40.82, label: "L2" },
+    ] as never);
+    vi.spyOn(api.landmarks, "list").mockResolvedValue([{ id: "w", projectId: "p1", name: "Water Tower", lng: -96.7, lat: 40.81, category: "Tower" }] as never);
+    await renderEditor();
+    fireEvent.change(screen.getByLabelText("Map Tier"), { target: { value: "4" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: /azimuth worksheet/i }));
+    expect(await screen.findAllByRole("option", { name: "Water Tower (landmark)" })).toHaveLength(2);
+    fireEvent.change(screen.getByLabelText("Leg finish"), { target: { value: "lm:Water Tower" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add leg" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /legs to nearby landmarks/i }));
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /include landmarks/i }));
+
+    expect(screen.queryAllByRole("option", { name: "Water Tower (landmark)" })).toHaveLength(0);
+    expect((screen.getByRole("checkbox", { name: /legs to nearby landmarks/i }) as HTMLInputElement).disabled).toBe(true);
+    expect(seen.generate.at(-1)!.options).toMatchObject({ worksheetLandmarks: false, worksheetLegs: [] });
+  });
+
+  it("[BEHAVIORAL] below Tier 4 the worksheet is off and cannot be turned on", async () => {
+    await renderEditor();
+    fireEvent.change(screen.getByLabelText("Map Tier"), { target: { value: "3" } });
+    const box = screen.getByRole("checkbox", { name: /azimuth worksheet/i }) as HTMLInputElement;
+    expect(box.disabled).toBe(true);
+    expect(screen.getByText(/Needs Tier 4/)).toBeTruthy();
+    expect(seen.generate.at(-1)!.options).toMatchObject({ worksheet: false });
   });
 });

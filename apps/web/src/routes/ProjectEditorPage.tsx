@@ -23,6 +23,7 @@ import { GeocodeSearch } from "../components/GeocodeSearch";
 import type { GeocodeResult } from "../api/client";
 import { GenerateButton } from "../components/GenerateButton";
 import { LandmarkImportControl } from "../components/LandmarkImportControl";
+import { WorksheetLegsEditor } from "../components/WorksheetLegsEditor";
 import { PageSetup, type PageSetupValue } from "../components/PageSetup";
 import { PrintCheckLink } from "../components/PrintCheckLink";
 import { TitlePageFields, type TitlePageValue } from "../components/TitlePageFields";
@@ -68,6 +69,38 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
   const [cropMarks, setCropMarks] = useState(false);
   const [locatorInset, setLocatorInset] = useState(false);
   const [worksheet, setWorksheet] = useState(false);
+  const [worksheetLandmarks, setWorksheetLandmarks] = useState(false);
+  const [worksheetLegs, setWorksheetLegs] = useState<{ from: string; to: string }[]>([]);
+  // The project's landmarks, for the hand-picked legs' ends; fetched once the worksheet is on.
+  const [landmarkNames, setLandmarkNames] = useState<string[]>([]);
+  useEffect(() => {
+    if (!worksheet) return;
+    let cancelled = false;
+    api.landmarks
+      .list(projectId)
+      .then((list) => {
+        if (!cancelled) setLandmarkNames(list.map((l) => l.name));
+      })
+      .catch(() => {
+        if (!cancelled) setLandmarkNames([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [worksheet, projectId]);
+  // Hand-picked legs are kept by location id ("loc:<id>") and landmark ("lm:<name>"), not by
+  // position: "L3" kept as text rebinds to another place when a location is deleted. They are
+  // turned into the engine's positional "L3" only for the request, and a leg whose place is
+  // gone (or whose landmark is no longer included) is dropped, not sent.
+  const legEnds = [
+    ...locations.map((loc, i) => ({ ref: `loc:${loc.id}`, label: `L${i + 1} ${loc.name}` })),
+    ...(includeLandmarks ? landmarkNames.map((name) => ({ ref: `lm:${name}`, label: `${name} (landmark)` })) : []),
+  ];
+  const endRefs = new Set(legEnds.map((e) => e.ref));
+  const validLegs = worksheetLegs.filter((l) => endRefs.has(l.from) && endRefs.has(l.to));
+  const toWire = (ref: string) =>
+    ref.startsWith("loc:") ? `L${locations.findIndex((l) => `loc:${l.id}` === ref) + 1}` : ref.slice("lm:".length);
+  const wireLegs = validLegs.map((l) => ({ from: toWire(l.from), to: toWire(l.to) }));
   // Basemap knobs, chosen at render time like tier. `basemap` was hardcoded true
   // on the wire until the API grew a member for it, so there was no way to ask
   // for the fast line-art proof the CLI has always had. null format/quality mean
@@ -798,14 +831,48 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
                 </span>
               </label>
               <label className="mb-3 flex items-start gap-2">
-                <input type="checkbox" checked={worksheet} onChange={(e) => setWorksheet(e.target.checked)} className="mt-0.5 accent-forest-700" />
+                <input
+                  type="checkbox"
+                  checked={tier === 4 && worksheet}
+                  disabled={tier !== 4}
+                  onChange={(e) => setWorksheet(e.target.checked)}
+                  className="mt-0.5 accent-forest-700"
+                />
                 <span className="flex flex-col gap-0.5">
                   <span className="font-mono text-[11px] uppercase tracking-widest text-bark-600">Azimuth Worksheet</span>
+                  {tier !== 4 ? (
+                    <span className="font-mono text-[10px] text-bark-500">
+                      Needs Tier 4: the worksheet is measured on the grid with the G-M angle, which only Tier 4 pages print.
+                    </span>
+                  ) : null}
                   <span className="font-mono text-[10px] text-bark-500">
                     Adds a practice page: measure the grid and magnetic azimuth and distance between your stops in order, with an answer key on its own page. Needs two or more locations.
                   </span>
                 </span>
               </label>
+              {tier === 4 && worksheet ? (
+                <div className="mb-3 ml-5 flex flex-col gap-2">
+                  {/* Landmark legs need the landmarks sent with the render, which only happens
+                      with Include Landmarks on; offering them otherwise made a render the
+                      worker then refused. */}
+                  <label className="flex items-start gap-2">
+                    <input
+                      type="checkbox"
+                      checked={includeLandmarks && worksheetLandmarks}
+                      disabled={!includeLandmarks}
+                      onChange={(e) => setWorksheetLandmarks(e.target.checked)}
+                      className="mt-0.5 accent-forest-700"
+                    />
+                    <span className="flex flex-col gap-0.5">
+                      <span className="font-mono text-[11px] uppercase tracking-widest text-bark-600">Legs To Nearby Landmarks</span>
+                      {!includeLandmarks ? (
+                        <span className="font-mono text-[10px] text-bark-500">Turn on Include Landmarks to use landmarks in the worksheet.</span>
+                      ) : null}
+                    </span>
+                  </label>
+                  <WorksheetLegsEditor ends={legEnds} value={validLegs} onChange={setWorksheetLegs} />
+                </div>
+              ) : null}
               <div className="mb-3">
                 <BasemapOptions
                   value={{ basemap, panelFormat, panelQuality, panelZoomStep }}
@@ -836,7 +903,9 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
                   panelWidthPx,
                   cropMarks,
                   locatorInset,
-                  worksheet,
+                  worksheet: tier === 4 && worksheet,
+                  worksheetLandmarks: includeLandmarks && worksheetLandmarks,
+                  worksheetLegs: wireLegs,
                 } satisfies RenderOptionsState}
                 disabled={!hasGeometry || savedOverLimit}
               />

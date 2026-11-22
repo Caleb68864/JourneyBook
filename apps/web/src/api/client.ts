@@ -515,6 +515,10 @@ export const api = {
         locatorInset?: boolean;
         /** Azimuth worksheet + answer key after the map pages. Off unless sent. */
         worksheet?: boolean;
+        /** Worksheet legs from each stop to its nearest landmarks. */
+        worksheetLandmarks?: boolean;
+        /** Hand-picked worksheet legs; ends are "L2" or a landmark's name. */
+        worksheetLegs?: { from: string; to: string }[];
       },
     ) =>
       request<RenderResult>("POST", `/projects/${projectId}/render`, { tier, ...opts }),

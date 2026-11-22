@@ -46,7 +46,12 @@ public record RenderProjectRequest(
     bool LocatorInset = false,
     // Stage 6B Level 4: an azimuth worksheet and answer key after the map pages (camelCase
     // `worksheet`, sent only when on). Needs two or more locations; off by default.
-    bool Worksheet = false);
+    bool Worksheet = false,
+    // Worksheet extras (camelCase `worksheetLandmarks`/`worksheetLegs`, sent only when set):
+    // legs from each location to its nearest landmarks, and hand-picked legs whose ends are
+    // "L1", "L2", ... or a landmark's name. The worker refuses an end that names nothing.
+    bool WorksheetLandmarks = false,
+    IReadOnlyList<RenderWorksheetLegDto>? WorksheetLegs = null);
 
 /// <summary>
 /// Render-accepted response (202): the record id, its status at the moment of
@@ -171,7 +176,15 @@ public record RenderWorkerRequest(
     bool LocatorInset = false,
     // Stage 6B Level 4: an azimuth worksheet and answer key after the map pages (camelCase
     // `worksheet`, sent only when on). Needs two or more locations; off by default.
-    bool Worksheet = false);
+    bool Worksheet = false,
+    // Worksheet extras (camelCase `worksheetLandmarks`/`worksheetLegs`, sent only when set):
+    // legs from each location to its nearest landmarks, and hand-picked legs whose ends are
+    // "L1", "L2", ... or a landmark's name. The worker refuses an end that names nothing.
+    bool WorksheetLandmarks = false,
+    IReadOnlyList<RenderWorksheetLegDto>? WorksheetLegs = null);
+
+/// <summary>A hand-picked worksheet leg: each end a location ("L2") or a landmark's name.</summary>
+public record RenderWorksheetLegDto(string From, string To);
 
 /// <summary>A single landmark forwarded to the render worker.</summary>
 public record RenderLandmarkDto(double Longitude, double Latitude, string Name, string Category, double Score);

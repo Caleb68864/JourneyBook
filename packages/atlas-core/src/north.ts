@@ -1,5 +1,5 @@
 import type { LngLat } from "./model.js";
-import { createUtmProjector, utmZoneForLongitude } from "./projection.js";
+import { createUpsProjector, createUtmProjector, isUpsLatitude, utmZoneFor } from "./projection.js";
 import { decimalYear, magneticField } from "./declination.js";
 
 /**
@@ -16,11 +16,16 @@ export interface ThreeNorths {
   gmAngle: number;
   /** Annual change of declination (and so of the G-M angle), degrees/year. */
   declinationPerYear: number;
-  /** UTM zone whose grid north is meant. */
+  /** UTM zone whose grid north is meant; 0 means the polar UPS grid. */
   utmZone: number;
   /** The decimal year the magnetic figures are for, and their model. */
   year: number;
   model: "WMM2025";
+  /**
+   * A page across a zone boundary: the other zone's grid north and G-M angle at the same point.
+   * A reader on that side measures on that zone's grid, so its G-M is the one to use there.
+   */
+  otherZone?: { utmZone: number; gridConvergence: number; gmAngle: number };
 }
 
 /**
@@ -30,9 +35,14 @@ export interface ThreeNorths {
  * cancels; a one-sided kilometre step was 0.0003° off). Grid north lies east of true north east of the central
  * meridian in the northern hemisphere.
  */
-export function gridConvergence(p: LngLat): { degrees: number; utmZone: number } {
-  const zone = utmZoneForLongitude(p.lng);
-  const utm = createUtmProjector(zone);
+export function gridConvergence(p: LngLat, inZone?: number): { degrees: number; utmZone: number } {
+  // The point's own zone, exceptions included (Norway, Svalbard), unless a zone is named (the
+  // other side of a zone junction): grid north is the grid the map is drawn in. The hemisphere
+  // does not change a direction, but use the matching grid.
+  // Beyond UTM's limits the grid is UPS, reported as zone 0.
+  const polar = inZone === undefined && isUpsLatitude(p.lat);
+  const zone = polar ? 0 : inZone ?? utmZoneFor(p.lng, p.lat);
+  const utm = polar ? createUpsProjector(p.lat > 0) : createUtmProjector(zone, p.lat < 0);
   const [e, n] = utm.forward(p);
   const a = utm.inverse([e, n - 5]);
   const q = utm.inverse([e, n + 5]);
@@ -52,11 +62,15 @@ export function gridConvergence(p: LngLat): { degrees: number; utmZone: number }
  * date (outside 2025.0 to 2030.0) or at a pole, so a caller prints nothing rather than a stale
  * declination.
  */
-export function threeNorths(center: LngLat, date: Date): ThreeNorths {
+export function threeNorths(center: LngLat, date: Date, otherZone?: number): ThreeNorths {
   const year = decimalYear(date);
   const field = magneticField(center.lat, center.lng, year);
   const grid = gridConvergence(center);
+  const other = otherZone !== undefined && otherZone !== grid.utmZone ? gridConvergence(center, otherZone) : undefined;
   return {
+    ...(other
+      ? { otherZone: { utmZone: other.utmZone, gridConvergence: other.degrees, gmAngle: field.declination - other.degrees } }
+      : {}),
     gridConvergence: grid.degrees,
     declination: field.declination,
     gmAngle: field.declination - grid.degrees,
@@ -72,4 +86,9 @@ export function formatEastWest(degrees: number, digits = 1): string {
   const rounded = Number(degrees.toFixed(digits));
   if (rounded === 0) return `${(0).toFixed(digits)}°`;
   return `${Math.abs(rounded).toFixed(digits)}° ${rounded > 0 ? "E" : "W"}`;
+}
+
+/** "UTM 14", or "UPS" for zone 0 (the polar grid). */
+export function gridName(zone: number): string {
+  return zone === 0 ? "UPS" : `UTM ${zone}`;
 }

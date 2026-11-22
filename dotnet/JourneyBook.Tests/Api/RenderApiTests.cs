@@ -1,3 +1,4 @@
+using JourneyBook.Application.Locations;
 using System.Net;
 using System.Net.Http.Json;
 using JourneyBook.Application.GeneratedPdfs;
@@ -171,6 +172,96 @@ public class RenderApiTests(RenderApiFactory factory) : IClassFixture<RenderApiF
             new BBoxDto(-96.75, 40.78, -96.65, 40.85));
         Assert.Equal(HttpStatusCode.OK, ext.StatusCode);
         return created.Id;
+    }
+
+    /// <summary>
+    /// The worker numbers location pages, route stops and worksheet legs by position (L1, L2, …),
+    /// so the API must send locations in the user's order (`LocationNumber`), as the location
+    /// list does. It sent `project.Locations` with no order at all; editing a location was enough
+    /// to move it.
+    /// </summary>
+    [Fact]
+    public async Task Render_sends_locations_in_their_L_number_order_even_after_one_is_edited()
+    {
+        factory.FakeClient.ShouldFail = false;
+        var post = await _client.PostAsJsonAsync("/api/projects", new CreateProjectRequest("Ordered Stops", "usgs-7-5-min"));
+        var projectId = (await post.Content.ReadFromJsonAsync<ProjectResponse>())!.Id;
+        var ids = new List<Guid>();
+        foreach (var (name, lng) in new[] { ("First", -96.70), ("Second", -96.71), ("Third", -96.72), ("Fourth", -96.73) })
+        {
+            var loc = await _client.PostAsJsonAsync($"/api/projects/{projectId}/locations", new CreateLocationRequest(name, lng, 40.81));
+            Assert.Equal(HttpStatusCode.Created, loc.StatusCode);
+            ids.Add((await loc.Content.ReadFromJsonAsync<LocationResponse>())!.Id);
+        }
+        // Edit one, as a user would (in Postgres an update writes a new row version).
+        var put = await _client.PutAsJsonAsync($"/api/locations/{ids[0]}",
+            new UpdateLocationRequest("First", -96.70, 40.81, "Other", "edited", "Unknown"));
+        Assert.Equal(HttpStatusCode.OK, put.StatusCode);
+        // And make the L-number order differ from the order the rows were created in, as data
+        // restored from a backup or imported can: "Fourth" becomes L1 and "First" L4. The list
+        // endpoint orders by LocationNumber; the render must too.
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<JourneyBookDbContext>();
+            var rows = await db.ImportantLocations.Where(l => l.ProjectId == projectId).ToListAsync();
+            rows.Single(l => l.Name == "First").LocationNumber = 104;
+            rows.Single(l => l.Name == "Fourth").LocationNumber = 101;
+            rows.Single(l => l.Name == "Second").LocationNumber = 102;
+            rows.Single(l => l.Name == "Third").LocationNumber = 103;
+            await db.SaveChangesAsync();
+        }
+        var listed = await _client.GetFromJsonAsync<List<LocationResponse>>($"/api/projects/{projectId}/locations");
+        Assert.Equal(["Fourth", "Second", "Third", "First"], listed!.Select(l => l.Name));
+
+        var resp = await _client.PostAsJsonAsync($"/api/projects/{projectId}/render", new RenderProjectRequest(Tier: 1));
+        Assert.Equal(HttpStatusCode.Accepted, resp.StatusCode);
+        var body = await resp.Content.ReadFromJsonAsync<RenderProjectResponse>();
+        await PollUntilTerminalAsync(body!.GeneratedPdfId);
+        Assert.True(factory.FakeClient.Requests.TryGetValue($"atlas-{body.GeneratedPdfId:N}.pdf", out var sent));
+
+        Assert.Equal(["Fourth", "Second", "Third", "First"], sent!.Locations.Select(l => l.Label));
+    }
+
+    /// <summary>
+    /// Worksheet requests the worker would refuse are refused here, before the Pending record:
+    /// a 400 on the POST, not a Failed job after the 202.
+    /// </summary>
+    [Fact]
+    public async Task Bad_worksheet_requests_are_400s_before_any_record_is_made()
+    {
+        var post = await _client.PostAsJsonAsync("/api/projects", new CreateProjectRequest("Worksheet Rules", "usgs-7-5-min"));
+        var projectId = (await post.Content.ReadFromJsonAsync<ProjectResponse>())!.Id;
+        foreach (var (name, lng) in new[] { ("A", -96.70), ("B", -96.71) })
+            Assert.Equal(HttpStatusCode.Created, (await _client.PostAsJsonAsync($"/api/projects/{projectId}/locations", new CreateLocationRequest(name, lng, 40.81))).StatusCode);
+
+        async Task<(HttpStatusCode Status, string Body)> Render(RenderProjectRequest r)
+        {
+            var res = await _client.PostAsJsonAsync($"/api/projects/{projectId}/render", r);
+            return (res.StatusCode, await res.Content.ReadAsStringAsync());
+        }
+
+        var lowTier = await Render(new RenderProjectRequest(Tier: 3, Worksheet: true));
+        Assert.Equal(HttpStatusCode.BadRequest, lowTier.Status);
+        Assert.Contains("needs tier 4", lowTier.Body);
+        var past = await Render(new RenderProjectRequest(Tier: 4, Worksheet: true, WorksheetLegs: [new RenderWorksheetLegDto("L1", "L3")]));
+        Assert.Equal(HttpStatusCode.BadRequest, past.Status);
+        Assert.Contains("L1–L2", past.Body);
+        var landmark = await Render(new RenderProjectRequest(Tier: 4, Worksheet: true, IncludeLandmarks: false, WorksheetLegs: [new RenderWorksheetLegDto("L1", "Water Tower")]));
+        Assert.Equal(HttpStatusCode.BadRequest, landmark.Status);
+        Assert.Contains("landmarks are not included", landmark.Body);
+        var tooMany = await Render(new RenderProjectRequest(Tier: 4, Worksheet: true, WorksheetLegs: Enumerable.Range(0, 51).Select(_ => new RenderWorksheetLegDto("L1", "L2")).ToList()));
+        Assert.Equal(HttpStatusCode.BadRequest, tooMany.Status);
+        var empty = await Render(new RenderProjectRequest(Tier: 4, Worksheet: true, WorksheetLegs: [new RenderWorksheetLegDto("L1", " ")]));
+        Assert.Equal(HttpStatusCode.BadRequest, empty.Status);
+
+        // None of them made a record.
+        var records = await _client.GetFromJsonAsync<List<GeneratedPdfResponse>>($"/api/projects/{projectId}/generated-pdfs");
+        Assert.Empty(records!);
+
+        // A good one is accepted.
+        factory.FakeClient.ShouldFail = false;
+        var ok = await Render(new RenderProjectRequest(Tier: 4, Worksheet: true, WorksheetLegs: [new RenderWorksheetLegDto("l2", "L1")]));
+        Assert.Equal(HttpStatusCode.Accepted, ok.Status);
     }
 
     [Fact]
@@ -698,7 +789,8 @@ public class RenderApiTests(RenderApiFactory factory) : IClassFixture<RenderApiF
         var projectId = await CreateProjectAsync("Furniture Project");
 
         var resp = await _client.PostAsJsonAsync($"/api/projects/{projectId}/render",
-            new RenderProjectRequest(Tier: 1, CropMarks: true, LocatorInset: true, Worksheet: true));
+            new RenderProjectRequest(Tier: 4, CropMarks: true, LocatorInset: true, Worksheet: true,
+                WorksheetLandmarks: true));
 
         Assert.Equal(HttpStatusCode.Accepted, resp.StatusCode);
         var body = await resp.Content.ReadFromJsonAsync<RenderProjectResponse>();
@@ -707,6 +799,7 @@ public class RenderApiTests(RenderApiFactory factory) : IClassFixture<RenderApiF
         Assert.True(sent!.CropMarks);
         Assert.True(sent.LocatorInset);
         Assert.True(sent.Worksheet);
+        Assert.True(sent.WorksheetLandmarks);
     }
 
     /// <summary>

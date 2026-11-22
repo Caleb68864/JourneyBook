@@ -69,6 +69,11 @@ public class RenderService(
             return new RenderServiceResult(RenderOutcome.InvalidParameters,
                 Error: "Project has no extent and no locations — nothing to render. Set a bounding box or add a location first.");
 
+        // The worksheet's rules, checked here so a bad request is a 400 on the POST rather than
+        // a job the worker refuses after the 202 (the same rules as render.ts validateInput).
+        if (WorksheetError(request, project) is { } worksheetError)
+            return new RenderServiceResult(RenderOutcome.InvalidParameters, Error: worksheetError);
+
         var grid = project.PageGrid;
         var scalePresetId = grid?.ScalePresetId ?? "usgs-7-5-min";
         var orientation = grid?.Orientation.ToString() ?? "Portrait";
@@ -92,7 +97,11 @@ public class RenderService(
             extent = new BBoxDto(env.MinX, env.MinY, env.MaxX, env.MaxY);
         }
 
+        // In the user's order (LocationNumber), as the location list shows them: the worker
+        // numbers pages, route stops and worksheet legs by position. This used to take the
+        // Include's order, which follows the rows' keys and only matched by coincidence.
         var locations = project.Locations
+            .OrderBy(l => l.LocationNumber)
             .Select(l => new RenderLocationDto(
                 l.Location.X, l.Location.Y, l.Name, l.ScalePresetId, l.PinShape, l.PinColor, l.Notes, l.ZoomLevels))
             .ToList();
@@ -186,7 +195,9 @@ public class RenderService(
             PanelQuality: request.PanelQuality,
             CropMarks: request.CropMarks,
             LocatorInset: request.LocatorInset,
-            Worksheet: request.Worksheet);
+            Worksheet: request.Worksheet,
+            WorksheetLandmarks: request.WorksheetLandmarks,
+            WorksheetLegs: request.WorksheetLegs);
 
         // 5. Register the cancel channel BEFORE queueing, so there is no window in
         //    which an accepted render cannot be cancelled. A job can wait behind
@@ -242,5 +253,48 @@ public class RenderService(
         // client sees it on its next poll. Reporting it as finished here would put a
         // status on the wire that the record does not yet carry.
         return new CancelRenderResult(CancelRenderOutcome.Requested, record.Status);
+    }
+
+    /// <summary>Largest hand-picked leg list, as the worker's schema allows.</summary>
+    private const int MaxWorksheetLegs = 50;
+
+    /// <summary>
+    /// Why a render's worksheet options cannot be honoured, or null. The worksheet is measured on
+    /// the UTM grid with the G-M angle, which only tier-4 pages print. A hand-picked leg's ends
+    /// must name a location by position ("L2") or one of the project's landmarks, and a landmark
+    /// end needs the landmarks sent, which needs IncludeLandmarks.
+    /// </summary>
+    private static string? WorksheetError(RenderProjectRequest request, Domain.Entities.Project project)
+    {
+        if (request.Worksheet && request.Tier < 4)
+            return "The azimuth worksheet needs tier 4: it is measured on the UTM grid with the G-M angle, which only tier-4 pages print.";
+        if (request.WorksheetLegs is not { Count: > 0 } legs) return null;
+        if (legs.Count > MaxWorksheetLegs)
+            return $"At most {MaxWorksheetLegs} hand-picked worksheet legs (got {legs.Count}).";
+        var landmarkNames = request.IncludeLandmarks
+            ? project.Landmarks.Select(l => l.Name.Trim().ToLowerInvariant()).ToHashSet()
+            : [];
+        foreach (var leg in legs)
+        {
+            foreach (var end in new[] { leg.From, leg.To })
+            {
+                var e = (end ?? "").Trim();
+                if (e.Length == 0) return "A worksheet leg has an empty end.";
+                var m = System.Text.RegularExpressions.Regex.Match(e, "^[Ll](\\d+)$");
+                if (m.Success)
+                {
+                    var n = int.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+                    if (n < 1 || n > project.Locations.Count)
+                        return $"Worksheet leg end \"{e}\" is not a location (L1–L{project.Locations.Count}).";
+                }
+                else if (!landmarkNames.Contains(e.ToLowerInvariant()))
+                {
+                    return request.IncludeLandmarks
+                        ? $"Worksheet leg end \"{e}\" is not a location or one of this project's landmarks."
+                        : $"Worksheet leg end \"{e}\" names a landmark, but landmarks are not included in this render.";
+                }
+            }
+        }
+        return null;
     }
 }

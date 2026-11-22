@@ -182,8 +182,8 @@ describe("Stage 6B Level 4 azimuth worksheet through renderAtlas", () => {
     { center: { lng: -96.7734, lat: 40.7786 }, label: "Pioneers" },
   ];
 
-  it("[BEHAVIORAL] worksheet: true appends the worksheet and key, one leg per consecutive pair", async () => {
-    const pdf = await renderTo({ mode: "location", locations: STOPS, worksheet: true, declinationDate: "2026-07-02", tableOfContents: false, overview: false });
+  it("[BEHAVIORAL] worksheet: true, tier: 4 appends the worksheet and key, one leg per consecutive pair", async () => {
+    const pdf = await renderTo({ mode: "location", locations: STOPS, worksheet: true, tier: 4, declinationDate: "2026-07-02", tableOfContents: false, overview: false });
     const pages = measurePdfPages(pdf);
     expect(pages).toHaveLength(STOPS.length + 2);
     const key = pages.at(-1)!.texts;
@@ -199,7 +199,9 @@ describe("Stage 6B Level 4 azimuth worksheet through renderAtlas", () => {
 
   it("[CONTROL] off by default, and skipped with fewer than two locations", async () => {
     expect(measurePdfPages(await renderTo({ mode: "location", locations: STOPS, tableOfContents: false, overview: false }))).toHaveLength(3);
-    expect(measurePdfPages(await renderTo({ worksheet: true }))).toHaveLength(1);
+    expect(measurePdfPages(await renderTo({ worksheet: true, tier: 4 }))).toHaveLength(1);
+    // Below tier 4 there is no G-M angle on the page to measure with, so it is refused.
+    await expect(renderTo({ mode: "location", locations: STOPS, worksheet: true, tier: 3 })).rejects.toThrow(/worksheet needs tier 4/);
     expect(inputFromArgs(["--location", "-96.7,40.8", "--scale", "usgs-7-5-min", "--worksheet"])).toMatchObject({ worksheet: true });
   });
 });
@@ -226,5 +228,93 @@ describe("a page across a UTM zone boundary through renderAtlas", () => {
   it("[CONTROL] a page inside one zone has no junction label", async () => {
     const pdf = await renderTo({ tier: 3 });
     expect(measurePdfPages(pdf)[0]!.texts.join("")).not.toContain("UTM ZONE");
+  });
+});
+
+describe("grid north per zone through renderAtlas", () => {
+  it("[BEHAVIORAL] a tier-4 junction page gives each zone's grid north and G-M", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jb-gn-"));
+    try {
+      const out = join(dir, "a.pdf");
+      await renderAtlas({ mode: "location", center: { lng: -102, lat: 40.8 }, scalePresetId: "usgs-7-5-min", tier: 4, declinationDate: "2026-07-02", outputPath: out });
+      const texts = measurePdfPages(readFileSync(out))[0]!.texts;
+      expect(texts.some((t) => /^MN .* · GN \d\.\d° E \(13\) \/ \d\.\d° W \(14\) of true N$/.test(t))).toBe(true);
+      expect(texts.some((t) => /^G-M \d\.\d° [EW] \(13\) \/ \d\.\d° [EW] \(14\) · WMM2025/.test(t))).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("[BEHAVIORAL] worksheet rows name the grid to measure on when legs start in different zones", async () => {
+    const pdf = await renderTo({
+      mode: "location",
+      locations: [{ center: { lng: -102.05, lat: 40.8 } }, { center: { lng: -101.95, lat: 40.8 } }, { center: { lng: -101.9, lat: 40.82 } }],
+      worksheet: true, tier: 4,
+      declinationDate: "2026-07-02",
+      tableOfContents: false,
+      overview: false,
+    });
+    const key = measurePdfPages(pdf).at(-1)!.texts.join(" ");
+    expect(key).toContain("UTM 13 grid");
+    expect(key).toContain("UTM 14 grid");
+  });
+});
+
+describe("the polar UPS grid through renderAtlas", () => {
+  it("[BEHAVIORAL] a tier-4 page north of 84°N is gridded in UPS and its diagram uses UPS grid north", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jb-ups-"));
+    try {
+      const out = join(dir, "a.pdf");
+      await renderAtlas({ mode: "location", center: { lng: 10, lat: 84.5 }, scalePresetId: "usgs-7-5-min", tier: 4, declinationDate: "2026-07-02", outputPath: out });
+      const texts = measurePdfPages(readFileSync(out))[0]!.texts.join("");
+      expect(texts).toContain("Z · UPS (polar grid)");
+      expect(texts).toMatch(/GN 10\.0° E \(UPS\) of true N/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("worksheet legs to landmarks and hand-picked legs through renderAtlas", () => {
+  const STOPS = [
+    { center: { lng: -96.7026, lat: 40.8136 }, label: "Capitol" },
+    { center: { lng: -96.7116, lat: 40.8169 }, label: "Haymarket" },
+    { center: { lng: -96.7734, lat: 40.7786 }, label: "Pioneers" },
+  ];
+  const LANDMARKS = [
+    { lng: -96.7001, lat: 40.8152, name: "Water Tower", category: "tower", score: 5 }, // by the Capitol
+    { lng: -96.7700, lat: 40.7770, name: "Nature Center", category: "building", score: 4 }, // by Pioneers
+    { lng: -97.5, lat: 41.2, name: "Far Hill", category: "peak", score: 3 }, // on no page
+  ];
+  const keyOf = async (extra: Record<string, unknown>) => {
+    const pdf = await renderTo({ mode: "location", locations: STOPS, landmarks: LANDMARKS, worksheet: true, tier: 4, declinationDate: "2026-07-02", tableOfContents: false, overview: false, ...extra });
+    return measurePdfPages(pdf).at(-1)!.texts;
+  };
+
+  it("[BEHAVIORAL] hand-picked legs replace the consecutive list; ends are L# or a landmark's name", async () => {
+    const key = await keyOf({ worksheetLegs: [{ from: "L1", to: "L3" }, { from: "l3", to: "nature center" }] });
+    expect(key).toContain("L1 Capitol to L3 Pioneers");
+    expect(key).toContain("L3 Pioneers to Nature Center");
+    expect(key).not.toContain("L1 Capitol to L2 Haymarket");
+  });
+
+  it("[BEHAVIORAL] worksheetLandmarks adds legs from each stop to the landmarks on its own page", async () => {
+    const key = await keyOf({ worksheetLandmarks: true });
+    expect(key).toContain("L1 Capitol to L2 Haymarket"); // the default legs stay
+    expect(key).toContain("L1 Capitol to Water Tower");
+    expect(key).toContain("L3 Pioneers to Nature Center");
+    expect(key.some((t) => t.includes("Far Hill"))).toBe(false);
+  });
+
+  it("refuses an unknown leg end before rendering, and the CLI flags reach the engine", async () => {
+    await expect(renderTo({ mode: "location", locations: STOPS, worksheet: true, tier: 4, worksheetLegs: [{ from: "L1", to: "L9" }] })).rejects.toThrow(
+      /Invalid worksheet leg end "L9": not a location \(L1–L3\)/,
+    );
+    await expect(renderTo({ mode: "location", locations: STOPS, worksheet: true, tier: 4, worksheetLegs: [{ from: "L1", to: "Nowhere" }] })).rejects.toThrow(
+      /Invalid worksheet leg end "Nowhere"/,
+    );
+    expect(
+      inputFromArgs(["--location", "-96.7,40.8", "--scale", "usgs-7-5-min", "--worksheet", "--worksheet-landmarks", "--worksheet-leg", "L1:L1", "--worksheet-leg", "L1:Water Tower"]),
+    ).toMatchObject({ worksheetLandmarks: true, worksheetLegs: [{ from: "L1", to: "L1" }, { from: "L1", to: "Water Tower" }] });
   });
 });

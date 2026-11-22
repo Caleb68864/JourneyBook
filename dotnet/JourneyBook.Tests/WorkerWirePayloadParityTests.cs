@@ -192,7 +192,9 @@ public class WorkerWirePayloadParityTests
         PanelQuality: 90,
         CropMarks: true,
         LocatorInset: true,
-        Worksheet: true);
+        Worksheet: true,
+        WorksheetLandmarks: true,
+        WorksheetLegs: [new RenderWorksheetLegDto("L1", "Water tower")]);
 
     /// <summary>Captures POST bodies and answers the job protocol so the call completes.</summary>
     private sealed class CapturePostHandler(List<string> bodies) : HttpMessageHandler

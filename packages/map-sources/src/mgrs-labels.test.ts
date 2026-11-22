@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createUtmProjector, utmZoneForLongitude, type BBox } from "@journeybook/atlas-core";
+import { createUpsProjector, createUtmProjector, utmZoneFor, utmZoneForLongitude, type BBox } from "@journeybook/atlas-core";
 import mgrs from "mgrs";
 import { buildUsngGrid } from "./usng-grid.js";
 
@@ -127,8 +127,10 @@ describe("southern hemisphere", () => {
     expect(firstN).toBeGreaterThan(6_000_000); // a southern northing, not a negative one
   });
 
-  it("[CONTROL] still empty beyond UTM's limits (MGRS uses UPS there)", () => {
-    expect(buildUsngGrid([-10, -85, 10, -82], 800, 1000).lines).toHaveLength(0);
+  it("beyond UTM's limits it is the polar UPS grid, not UTM", () => {
+    // This used to be empty (no grid south of 80°S); since UPS is drawn, it is UPS.
+    const grid = buildUsngGrid([-10, -85, 10, -82], 800, 1000);
+    expect(grid.collar.system).toBe("UPS");
   });
 });
 
@@ -185,5 +187,109 @@ describe("a page spanning two UTM zones", () => {
 
   it("[CONTROL] a page inside one zone has no boundary", () => {
     expect(buildUsngGrid([-96.72, 40.79, -96.68, 40.82], 1000, 1000, { mgrs: true }).zoneBoundary).toBeUndefined();
+  });
+});
+
+describe("the Norway and Svalbard zone exceptions", () => {
+  it("[BEHAVIORAL] utmZoneFor agrees with the MGRS library over both exception regions and around them", () => {
+    const misses: string[] = [];
+    for (let lat = 50.13; lat < 84; lat += 0.41) {
+      for (let lng = -6.07; lng < 46; lng += 0.37) {
+        const lib = Number(/^(\d{1,2})/.exec(mgrs.forward([lng, lat], 1))![1]);
+        const ours = utmZoneFor(lng, lat);
+        if (lib !== ours) misses.push(`${lng.toFixed(2)},${lat.toFixed(2)}: lib ${lib}, ours ${ours}`);
+      }
+    }
+    expect(misses.slice(0, 5)).toEqual([]);
+  });
+
+  it("[BEHAVIORAL] a page at 4°E 60°N is gridded in zone 32 (32V), not 31", () => {
+    const grid = buildUsngGrid([3.98, 59.99, 4.02, 60.01], 1000, 1000, { mgrs: true });
+    expect(grid.collar.zoneDesignator).toBe("32V");
+    expect(grid.zoneBoundary).toBeUndefined();
+    const [e] = createUtmProjector(32).forward({ lng: 4, lat: 60 });
+    expect(e).toBeLessThan(400_000); // far west in zone 32, which is why the exception exists
+    // The LINES are zone 32's: the first easting in full is a zone-32 easting (~3xx km), not
+    // the zone-31 one the same ground has (~5xx km). The collar alone would not show this: it
+    // comes from the MGRS library, which always knew the exception.
+    const full = grid.labels.find((l) => l.text.endsWith("mE"))!.text;
+    expect(Number(full.replace("mE", ""))).toBeLessThan(400_000);
+  });
+
+  it("[BEHAVIORAL] the junctions fall at the exceptions' own boundaries: 3°E in Norway, 9°E on Svalbard", () => {
+    const norway = buildUsngGrid([2.98, 59.99, 3.02, 60.01], 1000, 1000);
+    expect(norway.zoneBoundary).toMatchObject({ westZone: 31, eastZone: 32 });
+    const svalbard = buildUsngGrid([8.95, 77.99, 9.05, 78.01], 1000, 1000);
+    expect(svalbard.zoneBoundary).toMatchObject({ westZone: 31, eastZone: 33 });
+    // And no junction at 6°E on Svalbard, where zone 32 does not exist.
+    expect(buildUsngGrid([5.95, 77.99, 6.05, 78.01], 1000, 1000).zoneBoundary).toBeUndefined();
+  });
+});
+
+describe("the polar UPS grid", () => {
+  it("[BEHAVIORAL] a page north of 84°N gets a UPS grid and its zone letter", () => {
+    const grid = buildUsngGrid([9.85, 84.49, 10.15, 84.51], 1000, 1000, { mgrs: true });
+    expect(grid.lines.length).toBeGreaterThan(2);
+    expect(grid.collar).toMatchObject({ zoneDesignator: "Z", system: "UPS" });
+    // No 100 km square letters: none could be checked for the polar grid.
+    expect(grid.mgrs).toBeUndefined();
+    expect(buildUsngGrid([-10.15, 84.49, -9.85, 84.51], 1000, 1000).collar.zoneDesignator).toBe("Y");
+  });
+
+  it("[BEHAVIORAL] a page south of 80°S does too", () => {
+    const grid = buildUsngGrid([44.9, -82.01, 45.1, -81.99], 1000, 1000);
+    expect(grid.lines.length).toBeGreaterThan(2);
+    expect(grid.collar).toMatchObject({ zoneDesignator: "B", system: "UPS" });
+  });
+
+  it("[CONTROL] empty past the panel's own limit (85.05°: no map tile exists there)", () => {
+    expect(buildUsngGrid([-10, 85.1, 10, 86], 800, 1000).lines).toHaveLength(0);
+  });
+});
+
+describe("review fixes to the grid", () => {
+  /** Panel fraction (Web Mercator over the bbox) back to lng/lat, independent of the builder. */
+  function fromFraction(bbox: BBox, x: number, y: number) {
+    const merc = (lat: number) => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
+    const yTop = merc(bbox[3]);
+    const yBot = merc(bbox[1]);
+    const m = yTop - y * (yTop - yBot);
+    return { lng: bbox[0] + x * (bbox[2] - bbox[0]), lat: (2 * Math.atan(Math.exp(m)) - Math.PI / 2) * (180 / Math.PI) };
+  }
+
+  for (const bbox of [[89.5, 84.5, 90.5, 84.6], [44.5, 84.5, 45.5, 84.6]] as BBox[]) it(`[BEHAVIORAL] a UPS page at ${bbox[0] + 0.5}°E keeps each easting line a constant easting, labelled where it meets the border`, () => {
+    const grid = buildUsngGrid(bbox, 1000, 1000);
+    const ups = createUpsProjector(true);
+    const eastings = grid.lines.filter((l) => l.axis === "easting");
+    expect(eastings.length).toBeGreaterThan(0);
+    // Every point of every easting piece lies on a whole-kilometre easting (what its label says),
+    // within 5 m. Clamping each end separately (the UTM path) put lines hundreds of metres to
+    // kilometres off on a turned page; one straight segment per line drifted ~30 m mid-page.
+    for (const line of eastings) {
+      for (const t of [0, 0.5, 1]) {
+        const e = ups.forward(fromFraction(bbox, line.x1 + t * (line.x2 - line.x1), line.y1 + t * (line.y2 - line.y1)))[0];
+        expect(Math.abs(e - Math.round(e / 1000) * 1000), `easting ${e.toFixed(0)} is not on a grid line`).toBeLessThan(5);
+      }
+    }
+    for (const l of grid.labels) {
+      const onEdge = { top: l.y < 1e-6, bottom: l.y > 1 - 1e-6, left: l.x < 1e-6, right: l.x > 1 - 1e-6 }[l.edge];
+      expect(onEdge, `${l.text} labelled ${l.edge} at ${l.x.toFixed(3)},${l.y.toFixed(3)}`).toBe(true);
+      // And it is where a drawn line actually ends, not just somewhere on that edge.
+      const atLineEnd = grid.lines.some((g) => [[g.x1, g.y1], [g.x2, g.y2]].some(([x, y]) => Math.hypot(x! - l.x, y! - l.y) < 1e-6));
+      expect(atLineEnd, `${l.text} at ${l.x.toFixed(3)},${l.y.toFixed(3)} is at no line's end`).toBe(true);
+    }
+  });
+
+  it("[BEHAVIORAL] a page astride the equator prints its southern full northing, not a negative one", () => {
+    const grid = buildUsngGrid([-99.1, -0.04, -98.9, 0.05], 1000, 1000, { mgrs: true });
+    const northings = grid.labels.filter((l) => l.text.endsWith("mN")).map((l) => Number(l.text.replace("mN", "")));
+    expect(northings.length).toBeGreaterThan(0);
+    expect(northings.every((n) => n >= 0)).toBe(true);
+    expect(northings).toContain(9_996_000);
+  });
+
+  it("[BEHAVIORAL] a junction page lists the centre's square first", () => {
+    const grid = buildUsngGrid([2.9, 59.95, 3.1, 60.05], 1000, 1000, { mgrs: true });
+    expect(grid.collar.squares![0]).toBe(`${grid.collar.zoneDesignator} ${grid.collar.hundredKmSquare}`);
   });
 });

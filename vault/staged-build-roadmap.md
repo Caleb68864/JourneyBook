@@ -591,11 +591,21 @@ Goal: implement the [Map Tiers (Learning Curve)](#map-tiers-learning-curve-featu
 > 84°N: the grid uses the southern false northing south of the equator, so a Sydney page gets
 > its lines, "56H" squares and full northings like 6245000mN, and the library is held to the
 > standard there as well. Beyond UTM's limits MGRS uses the polar UPS grid, still not drawn.)*
+> *(2026-11-22, later: the polar UPS grid is drawn north of 84°N and south of 80°S, up to the
+> 85.05° limit of Web Mercator map tiles: grid lines and numbers from EPSG:32661/32761 (held to
+> Snyder's polar stereographic formulas to the millimetre), the UPS zone letter (Y/Z, A/B) in a
+> "Z · UPS (polar grid)" collar, and UPS grid north in the declination diagram and worksheet.
+> **The polar 100 km square letters are not drawn:** neither the `mgrs` library nor NGA's own
+> `mgrs-js` converts polar points, so there is nothing to check them against.)*
 > *(2026-11-22: a page that spans two UTM zones is drawn as a zone junction: each zone's grid
 > only on its own side of the boundary meridian, numbered in its own zone (first eastings in
 > full on both sides, northing labels on each zone's outer edge), both zones' 100 km squares
 > named, and the boundary drawn heavier with "13 | 14 UTM ZONE". The declination diagram's grid
-> north is still the centre's zone.)*
+> north is still the centre's zone.)* *(2026-11-22, later: the Norway (32V) and Svalbard (31X,
+> 33X, 35X, 37X) zone exceptions are applied everywhere a zone is chosen, so junctions fall at
+> 3°E or 9/21/33°E there. A tier-4 junction page's caption gives each zone's grid north and G-M
+> ("GN 2.0° E (13) / 2.0° W (14)"), and worksheet rows say which zone's grid to measure on
+> when an atlas's legs start in different zones.)*
 > **2026-11-22: azimuth worksheets built (opt-in). Decided by agent (owner may revisit):** off
 > by default, since they add two pages. With `worksheet` (`--worksheet`, "Azimuth Worksheet"
 > in the editor) and two or more locations, the atlas ends with a worksheet (short
@@ -615,8 +625,14 @@ Goal: implement the [Map Tiers (Learning Curve)](#map-tiers-learning-curve-featu
 > the G-M angle; grid, magnetic and back azimuths; the 100 km square code), each citing its
 > paragraph: 6-2, 6-6, 6-3 to 6-5, 4-4. The longest run of words it shares with the manual is
 > six ("between grid north and magnetic north"). The PDF is not committed.
-> **Still not built:** a worksheet for legs other than the stops in order (to landmarks, or
-> chosen by hand). **The teaching text stays blocked:** the current TC 3-25.26 (15 Nov 2013)
+> *(2026-11-22, later: legs to landmarks and hand-picked legs. `worksheetLandmarks` adds, for
+> each location, legs to up to three of the nearest landmarks on its own page;
+> `worksheetLegs: [{from, to}]` replaces the consecutive list with chosen legs whose ends are
+> "L2" or a landmark's name, refused before rendering if they name nothing. CLI
+> `--worksheet-landmarks`, `--worksheet-leg FROM:TO`; worker schema; `RenderProjectRequest`.
+> In the editor, ticking Azimuth Worksheet shows "Legs To Nearby Landmarks" and a hand-picked
+> legs list: pick a start and finish from your locations and the project's landmarks. The
+> worksheet needs Tier 4, where the grid and the G-M angle it is measured with are printed.)* **The teaching text stays blocked:** the current TC 3-25.26 (15 Nov 2013)
 > carries "Distribution authorized to U.S. government agencies and their contractors" per
 > every copy found, not a public-release statement, and its official armypubs listing could not
 > be reached to confirm otherwise. Only the superseded FM 3-25.26 (2001) is marked "approved for

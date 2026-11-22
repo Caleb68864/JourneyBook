@@ -12,6 +12,66 @@ export function utmZoneForLongitude(lng: number): number {
   return Math.floor(normalized / 6) + 1;
 }
 
+/**
+ * The UTM zone of a point, with the two standard exceptions MGRS defines: zone 32 widened to
+ * 3°E–12°E between 56°N and 64°N (south-west Norway), and zones 31, 33, 35 and 37 widened to
+ * 0–9°, 9–21°, 21–33° and 33–42°E between 72°N and 84°N (Svalbard), where 32, 34 and 36 do not
+ * exist. Everywhere else it is {@link utmZoneForLongitude}.
+ */
+export function utmZoneFor(lng: number, lat: number): number {
+  return utmZoneRange(lng, lat).zone;
+}
+
+/** The zone of a point and the longitudes its zone spans at that latitude, west inclusive. */
+export function utmZoneRange(lng: number, lat: number): { zone: number; west: number; east: number } {
+  if (lat >= 56 && lat < 64) {
+    if (lng >= 3 && lng < 12) return { zone: 32, west: 3, east: 12 };
+    if (lng >= 0 && lng < 3) return { zone: 31, west: 0, east: 3 };
+  }
+  if (lat >= 72 && lat < 84 && lng >= 0 && lng < 42) {
+    if (lng < 9) return { zone: 31, west: 0, east: 9 };
+    if (lng < 21) return { zone: 33, west: 9, east: 21 };
+    if (lng < 33) return { zone: 35, west: 21, east: 33 };
+    return { zone: 37, west: 33, east: 42 };
+  }
+  const zone = utmZoneForLongitude(lng);
+  const west = (zone - 1) * 6 - 180;
+  return { zone, west, east: west + 6 };
+}
+
+/**
+ * The Universal Polar Stereographic grid (EPSG:32661 north, EPSG:32761 south): polar
+ * stereographic on WGS 84 with scale 0.994 at the pole and a 2,000,000 m false easting and
+ * northing. It is the grid MGRS uses beyond UTM's limits, north of 84°N and south of 80°S.
+ */
+export function createUpsProjector(north: boolean): Projector {
+  const pole = north ? 90 : -90;
+  const definition =
+    `+proj=stere +lat_0=${pole} +lat_ts=${pole} +lon_0=0 +k=0.994 +x_0=2000000 +y_0=2000000 +datum=WGS84 +units=m +no_defs`;
+  return {
+    definition,
+    forward(point) {
+      const [x, y] = proj4(WGS84, definition, [point.lng, point.lat]);
+      return [x, y];
+    },
+    inverse([x, y]) {
+      const [lng, lat] = proj4(definition, WGS84, [x, y]);
+      return { lng, lat };
+    },
+  };
+}
+
+/** True where MGRS uses UPS rather than UTM: north of 84°N or south of 80°S. */
+export function isUpsLatitude(lat: number): boolean {
+  return lat >= 84 || lat < -80;
+}
+
+/** The UPS zone letter: Y/Z in the north, A/B in the south, west/east of the 0°/180° meridian. */
+export function upsZoneLetter(lng: number, lat: number): "A" | "B" | "Y" | "Z" {
+  const east = lng >= 0;
+  return lat >= 0 ? (east ? "Z" : "Y") : east ? "B" : "A";
+}
+
 /** A page-local projector: WGS84 <-> a metric plane (UTM zone of the centre). */
 export interface Projector {
   /** proj4 definition string for the metric CRS. */

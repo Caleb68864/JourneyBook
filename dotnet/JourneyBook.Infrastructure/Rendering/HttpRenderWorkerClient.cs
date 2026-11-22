@@ -98,7 +98,11 @@ public class HttpRenderWorkerClient(HttpClient http, RenderWorkerPollOptions? po
         // serializes exactly as it did before they existed.
         bool? CropMarks = null,
         bool? LocatorInset = null,
-        bool? Worksheet = null);
+        bool? Worksheet = null,
+        bool? WorksheetLandmarks = null,
+        WorkerWorksheetLeg[]? WorksheetLegs = null);
+
+    private sealed record WorkerWorksheetLeg(string From, string To);
 
     private sealed record WorkerCenter(double Lng, double Lat);
 
@@ -216,7 +220,11 @@ public class HttpRenderWorkerClient(HttpClient http, RenderWorkerPollOptions? po
                 PanelQuality: request.PanelQuality,
                 CropMarks: request.CropMarks ? true : null,
                 LocatorInset: request.LocatorInset ? true : null,
-                Worksheet: request.Worksheet ? true : null);
+                Worksheet: request.Worksheet ? true : null,
+                WorksheetLandmarks: request.WorksheetLandmarks ? true : null,
+                WorksheetLegs: request.WorksheetLegs is { Count: > 0 } legs
+                    ? legs.Select(l => new WorkerWorksheetLeg(l.From, l.To)).ToArray()
+                    : null);
         }
 
         if (request.Locations.Count > 0)
@@ -252,7 +260,11 @@ public class HttpRenderWorkerClient(HttpClient http, RenderWorkerPollOptions? po
                 PanelQuality: request.PanelQuality,
                 CropMarks: request.CropMarks ? true : null,
                 LocatorInset: request.LocatorInset ? true : null,
-                Worksheet: request.Worksheet ? true : null);
+                Worksheet: request.Worksheet ? true : null,
+                WorksheetLandmarks: request.WorksheetLandmarks ? true : null,
+                WorksheetLegs: request.WorksheetLegs is { Count: > 0 } legs
+                    ? legs.Select(l => new WorkerWorksheetLeg(l.From, l.To)).ToArray()
+                    : null);
         }
 
         throw new InvalidOperationException(

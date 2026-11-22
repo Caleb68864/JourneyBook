@@ -1409,6 +1409,30 @@ Across the code the 2026-11-21/22 branches touched. Branch `work/2026-11-22-stag
 
 Not fixed from the review: none; all eight findings were verified and fixed on this branch.
 
+## Bug hunt — 2026-11-22, follow-ups
+
+- [x] ~~**Renders sent locations in key order, not the user's L-number order.**~~ ✅
+  `RenderService` read `project.Locations` with no ORDER BY, while the location list (and the
+  editor) orders by `LocationNumber`. The worker numbers pages, route stops and worksheet legs
+  by position, so wherever key order and number order differ (restored or imported data), page
+  "L1" was not the user's L1. Now ordered by `LocationNumber`. The Api test that makes the two
+  orders differ fails on the old code.
+- [x] ~~**Polar UPS grid lines were bent and mislabelled away from 0°/180°.**~~ ✅ (independent
+  review) The UTM path clamps each line end separately, which only works for near-vertical lines;
+  UPS turns with longitude. Polar lines are now sampled along the true UPS line and clipped to
+  the panel, labelled where they meet the border. At 45°E a line labelled 2421000 lay 264 m off
+  its easting; now within 5 m. Also: an equator page printed "-4000mN" (now 9996000mN), and a
+  junction page's squares were not listed centre-first.
+- [x] ~~**Worksheet header row 122 pt off its columns; "360.0°"; southern junction caption east-first.**~~ ✅
+  (independent review) Each fails on the old renderer.
+- [x] ~~**The worksheet was offered at tiers without the grid or G-M angle; bad legs became failed jobs; picked legs went stale.**~~ ✅
+  (independent review) The worksheet now needs tier 4 (engine, API, a disabled checkbox with a
+  note). The API refuses bad hand-picked legs with a 400 before any record exists. The editor
+  keys legs by location id and landmark, so deleting a location drops its legs instead of
+  rebinding "L3" to another place. Each fails on the old code.
+
+All nine findings of the final review are fixed on this branch.
+
 ## Phase 1: Print Geometry
 Build the Docker-hosted React/Vite/shadcn/Tailwind web app skeleton, define the outdoor field-guide visual system, accept bounding boxes, create page grid, generate overview and detail pages, and validate Letter-size PDF output from the preferred client-side React PDF path.
 

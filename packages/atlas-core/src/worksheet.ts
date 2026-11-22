@@ -1,5 +1,5 @@
 import type { BBox, LngLat } from "./model.js";
-import { createUtmProjector, geodesicDistanceMeters, utmZoneForLongitude } from "./projection.js";
+import { createUpsProjector, createUtmProjector, geodesicDistanceMeters, isUpsLatitude, utmZoneFor } from "./projection.js";
 import { threeNorths } from "./north.js";
 
 /** One stop on a worksheet: where it is, and what the atlas calls it. */
@@ -13,7 +13,7 @@ export interface WorksheetStop {
 export interface WorksheetLeg {
   from: string;
   to: string;
-  /** Grid azimuth from the start, measured from grid north of the start's UTM zone. */
+  /** Grid azimuth from the start, measured from grid north of the start's UTM zone (or UPS). */
   gridAzimuth: number;
   /** The reverse direction: grid azimuth ± 180. */
   backAzimuth: number;
@@ -44,12 +44,23 @@ export function worksheetLegs(
   date: Date,
   pages?: readonly { id: string; bbox: BBox }[],
 ): WorksheetLeg[] {
+  const pairs: [WorksheetStop, WorksheetStop][] = [];
+  for (let i = 0; i + 1 < stops.length; i++) pairs.push([stops[i]!, stops[i + 1]!]);
+  return worksheetLegsFor(pairs, date, pages);
+}
+
+/** Worksheet legs for any list of (from, to) pairs: hand-picked, or stop-to-landmark. */
+export function worksheetLegsFor(
+  pairs: readonly (readonly [WorksheetStop, WorksheetStop])[],
+  date: Date,
+  pages?: readonly { id: string; bbox: BBox }[],
+): WorksheetLeg[] {
   const legs: WorksheetLeg[] = [];
-  for (let i = 0; i + 1 < stops.length; i++) {
-    const a = stops[i]!;
-    const b = stops[i + 1]!;
-    const zone = utmZoneForLongitude(a.center.lng);
-    const utm = createUtmProjector(zone);
+  for (const [a, b] of pairs) {
+    // The start's grid: its UTM zone, or UPS (zone 0) beyond UTM's limits.
+    const polar = isUpsLatitude(a.center.lat);
+    const zone = polar ? 0 : utmZoneFor(a.center.lng, a.center.lat);
+    const utm = polar ? createUpsProjector(a.center.lat > 0) : createUtmProjector(zone, a.center.lat < 0);
     const [ea, na] = utm.forward(a.center);
     const [eb, nb] = utm.forward(b.center);
     const grid = norm((Math.atan2(eb - ea, nb - na) * 180) / Math.PI);
@@ -80,7 +91,7 @@ export function worksheetLegs(
  * page counts once the line enters its bbox.
  */
 export function pagesAlong(
-  utm: ReturnType<typeof createUtmProjector>,
+  utm: { inverse(p: [number, number]): LngLat },
   from: readonly [number, number],
   to: readonly [number, number],
   pages: readonly { id: string; bbox: BBox }[],

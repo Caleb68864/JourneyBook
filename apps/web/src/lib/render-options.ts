@@ -68,6 +68,10 @@ export interface RenderOptionsState {
   locatorInset: boolean;
   /** An azimuth worksheet and answer key after the map pages (Stage 6B Level 4). Off by default. */
   worksheet: boolean;
+  /** With the worksheet: legs from each stop to its nearest landmarks. Off by default. */
+  worksheetLandmarks: boolean;
+  /** With the worksheet: hand-picked legs ("L2" or a landmark's name); empty = stops in order. */
+  worksheetLegs: { from: string; to: string }[];
 }
 
 export const DEFAULT_RENDER_OPTIONS: RenderOptionsState = {
@@ -88,6 +92,8 @@ export const DEFAULT_RENDER_OPTIONS: RenderOptionsState = {
   cropMarks: false,
   locatorInset: false,
   worksheet: false,
+  worksheetLandmarks: false,
+  worksheetLegs: [],
 };
 
 /** The `POST /projects/{id}/render` body for a given panel state. */
@@ -107,6 +113,8 @@ export interface RenderRequestBody {
   cropMarks?: true;
   locatorInset?: true;
   worksheet?: true;
+  worksheetLandmarks?: true;
+  worksheetLegs?: { from: string; to: string }[];
 }
 
 /**
@@ -147,6 +155,9 @@ export function toRenderRequestBody(state: RenderOptionsState): RenderRequestBod
     ...(state.cropMarks ? { cropMarks: true as const } : {}),
     ...(state.locatorInset ? { locatorInset: true as const } : {}),
     ...(state.worksheet ? { worksheet: true as const } : {}),
+    // The worksheet's extras mean nothing without it, so they travel only with it.
+    ...(state.worksheet && state.worksheetLandmarks ? { worksheetLandmarks: true as const } : {}),
+    ...(state.worksheet && state.worksheetLegs.length > 0 ? { worksheetLegs: state.worksheetLegs } : {}),
   };
 }
 

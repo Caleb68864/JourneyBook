@@ -157,3 +157,18 @@ describe("toRenderRequestBody, Stage 1D furniture", () => {
     expect(toRenderRequestBody({ ...DEFAULT_RENDER_OPTIONS, worksheet: true })).toMatchObject({ worksheet: true });
   });
 });
+
+describe("toRenderRequestBody, worksheet extras", () => {
+  it("[BEHAVIORAL] sends landmark legs and hand-picked legs only with the worksheet", () => {
+    const legs = [{ from: "L1", to: "Water Tower" }];
+    expect(toRenderRequestBody({ ...DEFAULT_RENDER_OPTIONS, worksheet: true, worksheetLandmarks: true, worksheetLegs: legs })).toMatchObject({
+      worksheet: true,
+      worksheetLandmarks: true,
+      worksheetLegs: legs,
+    });
+    const off = toRenderRequestBody({ ...DEFAULT_RENDER_OPTIONS, worksheet: false, worksheetLandmarks: true, worksheetLegs: legs });
+    expect("worksheetLandmarks" in off).toBe(false);
+    expect("worksheetLegs" in off).toBe(false);
+    expect("worksheetLegs" in toRenderRequestBody({ ...DEFAULT_RENDER_OPTIONS, worksheet: true })).toBe(false);
+  });
+});

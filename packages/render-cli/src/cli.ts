@@ -90,6 +90,9 @@ Options:
                               WMM2025 covers 2025.0 to 2030.0)
   --worksheet                 append an azimuth worksheet and answer key (legs between
                               consecutive locations; needs two or more)
+  --worksheet-landmarks       also add legs from each location to its nearest landmarks
+  --worksheet-leg FROM:TO     a hand-picked leg (repeatable; replaces the consecutive list);
+                              ends are L1, L2, ... or a landmark's name
   --basemap                   fetch a USGS (public-domain) topo panel per page (network)
   --panel-px <n>              target panel width in pixels; overrides the per-scale default
                               for EVERY page (defaults: ${DEFAULT_PANEL_WIDTH_PX}px for
@@ -348,6 +351,16 @@ export function inputFromArgs(args: readonly string[]): Omit<RenderAtlasInput, "
     ...(flags.has("locator-inset") ? { locatorInset: true } : {}),
     ...(valueOf(flags, "declination-date") ? { declinationDate: valueOf(flags, "declination-date") } : {}),
     ...(flags.has("worksheet") ? { worksheet: true } : {}),
+    ...(flags.has("worksheet-landmarks") ? { worksheetLandmarks: true } : {}),
+    ...(collectMultiFlag(args, "worksheet-leg").length > 0
+      ? {
+          worksheetLegs: collectMultiFlag(args, "worksheet-leg").map((spec) => {
+            const [from, to] = spec.split(":");
+            if (!from || !to) throw new Error(`--worksheet-leg needs FROM:TO (got "${spec}")`);
+            return { from, to };
+          }),
+        }
+      : {}),
   };
 }
 

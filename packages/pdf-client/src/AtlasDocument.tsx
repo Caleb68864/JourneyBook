@@ -28,6 +28,7 @@ import {
   type UsngGridOverlay,
   type WorksheetLeg,
   formatEastWest,
+  gridName,
 } from "@journeybook/atlas-core";
 import { brand, PIN_SHAPES, resolvePinShape, resolvePinColor } from "@journeybook/ui";
 import type { PinStyle } from "@journeybook/atlas-core";
@@ -316,8 +317,25 @@ export function diagramAngles(gridConvergence: number, declination: number): { g
 export function northsCaption(n: ThreeNorths): [string, string] {
   const rate = n.declinationPerYear;
   const drift = Math.abs(rate) < 0.05 ? "steady" : `MN moves ${formatEastWest(rate)}/yr`;
+  if (n.otherZone) {
+    // A zone junction: each side's grid north and G-M, named by zone, west zone first. West is
+    // decided by the zones' central meridians (with the 180° wrap), not by convergence, whose
+    // sign flips south of the equator.
+    const centralMeridian = (z: number) => z * 6 - 183;
+    const eastOf = (a: number, b: number) => ((centralMeridian(a) - centralMeridian(b) + 540) % 360) - 180 > 0;
+    const sides = [
+      { zone: n.utmZone, gn: n.gridConvergence, gm: n.gmAngle },
+      { zone: n.otherZone.utmZone, gn: n.otherZone.gridConvergence, gm: n.otherZone.gmAngle },
+    ].sort((x, y) => (eastOf(x.zone, y.zone) ? 1 : -1));
+    const a = sides[0]!;
+    const b = sides[1]!;
+    return [
+      `MN ${formatEastWest(n.declination)} · GN ${formatEastWest(a.gn)} (${a.zone}) / ${formatEastWest(b.gn)} (${b.zone}) of true N`,
+      `G-M ${formatEastWest(a.gm)} (${a.zone}) / ${formatEastWest(b.gm)} (${b.zone}) · ${n.model} ${n.year.toFixed(1)}`,
+    ];
+  }
   return [
-    `MN ${formatEastWest(n.declination)} · GN ${formatEastWest(n.gridConvergence)} (UTM ${n.utmZone}) of true N`,
+    `MN ${formatEastWest(n.declination)} · GN ${formatEastWest(n.gridConvergence)} (${gridName(n.utmZone)}) of true N`,
     `G-M ${formatEastWest(n.gmAngle)} · ${n.model} ${n.year.toFixed(1)} · ${drift}`,
   ];
 }
@@ -828,9 +846,11 @@ function UsngCollar({ collar }: { collar: UsngGridOverlay["collar"] }) {
   return (
     <View style={{ alignItems: "center" }}>
       <Text style={[styles.small, { fontFamily: "Helvetica-Bold" }, CLAMP_ONE_LINE]}>
-        {collar.squares && collar.squares.length > 0
-          ? `${collar.squares.join(" / ")} · MGRS`
-          : `${collar.zoneDesignator} ${collar.hundredKmSquare} · USNG`}
+        {collar.system === "UPS"
+          ? `${collar.zoneDesignator} · UPS (polar grid)`
+          : collar.squares && collar.squares.length > 0
+            ? `${collar.squares.join(" / ")} · MGRS`
+            : `${collar.zoneDesignator} ${collar.hundredKmSquare} · USNG`}
       </Text>
     </View>
   );
@@ -1295,7 +1315,9 @@ interface TocEntry {
  */
 /** "36.9°" for an azimuth, "5.00 km" / "850 m" for a distance. */
 export function formatAzimuth(deg: number): string {
-  return `${deg.toFixed(1)}°`;
+  // Round, then wrap: 359.97 rounds to 360.0, which is 0.0 (azimuths are 0 ≤ a < 360).
+  const tenths = Math.round(deg * 10) % 3600;
+  return `${(((tenths + 3600) % 3600) / 10).toFixed(1)}°`;
 }
 export function formatDistance(m: number): string {
   return m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`;
@@ -1372,7 +1394,8 @@ function WorksheetPages({ title, legs, model }: { title: string; legs: Worksheet
   const HeadRow = () => (
     <View style={worksheetStyles.head} fixed>
       <Text style={[worksheetStyles.leg, worksheetStyles.headCell]}>{columns[0]}</Text>
-      <Text style={[worksheetStyles.stops, worksheetStyles.headCell]}>{columns[1]}</Text>
+      {/* The same width as the rows' stops cell, or every column after it starts too far left. */}
+      <Text style={[worksheetStyles.stopsBox, worksheetStyles.headCell]}>{columns[1]}</Text>
       <Text style={[worksheetStyles.cell, worksheetStyles.headCell]}>{columns[2]}</Text>
       <Text style={[worksheetStyles.cell, worksheetStyles.headCell]}>{columns[3]}</Text>
       <Text style={[worksheetStyles.cell, worksheetStyles.headCell]}>{columns[4]}</Text>
@@ -1381,8 +1404,14 @@ function WorksheetPages({ title, legs, model }: { title: string; legs: Worksheet
   const stopsOf = (l: WorksheetLeg) => `${l.from} to ${l.to}`;
   // Which sheets to lay side by side for the leg: a leg between stops on different pages has to
   // be measured across them.
-  const pagesOf = (l: WorksheetLeg) =>
-    l.pages && l.pages.length > 0 ? `pages ${l.pages.join(", ")}` : l.pages ? "on no page of this atlas" : "";
+  // Which grid to measure on: the start's UTM zone. Named only when the atlas's legs are not all
+  // in one zone, where it matters.
+  const multiZone = new Set(legs.map((l) => l.utmZone)).size > 1;
+  const pagesOf = (l: WorksheetLeg) => {
+    const where = l.pages && l.pages.length > 0 ? `pages ${l.pages.join(", ")}` : l.pages ? "on no page of this atlas" : "";
+    const grid = multiZone ? `${gridName(l.utmZone)} grid` : "";
+    return [where, grid].filter(Boolean).join(" · ");
+  };
   return (
     <>
       <Page size="LETTER" orientation="portrait" style={[styles.page, { padding: 0.75 * PT }]}>
