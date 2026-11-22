@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createUtmProjector, utmZoneFor, utmZoneForLongitude, type BBox } from "@journeybook/atlas-core";
+import { createUpsProjector, createUtmProjector, utmZoneFor, utmZoneForLongitude, type BBox } from "@journeybook/atlas-core";
 import mgrs from "mgrs";
 import { buildUsngGrid } from "./usng-grid.js";
 
@@ -244,5 +244,52 @@ describe("the polar UPS grid", () => {
 
   it("[CONTROL] empty past the panel's own limit (85.05°: no map tile exists there)", () => {
     expect(buildUsngGrid([-10, 85.1, 10, 86], 800, 1000).lines).toHaveLength(0);
+  });
+});
+
+describe("review fixes to the grid", () => {
+  /** Panel fraction (Web Mercator over the bbox) back to lng/lat, independent of the builder. */
+  function fromFraction(bbox: BBox, x: number, y: number) {
+    const merc = (lat: number) => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
+    const yTop = merc(bbox[3]);
+    const yBot = merc(bbox[1]);
+    const m = yTop - y * (yTop - yBot);
+    return { lng: bbox[0] + x * (bbox[2] - bbox[0]), lat: (2 * Math.atan(Math.exp(m)) - Math.PI / 2) * (180 / Math.PI) };
+  }
+
+  for (const bbox of [[89.5, 84.5, 90.5, 84.6], [44.5, 84.5, 45.5, 84.6]] as BBox[]) it(`[BEHAVIORAL] a UPS page at ${bbox[0] + 0.5}°E keeps each easting line a constant easting, labelled where it meets the border`, () => {
+    const grid = buildUsngGrid(bbox, 1000, 1000);
+    const ups = createUpsProjector(true);
+    const eastings = grid.lines.filter((l) => l.axis === "easting");
+    expect(eastings.length).toBeGreaterThan(0);
+    // Every point of every easting piece lies on a whole-kilometre easting (what its label says),
+    // within 5 m. Clamping each end separately (the UTM path) put lines hundreds of metres to
+    // kilometres off on a turned page; one straight segment per line drifted ~30 m mid-page.
+    for (const line of eastings) {
+      for (const t of [0, 0.5, 1]) {
+        const e = ups.forward(fromFraction(bbox, line.x1 + t * (line.x2 - line.x1), line.y1 + t * (line.y2 - line.y1)))[0];
+        expect(Math.abs(e - Math.round(e / 1000) * 1000), `easting ${e.toFixed(0)} is not on a grid line`).toBeLessThan(5);
+      }
+    }
+    for (const l of grid.labels) {
+      const onEdge = { top: l.y < 1e-6, bottom: l.y > 1 - 1e-6, left: l.x < 1e-6, right: l.x > 1 - 1e-6 }[l.edge];
+      expect(onEdge, `${l.text} labelled ${l.edge} at ${l.x.toFixed(3)},${l.y.toFixed(3)}`).toBe(true);
+      // And it is where a drawn line actually ends, not just somewhere on that edge.
+      const atLineEnd = grid.lines.some((g) => [[g.x1, g.y1], [g.x2, g.y2]].some(([x, y]) => Math.hypot(x! - l.x, y! - l.y) < 1e-6));
+      expect(atLineEnd, `${l.text} at ${l.x.toFixed(3)},${l.y.toFixed(3)} is at no line's end`).toBe(true);
+    }
+  });
+
+  it("[BEHAVIORAL] a page astride the equator prints its southern full northing, not a negative one", () => {
+    const grid = buildUsngGrid([-99.1, -0.04, -98.9, 0.05], 1000, 1000, { mgrs: true });
+    const northings = grid.labels.filter((l) => l.text.endsWith("mN")).map((l) => Number(l.text.replace("mN", "")));
+    expect(northings.length).toBeGreaterThan(0);
+    expect(northings.every((n) => n >= 0)).toBe(true);
+    expect(northings).toContain(9_996_000);
+  });
+
+  it("[BEHAVIORAL] a junction page lists the centre's square first", () => {
+    const grid = buildUsngGrid([2.9, 59.95, 3.1, 60.05], 1000, 1000, { mgrs: true });
+    expect(grid.collar.squares![0]).toBe(`${grid.collar.zoneDesignator} ${grid.collar.hundredKmSquare}`);
   });
 });

@@ -36,9 +36,49 @@ function panelFraction(point: LngLat, bbox: BBox): [number, number] {
   return [clamp01(u), clamp01(v)];
 }
 
-/** A full UTM value as a grid line is labelled at the map edge: 678000mE, 4517000mN. */
+/**
+ * A full UTM value as a grid line is labelled at the map edge: 678000mE, 4517000mN. A northing
+ * south of the equator on a page whose centre is north of it comes out negative from the
+ * northern projector; the southern hemisphere's own numbering adds 10,000,000 m.
+ */
 function fullValue(utmValue: number, axis: "E" | "N"): string {
-  return `${Math.round(utmValue)}m${axis}`;
+  const v = axis === "N" && utmValue < 0 ? utmValue + 10_000_000 : utmValue;
+  return `${Math.round(v)}m${axis}`;
+}
+
+/**
+ * Clip the segment a→b (panel fractions) to the unit square, Liang–Barsky. Null if it misses.
+ * The polar grid needs it: its lines can cross the panel at any angle.
+ */
+function clipToPanel(a: [number, number], b: [number, number]): [[number, number], [number, number]] | null {
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  let t0 = 0;
+  let t1 = 1;
+  for (const [p, q] of [[-dx, a[0]], [dx, 1 - a[0]], [-dy, a[1]], [dy, 1 - a[1]]] as const) {
+    if (p === 0) {
+      if (q < 0) return null;
+      continue;
+    }
+    const r = q / p;
+    if (p < 0) t0 = Math.max(t0, r);
+    else t1 = Math.min(t1, r);
+    if (t0 > t1) return null;
+  }
+  return [
+    [a[0] + t0 * dx, a[1] + t0 * dy],
+    [a[0] + t1 * dx, a[1] + t1 * dy],
+  ];
+}
+
+/** The panel border a clipped end lies on, if any (an end inside the panel gets no label). */
+function edgeOf(x: number, y: number): "top" | "bottom" | "left" | "right" | null {
+  const eps = 1e-9;
+  if (y <= eps) return "top";
+  if (y >= 1 - eps) return "bottom";
+  if (x <= eps) return "left";
+  if (x >= 1 - eps) return "right";
+  return null;
 }
 
 /**
@@ -229,10 +269,17 @@ function zoneJunction(
     // collar stays empty
   }
   const squares = [...w.squares, ...e.squares];
+  // Centre's square first, as the single-zone path and `collar.squares`' contract say.
+  const centreId = collar.zoneDesignator ? `${collar.zoneDesignator} ${collar.hundredKmSquare}` : "";
   const overlay: UsngGridOverlay = {
     lines: [...w.lines, ...e.lines],
     labels: [...w.labels, ...e.labels],
-    collar: full ? { ...collar, squares: [...new Set(squares.map((q) => q.id))] } : collar,
+    collar: full
+      ? {
+          ...collar,
+          squares: [...new Set(squares.map((q) => q.id))].sort((a, b) => (a === centreId ? -1 : b === centreId ? 1 : 0)),
+        }
+      : collar,
     zoneBoundary: { x1: bx1, y1: by1, x2: bx2, y2: by2, westZone, eastZone },
   };
   if (full) overlay.mgrs = { squares };
@@ -309,6 +356,39 @@ export function buildUsngGrid(
     const labels: UsngGridOverlay["labels"] = [];
     const full = opts?.mgrs === true;
 
+    if (polar) {
+      // The UPS grid is turned by up to the longitude, so its lines are not near-vertical and
+      // near-horizontal as UTM's are. Clamping each end on its own (the UTM path below) bent
+      // lines and put labels on the wrong edge; clip each line to the panel instead, and label
+      // it where it meets the border.
+      // Each line is also drawn as short pieces sampled along the true UPS line: one straight
+      // segment on the Mercator panel parted from it by up to ~30 m mid-page at 45°E.
+      const PIECES = 16;
+      const addLine = (from: [number, number], to: [number, number], axis: "easting" | "northing", text: string) => {
+        const pts = Array.from({ length: PIECES + 1 }, (_, i) =>
+          lngLatToPanelFraction(proj.inverse([from[0] + ((to[0] - from[0]) * i) / PIECES, from[1] + ((to[1] - from[1]) * i) / PIECES]), bbox),
+        );
+        const kept: [[number, number], [number, number]][] = [];
+        for (let i = 0; i < PIECES; i++) {
+          const c = clipToPanel(pts[i]!, pts[i + 1]!);
+          if (c) kept.push(c);
+        }
+        if (kept.length === 0) return;
+        for (const [[x1, y1], [x2, y2]] of kept) lines.push({ x1, y1, x2, y2, axis });
+        for (const [x, y] of [kept[0]![0], kept[kept.length - 1]![1]]) {
+          const edge = edgeOf(x, y);
+          if (edge) labels.push({ x, y, text, edge });
+        }
+      };
+      for (let e = firstE; e <= lastE + 0.5; e += interval) {
+        addLine([e, utmNMin], [e, utmNMax], "easting", full && e === firstE ? fullValue(e, "E") : kmLabel(e));
+      }
+      for (let n = firstN; n <= lastN + 0.5; n += interval) {
+        addLine([utmEMin, n], [utmEMax, n], "northing", full && n === firstN ? fullValue(n, "N") : kmLabel(n));
+      }
+      return { lines, labels, collar: { zoneDesignator: upsZoneLetter(centreLng, centreLat), hundredKmSquare: "", system: "UPS" } };
+    }
+
     // Easting (vertical) lines — constant UTM easting, spans full northing range.
     for (let e = firstE; e <= lastE + 0.5; e += interval) {
       const [x1, y1] = panelFraction(proj.inverse([e, utmNMin]), bbox);
@@ -338,11 +418,6 @@ export function buildUsngGrid(
 
     // Collar from MGRS/USNG (its own guard — a collar failure still yields lines).
     let collar: UsngGridOverlay["collar"] = { zoneDesignator: "", hundredKmSquare: "" };
-    if (polar) {
-      // The UPS zone letter follows from the standard; the polar 100 km square letters are not
-      // given: no library here (nor NGA's mgrs-js) converts polar points to check them against.
-      return { lines, labels, collar: { zoneDesignator: upsZoneLetter(centreLng, centreLat), hundredKmSquare: "", system: "UPS" } };
-    }
     try {
       const usng = mgrsForward([centreLng, centreLat], 1);
       collar = parseUsngCollar(usng);

@@ -1417,6 +1417,12 @@ Not fixed from the review: none; all eight findings were verified and fixed on t
   by position, so wherever key order and number order differ (restored or imported data), page
   "L1" was not the user's L1. Now ordered by `LocationNumber`. The Api test that makes the two
   orders differ fails on the old code.
+- [x] ~~**Polar UPS grid lines were bent and mislabelled away from 0°/180°.**~~ ✅ (independent
+  review) The UTM path clamps each line end separately, which only works for near-vertical lines;
+  UPS turns with longitude. Polar lines are now sampled along the true UPS line and clipped to
+  the panel, labelled where they meet the border. At 45°E a line labelled 2421000 lay 264 m off
+  its easting; now within 5 m. Also: an equator page printed "-4000mN" (now 9996000mN), and a
+  junction page's squares were not listed centre-first.
 
 ## Phase 1: Print Geometry
 Build the Docker-hosted React/Vite/shadcn/Tailwind web app skeleton, define the outdoor field-guide visual system, accept bounding boxes, create page grid, generate overview and detail pages, and validate Letter-size PDF output from the preferred client-side React PDF path.
