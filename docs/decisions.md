@@ -1529,3 +1529,10 @@ Each entry follows this shape:
 - Surfaces: services/render-worker/src/package-route.ts, services/render-worker/src/package-route.test.ts
 - Watch: a second admin who starts a package while one runs now gets 429 and must retry.
 - Commit: (pending)
+
+## 2026-11-22 — An abandoned render that completes does not open a tab
+- Symptom (independent review, reproduced): the earlier unmount fix (f291bb2) guarded `GenerateButton`'s `catch`/`finally`. `waitForRender` checks its signal only between polls, so a status poll in flight at unmount that came back `Completed` returned normally. The success path then called `window.open` for a page the user had left, and set state on the unmounted button.
+- Fix: return straight after `await waitForRender(...)` when the controller was aborted (`finally` already skips its state on abort).
+- Evidence: `GenerateButton.progress.test.tsx` "a render that completes after the button is gone does not open a tab" holds the status poll, unmounts, then releases it as Completed. The old code called `window.open` once; now it is never called. Web 225.
+- Surfaces: apps/web/src/components/GenerateButton.tsx, apps/web/src/components/GenerateButton.progress.test.tsx
+- Commit: (pending)

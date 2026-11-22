@@ -258,4 +258,40 @@ describe("GenerateButton after it is gone", () => {
       process.off("unhandledRejection", onUnhandled);
     }
   });
+
+  /**
+   * The other half: the abandoned wait can also SUCCEED. `waitForRender` checks the signal only
+   * between polls, so a poll in flight at unmount that comes back `Completed` returned normally,
+   * and the success path opened the PDF in a new tab for a page the user had left.
+   */
+  it("[BEHAVIORAL] a render that completes after the button is gone does not open a tab", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const open = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (String(url).includes("/render")) {
+          return new Response(
+            JSON.stringify({ generatedPdfId: "pdf-1", status: "Pending", downloadUrl: "/api/generated-pdfs/pdf-1/content", statusUrl: "/api/generated-pdfs/pdf-1" }),
+            { status: 202, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        await gate;
+        return new Response(JSON.stringify({ id: "pdf-1", status: "Completed", errorMessage: null }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }),
+    );
+    vi.stubGlobal("open", open);
+
+    startRender();
+    await new Promise((r) => setTimeout(r, 20)); // the first status poll is now in flight
+    cleanup();
+    release();
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(open).not.toHaveBeenCalled();
+  });
 });

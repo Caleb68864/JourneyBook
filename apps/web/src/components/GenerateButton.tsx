@@ -104,6 +104,9 @@ export function GenerateButton({ projectId, options, disabled }: GenerateButtonP
         onStatus: setJobStatus,
         onProgress: setProgress,
       });
+      // The wait checks its signal only between polls, so one in flight at unmount can come
+      // back Completed. Opening the PDF then would pop a tab for a page the user has left.
+      if (controller.signal.aborted) return;
 
       setResolution(resolutionNote(readDeliveredResolution(finished.sourceMetadataSnapshot)));
       setPdfUrl(downloadUrl);
