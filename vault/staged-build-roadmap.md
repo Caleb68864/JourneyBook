@@ -627,8 +627,12 @@ Found while auditing, not fixed:
   `estimatePackageSize` fetches n tiles per zoom (default 8), spread evenly over each zoom's
   range, through the package's own `loadTile` path, and reports tiles × mean bytes per zoom,
   with the samples' low/high spread and how many failed; branch
-  `work/2026-11-22-stage7-packaging`)*; no API
-  endpoint or UI; ~~no automatic row registration~~ *(2026-11-22:
+  `work/2026-11-22-stage7-packaging`)*; ~~no API
+  endpoint~~ *(2026-11-22: `POST /api/map-packages` {bbox, minZoom, maxZoom, key?, file?,
+  maxTiles?}, admin-gated, 202: the worker's new `POST /package` job builds it through the
+  api's tile proxy into `data/map-packages` (compose mounts it read-write into the worker,
+  `PACKAGES_DIR`), and the api registers it when it lands; `GET /api/map-packages/jobs/{id}`
+  reports packaging, registering, registered, or failed with the reason)*, no UI; ~~no automatic row registration~~ *(2026-11-22:
   `POST /api/map-packages/register` {file, key?}, admin-gated, creates the `pmtiles` row from
   the archive: max zoom from its header, credit and origin from its metadata, refused unless
   the origin row exists and allows offline use)*; ~~compose still does not mount

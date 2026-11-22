@@ -2,6 +2,7 @@ import fs from "node:fs";
 import Fastify from "fastify";
 import { parseTileBaseUrlAllowlist } from "@journeybook/render-cli";
 import { renderRoute } from "./render-route.js";
+import { packageRoute } from "./package-route.js";
 import { JobStore } from "./jobs.js";
 
 const parsedPort = Number.parseInt(process.env["PORT"] ?? "8090", 10);
@@ -19,6 +20,9 @@ const TILE_CACHE_DIR = process.env["TILE_CACHE_DIR"];
 // `tile-url.ts` still apply. `infra/compose/docker-compose.yml` sets it to the
 // api's tile proxy, which is the only destination the API ever sends.
 const TILE_BASE_URL_ALLOWLIST = parseTileBaseUrlAllowlist(process.env["TILE_BASE_URL_ALLOWLIST"]);
+// Where offline packages are written (Stage 7). Unset means this worker makes none and
+// `POST /package` answers 503. Compose points it at the shared `data/map-packages`.
+const PACKAGES_DIR = process.env["PACKAGES_DIR"];
 
 // Most renders in flight at once. `POST /render` no longer holds its connection
 // open for the render (ADR 0007), so the HTTP layer's own back-pressure is gone;
@@ -51,6 +55,11 @@ await app.register(renderRoute, {
   tileBaseUrlAllowlist: TILE_BASE_URL_ALLOWLIST,
   jobs,
   maxActiveJobs: MAX_ACTIVE_JOBS,
+});
+
+await app.register(packageRoute, {
+  ...(PACKAGES_DIR ? { packagesDir: PACKAGES_DIR } : {}),
+  tileBaseUrlAllowlist: TILE_BASE_URL_ALLOWLIST,
 });
 
 app.log.info(
