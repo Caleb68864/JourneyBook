@@ -44,10 +44,19 @@ export function worksheetLegs(
   date: Date,
   pages?: readonly { id: string; bbox: BBox }[],
 ): WorksheetLeg[] {
+  const pairs: [WorksheetStop, WorksheetStop][] = [];
+  for (let i = 0; i + 1 < stops.length; i++) pairs.push([stops[i]!, stops[i + 1]!]);
+  return worksheetLegsFor(pairs, date, pages);
+}
+
+/** Worksheet legs for any list of (from, to) pairs: hand-picked, or stop-to-landmark. */
+export function worksheetLegsFor(
+  pairs: readonly (readonly [WorksheetStop, WorksheetStop])[],
+  date: Date,
+  pages?: readonly { id: string; bbox: BBox }[],
+): WorksheetLeg[] {
   const legs: WorksheetLeg[] = [];
-  for (let i = 0; i + 1 < stops.length; i++) {
-    const a = stops[i]!;
-    const b = stops[i + 1]!;
+  for (const [a, b] of pairs) {
     // The start's grid: its UTM zone, or UPS (zone 0) beyond UTM's limits.
     const polar = isUpsLatitude(a.center.lat);
     const zone = polar ? 0 : utmZoneFor(a.center.lng, a.center.lat);

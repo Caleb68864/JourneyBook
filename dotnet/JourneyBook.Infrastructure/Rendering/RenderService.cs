@@ -92,7 +92,11 @@ public class RenderService(
             extent = new BBoxDto(env.MinX, env.MinY, env.MaxX, env.MaxY);
         }
 
+        // In the user's order (LocationNumber), as the location list shows them: the worker
+        // numbers pages, route stops and worksheet legs by position. This used to take the
+        // Include's order, which follows the rows' keys and only matched by coincidence.
         var locations = project.Locations
+            .OrderBy(l => l.LocationNumber)
             .Select(l => new RenderLocationDto(
                 l.Location.X, l.Location.Y, l.Name, l.ScalePresetId, l.PinShape, l.PinColor, l.Notes, l.ZoomLevels))
             .ToList();
@@ -186,7 +190,9 @@ public class RenderService(
             PanelQuality: request.PanelQuality,
             CropMarks: request.CropMarks,
             LocatorInset: request.LocatorInset,
-            Worksheet: request.Worksheet);
+            Worksheet: request.Worksheet,
+            WorksheetLandmarks: request.WorksheetLandmarks,
+            WorksheetLegs: request.WorksheetLegs);
 
         // 5. Register the cancel channel BEFORE queueing, so there is no window in
         //    which an accepted render cannot be cancelled. A job can wait behind

@@ -1409,6 +1409,15 @@ Across the code the 2026-11-21/22 branches touched. Branch `work/2026-11-22-stag
 
 Not fixed from the review: none; all eight findings were verified and fixed on this branch.
 
+## Bug hunt — 2026-11-22, follow-ups
+
+- [x] ~~**Renders sent locations in key order, not the user's L-number order.**~~ ✅
+  `RenderService` read `project.Locations` with no ORDER BY, while the location list (and the
+  editor) orders by `LocationNumber`. The worker numbers pages, route stops and worksheet legs
+  by position, so wherever key order and number order differ (restored or imported data), page
+  "L1" was not the user's L1. Now ordered by `LocationNumber`. The Api test that makes the two
+  orders differ fails on the old code.
+
 ## Phase 1: Print Geometry
 Build the Docker-hosted React/Vite/shadcn/Tailwind web app skeleton, define the outdoor field-guide visual system, accept bounding boxes, create page grid, generate overview and detail pages, and validate Letter-size PDF output from the preferred client-side React PDF path.
 

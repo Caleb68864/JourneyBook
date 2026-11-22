@@ -30,6 +30,8 @@ import {
   threeNorths,
   utmZoneFor,
   worksheetLegs,
+  worksheetLegsFor,
+  geodesicDistanceMeters,
 } from "@journeybook/atlas-core";
 import { renderAtlasPdfToFile, type PageNorths, type RouteOverlay } from "@journeybook/pdf-client";
 import {
@@ -150,6 +152,16 @@ export interface RenderAtlasInput {
    * consecutive locations. Needs at least two locations. Default false.
    */
   worksheet?: boolean;
+  /**
+   * Also add, for each location, legs to up to three of the nearest landmarks on its own page
+   * ("from your stop to the water tower"). Needs `landmarks`. Default false.
+   */
+  worksheetLandmarks?: boolean;
+  /**
+   * Hand-picked legs, replacing the consecutive-stops list. Each end is a location ("L2") or a
+   * landmark's name, matched without regard to case.
+   */
+  worksheetLegs?: { from: string; to: string }[];
   /**
    * Default zoom ladder applied to every location that has no `zoomLevels` of
    * its own: one page per scale preset id, ids `L#a`, `L#b`, …. A location's own
@@ -388,6 +400,23 @@ function isValidLngLat(c: LngLat | undefined): c is LngLat {
 function validateInput(input: RenderAtlasInput): void {
   if (!Number.isInteger(input.tier) || input.tier < 1 || input.tier > 4) {
     throw new Error(`Invalid tier ${String(input.tier)}: must be an integer 1–4.`);
+  }
+  if (input.worksheetLegs !== undefined) {
+    // Checked here, at the boundary, so a bad reference is a 400 on the request, not a job that
+    // fails a moment later. The same rule `resolveStop` applies when the legs are built.
+    const locationCount = input.locations && input.locations.length > 0 ? input.locations.length : input.center ? 1 : 0;
+    const names = new Set((input.landmarks ?? []).map((l) => l.name.toLowerCase()));
+    for (const leg of input.worksheetLegs) {
+      for (const end of [leg.from, leg.to]) {
+        const m = /^L(\d+)$/i.exec(String(end).trim());
+        const ok = m ? Number(m[1]) >= 1 && Number(m[1]) <= locationCount : names.has(String(end).trim().toLowerCase());
+        if (!ok) {
+          throw new Error(
+            `Invalid worksheet leg end "${end}": not a location (L1–L${locationCount}) or a landmark's name.`,
+          );
+        }
+      }
+    }
   }
   if (input.declinationDate !== undefined) {
     // Shape AND a real day: "2026-13-01" matches the pattern, makes an invalid Date, and
@@ -1059,17 +1088,51 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
     }
   }
 
-  // Azimuth worksheet legs between consecutive locations, on the declination date.
+  // Azimuth worksheet legs, on the declination date: consecutive locations by default; or the
+  // hand-picked list; plus, if asked, each location to its nearest landmarks on its own page.
   let worksheet: { legs: ReturnType<typeof worksheetLegs>; model: string } | undefined;
   if (input.worksheet) {
-    if (locationList.length < 2) {
-      stderr.write("  worksheet skipped: it needs at least two locations to make a leg\n");
+    const stopOf = (i: number) => ({
+      label: locationList[i]!.label ? `L${i + 1} ${locationList[i]!.label}` : `L${i + 1}`,
+      center: locationList[i]!.center,
+    });
+    const landmarkStops = (input.landmarks ?? []).map((l) => ({ label: l.name, center: { lng: l.lng, lat: l.lat } }));
+    const pairs: [{ label: string; center: LngLat }, { label: string; center: LngLat }][] = [];
+    if (input.worksheetLegs && input.worksheetLegs.length > 0) {
+      for (const leg of input.worksheetLegs) pairs.push([resolveStop(leg.from), resolveStop(leg.to)]);
     } else {
-      const stops = locationList.map((loc, i) => ({
-        label: loc.label ? `L${i + 1} ${loc.label}` : `L${i + 1}`,
-        center: loc.center,
-      }));
-      worksheet = { legs: worksheetLegs(stops, northsDate, contract.pages), model: "WMM2025" };
+      for (let i = 0; i + 1 < locationList.length; i++) pairs.push([stopOf(i), stopOf(i + 1)]);
+    }
+    if (input.worksheetLandmarks) {
+      locationList.forEach((_, i) => {
+        const from = stopOf(i);
+        const page = contract.pages.find((p) => p.id === `L${i + 1}` || p.id.startsWith(`L${i + 1}a`));
+        const onPage = landmarkStops.filter((l) => {
+          if (!page) return false;
+          const [w, s, e, n] = page.bbox;
+          return l.center.lng >= w && l.center.lng <= e && l.center.lat >= s && l.center.lat <= n;
+        });
+        onPage
+          .map((l) => ({ l, d: geodesicDistanceMeters(from.center, l.center) }))
+          .sort((x, y) => x.d - y.d)
+          .slice(0, 3)
+          .forEach(({ l }) => pairs.push([from, l]));
+      });
+    }
+    if (pairs.length === 0) {
+      stderr.write("  worksheet skipped: no legs (it needs two locations, hand-picked legs, or landmarks near a location)\n");
+    } else {
+      worksheet = { legs: worksheetLegsFor(pairs, northsDate, contract.pages), model: "WMM2025" };
+    }
+
+    function resolveStop(ref: string): { label: string; center: LngLat } {
+      const m = /^L(\d+)$/i.exec(ref.trim());
+      if (m && Number(m[1]) >= 1 && Number(m[1]) <= locationList.length) return stopOf(Number(m[1]) - 1);
+      const lm = landmarkStops.find((l) => l.label.toLowerCase() === ref.trim().toLowerCase());
+      if (lm) return lm;
+      throw new Error(
+        `Invalid worksheet leg end "${ref}": not a location (L1–L${locationList.length}) or a landmark's name.`,
+      );
     }
   }
 

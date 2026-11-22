@@ -272,3 +272,47 @@ describe("the polar UPS grid through renderAtlas", () => {
     }
   });
 });
+
+describe("worksheet legs to landmarks and hand-picked legs through renderAtlas", () => {
+  const STOPS = [
+    { center: { lng: -96.7026, lat: 40.8136 }, label: "Capitol" },
+    { center: { lng: -96.7116, lat: 40.8169 }, label: "Haymarket" },
+    { center: { lng: -96.7734, lat: 40.7786 }, label: "Pioneers" },
+  ];
+  const LANDMARKS = [
+    { lng: -96.7001, lat: 40.8152, name: "Water Tower", category: "tower", score: 5 }, // by the Capitol
+    { lng: -96.7700, lat: 40.7770, name: "Nature Center", category: "building", score: 4 }, // by Pioneers
+    { lng: -97.5, lat: 41.2, name: "Far Hill", category: "peak", score: 3 }, // on no page
+  ];
+  const keyOf = async (extra: Record<string, unknown>) => {
+    const pdf = await renderTo({ mode: "location", locations: STOPS, landmarks: LANDMARKS, worksheet: true, declinationDate: "2026-07-02", tableOfContents: false, overview: false, ...extra });
+    return measurePdfPages(pdf).at(-1)!.texts;
+  };
+
+  it("[BEHAVIORAL] hand-picked legs replace the consecutive list; ends are L# or a landmark's name", async () => {
+    const key = await keyOf({ worksheetLegs: [{ from: "L1", to: "L3" }, { from: "l3", to: "nature center" }] });
+    expect(key).toContain("L1 Capitol to L3 Pioneers");
+    expect(key).toContain("L3 Pioneers to Nature Center");
+    expect(key).not.toContain("L1 Capitol to L2 Haymarket");
+  });
+
+  it("[BEHAVIORAL] worksheetLandmarks adds legs from each stop to the landmarks on its own page", async () => {
+    const key = await keyOf({ worksheetLandmarks: true });
+    expect(key).toContain("L1 Capitol to L2 Haymarket"); // the default legs stay
+    expect(key).toContain("L1 Capitol to Water Tower");
+    expect(key).toContain("L3 Pioneers to Nature Center");
+    expect(key.some((t) => t.includes("Far Hill"))).toBe(false);
+  });
+
+  it("refuses an unknown leg end before rendering, and the CLI flags reach the engine", async () => {
+    await expect(renderTo({ mode: "location", locations: STOPS, worksheet: true, worksheetLegs: [{ from: "L1", to: "L9" }] })).rejects.toThrow(
+      /Invalid worksheet leg end "L9": not a location \(L1–L3\)/,
+    );
+    await expect(renderTo({ mode: "location", locations: STOPS, worksheet: true, worksheetLegs: [{ from: "L1", to: "Nowhere" }] })).rejects.toThrow(
+      /Invalid worksheet leg end "Nowhere"/,
+    );
+    expect(
+      inputFromArgs(["--location", "-96.7,40.8", "--scale", "usgs-7-5-min", "--worksheet", "--worksheet-landmarks", "--worksheet-leg", "L1:L1", "--worksheet-leg", "L1:Water Tower"]),
+    ).toMatchObject({ worksheetLandmarks: true, worksheetLegs: [{ from: "L1", to: "L1" }, { from: "L1", to: "Water Tower" }] });
+  });
+});
