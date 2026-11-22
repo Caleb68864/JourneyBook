@@ -73,13 +73,17 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
   const [worksheetLegs, setWorksheetLegs] = useState<{ from: string; to: string }[]>([]);
   // The project's landmarks, for the hand-picked legs' ends; fetched once the worksheet is on.
   const [landmarkNames, setLandmarkNames] = useState<string[]>([]);
+  // Until the list arrives a landmark leg cannot be told apart from one whose landmark is gone.
+  const [landmarksLoaded, setLandmarksLoaded] = useState(false);
   useEffect(() => {
     if (!worksheet) return;
     let cancelled = false;
     api.landmarks
       .list(projectId)
       .then((list) => {
-        if (!cancelled) setLandmarkNames(list.map((l) => l.name));
+        if (cancelled) return;
+        setLandmarkNames(list.map((l) => l.name));
+        setLandmarksLoaded(true);
       })
       .catch(() => {
         if (!cancelled) setLandmarkNames([]);
@@ -98,6 +102,26 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
   ];
   const endRefs = new Set(legEnds.map((e) => e.ref));
   const validLegs = worksheetLegs.filter((l) => endRefs.has(l.from) && endRefs.has(l.to));
+  // Saved legs that are not shown, and so not sent with the render, each with why: said out
+  // loud rather than left to vanish from the list (and the worksheet) without a word.
+  const hiddenLegs = worksheetLegs
+    .filter((l) => !validLegs.includes(l))
+    .map((l) => {
+      const ends = [l.from, l.to];
+      const name = (ref: string) => (ref.startsWith("lm:") ? ref.slice(3) : (legEnds.find((e) => e.ref === ref)?.label ?? "a deleted location"));
+      const label = `${name(l.from)} to ${name(l.to)}`;
+      const goneLoc = ends.some((r) => r.startsWith("loc:") && !endRefs.has(r));
+      const lm = ends.find((r) => r.startsWith("lm:"));
+      const reason = goneLoc
+        ? "its location was deleted"
+        : !includeLandmarks
+          ? "Include Landmarks is off, so landmarks are not sent with the render"
+          : landmarksLoaded && lm && !landmarkNames.includes(lm.slice(3))
+            ? `no landmark named "${lm.slice(3)}" is in this project now (renamed or removed)`
+            : null;
+      return { leg: l, label, reason };
+    })
+    .filter((h): h is { leg: { from: string; to: string }; label: string; reason: string } => h.reason !== null);
   const toWire = (ref: string) =>
     ref.startsWith("loc:") ? `L${locations.findIndex((l) => `loc:${l.id}` === ref) + 1}` : ref.slice("lm:".length);
   const wireLegs = validLegs.map((l) => ({ from: toWire(l.from), to: toWire(l.to) }));
@@ -150,6 +174,10 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
         setLocations(locs);
         // The legs saved with the project (by place, so they survive renumbering).
         setWorksheetLegs(proj.worksheetLegs);
+        // The render choices saved with the project.
+        if (proj.mapTier !== null) setTier(proj.mapTier);
+        setWorksheet(proj.worksheet);
+        setWorksheetLandmarks(proj.worksheetLandmarks);
         void refreshPdfHistory();
         if (proj.extent) {
           const [w, s, e, n] = proj.extent;
@@ -206,11 +234,12 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
    * looking saved while the renderer uses the old one.
    */
   /** Change the hand-picked legs and save them with the project; a failed save puts them back. */
-  async function saveWorksheetLegs(shown: { from: string; to: string }[]) {
+  async function saveWorksheetLegs(shown: { from: string; to: string }[], drop?: { from: string; to: string }) {
     const before = worksheetLegs;
     // The editor only shows legs whose ends are on offer now; a saved leg to a landmark while
-    // Include Landmarks is off is hidden, not deleted, so keep it when saving the shown ones.
-    const hidden = worksheetLegs.filter((l) => !validLegs.includes(l));
+    // Include Landmarks is off is hidden, not deleted, so keep it when saving the shown ones
+    // (unless it is the one being deleted from the hidden-legs note).
+    const hidden = worksheetLegs.filter((l) => !validLegs.includes(l) && l !== drop);
     const next = [...shown, ...hidden];
     setWorksheetLegs(next);
     if (!project) return;
@@ -219,6 +248,20 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
     } catch (err) {
       setWorksheetLegs(before);
       setError(err instanceof Error ? err.message : "Failed to save the worksheet legs.");
+    }
+  }
+
+  /**
+   * Change a render choice saved with the project (tier, worksheet switch, landmark legs). It
+   * applies at once; if saving fails it still applies on this page, and the message says it
+   * was not saved (unlike page setup, nothing printed depends on the server having it).
+   */
+  async function saveRenderChoice(changes: { mapTier?: MapTier; worksheet?: boolean; worksheetLandmarks?: boolean }) {
+    if (!project) return;
+    try {
+      setProject(await api.projects.patch(project, changes));
+    } catch (err) {
+      setError(`This choice applies here but was not saved with the project (${err instanceof Error ? err.message : "save failed"}).`);
     }
   }
 
@@ -560,7 +603,10 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
               />
               <TierPicker
                 value={tier}
-                onChange={setTier}
+                onChange={(next) => {
+                  setTier(next);
+                  void saveRenderChoice({ mapTier: next });
+                }}
               />
               {footprintLabel && (
                 <p className="font-mono text-[10px] text-bark-500">
@@ -854,7 +900,11 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
                   type="checkbox"
                   checked={tier === 4 && worksheet}
                   disabled={tier !== 4}
-                  onChange={(e) => setWorksheet(e.target.checked)}
+                  onChange={(e) => {
+                    const on = e.target.checked;
+                    setWorksheet(on);
+                    void saveRenderChoice({ worksheet: on });
+                  }}
                   className="mt-0.5 accent-forest-700"
                 />
                 <span className="flex flex-col gap-0.5">
@@ -879,7 +929,11 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
                       type="checkbox"
                       checked={includeLandmarks && worksheetLandmarks}
                       disabled={!includeLandmarks}
-                      onChange={(e) => setWorksheetLandmarks(e.target.checked)}
+                      onChange={(e) => {
+                        const on = e.target.checked;
+                        setWorksheetLandmarks(on);
+                        void saveRenderChoice({ worksheetLandmarks: on });
+                      }}
                       className="mt-0.5 accent-forest-700"
                     />
                     <span className="flex flex-col gap-0.5">
@@ -890,6 +944,28 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
                     </span>
                   </label>
                   <WorksheetLegsEditor ends={legEnds} value={validLegs} onChange={(next) => void saveWorksheetLegs(next)} />
+                  {hiddenLegs.length > 0 ? (
+                    <div role="status" className="flex flex-col gap-1 border-l-2 border-amber-600 pl-2 font-mono text-[10px] text-bark-600">
+                      <span className="uppercase tracking-widest">
+                        {hiddenLegs.length === 1 ? "1 saved leg is not in the worksheet" : `${hiddenLegs.length} saved legs are not in the worksheet`}
+                      </span>
+                      <ul className="flex flex-col gap-1">
+                        {hiddenLegs.map((h, i) => (
+                          <li key={`${h.leg.from}>${h.leg.to}-${i}`}>
+                            {h.label}: left out because {h.reason}.{" "}
+                            <button
+                              type="button"
+                              className="underline"
+                              aria-label={`Delete saved leg ${h.label}`}
+                              onClick={() => void saveWorksheetLegs(validLegs, h.leg)}
+                            >
+                              Delete
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
               <div className="mb-3">

@@ -643,7 +643,9 @@ Goal: implement the [Map Tiers (Learning Curve)](#map-tiers-learning-curve-featu
 > worksheet needs Tier 4, where the grid and the G-M angle it is measured with are printed. Hand-picked legs are now saved with the project (2026-11-22, migration
 > `AddProjectWorksheetLegs`, a `jsonb` column defaulting to `[]`): kept by place
 > (`loc:<id>`/`lm:<name>`), dropped when their location is deleted, remapped on duplicate, and
-> carried by L-number in exports.)* **The teaching text stays blocked:** the current TC 3-25.26 (15 Nov 2013)
+> carried by L-number in exports. The tier, the Azimuth Worksheet switch and landmark legs are
+> saved too (migration `AddProjectRenderChoices`), and saved legs the worksheet leaves out are
+> listed under the legs with the reason and a Delete button.)* **The teaching text stays blocked:** the current TC 3-25.26 (15 Nov 2013)
 > carries "Distribution authorized to U.S. government agencies and their contractors" per
 > every copy found, not a public-release statement, and its official armypubs listing could not
 > be reached to confirm otherwise. Only the superseded FM 3-25.26 (2001) is marked "approved for
