@@ -92,18 +92,37 @@ public sealed class RenderJobRunner(
                 linked.Token);
 
             finished = result;
-            await pdfService.UpdateStatusAsync(
-                job.GeneratedPdfId,
-                new UpdateGeneratedPdfStatusRequest(
-                    "Completed",
-                    result.OutputPath,
-                    SourceMetadataSnapshot: ProvenanceOf(job, result),
-                    PageCount: result.PageCount),
-                // CancellationToken.None: a render that finished must be RECORDED as
-                // finished even if the host began stopping in the meantime.
-                // Otherwise a shutdown landing between the worker's answer and this
-                // write loses a PDF that is sitting on disk.
-                CancellationToken.None);
+            var completed = new UpdateGeneratedPdfStatusRequest(
+                "Completed",
+                result.OutputPath,
+                SourceMetadataSnapshot: ProvenanceOf(job, result),
+                PageCount: result.PageCount);
+            // Retried like the Failed/Cancelled write. It used to be one attempt, so a
+            // single DB blip turned a finished render into a Failed row. The same request
+            // every time: the write sets fields to fixed values, so a retry after a write
+            // that did commit changes nothing. Only the final failure reaches the catch.
+            for (var attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    await pdfService.UpdateStatusAsync(
+                        job.GeneratedPdfId,
+                        completed,
+                        // CancellationToken.None: a render that finished must be RECORDED as
+                        // finished even if the host began stopping in the meantime.
+                        // Otherwise a shutdown landing between the worker's answer and this
+                        // write loses a PDF that is sitting on disk.
+                        CancellationToken.None);
+                    break;
+                }
+                catch (Exception writeEx) when (attempt < OutcomeRetryDelays.Length)
+                {
+                    logger.LogWarning(writeEx,
+                        "Could not record Completed for pdf {GeneratedPdfId} (attempt {Attempt}); retrying.",
+                        job.GeneratedPdfId, attempt + 1);
+                    await Task.Delay(OutcomeRetryDelays[attempt]);
+                }
+            }
         }
         catch (Exception ex)
         {

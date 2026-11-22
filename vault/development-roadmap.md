@@ -1008,7 +1008,14 @@ Each fix has a test that failed before it. Write-ups in `docs/decisions.md` unde
 
 **Found, not fixed.**
 
-- **The `Completed` write is still single-shot.** Retrying it needs care (provenance snapshot,
+- ~~**The `Completed` write is still single-shot.**~~ ✅ 2026-11-21 (branch
+  `fix/tile-retry-after-and-upstream-warn`). Retried with the same delays as the
+  Failed/Cancelled write (250 ms, 1 s). The care the note asked for: the retry resends the
+  *same* request object (fixed status, path, snapshot, page count), so a retry after a write
+  that did commit changes nothing, and the file stays owned by the one row. Only the final
+  failure falls through to the informative Failed (which now keeps `FilePath`, above).
+  `RenderJobRunnerTests.A_transient_failure_writing_Completed_is_retried_and_the_render_is_Completed`
+  fails on the old code. *As found:* Retrying it needs care (provenance snapshot,
   file-path ownership), so its failure now lands as an informative Failed instead.
 - ~~**Retention may delete the orphaned PDF.**~~ ✅ 2026-11-21 (branch
   `fix/tile-retry-after-and-upstream-warn`). Checked against the code: it was the opposite.

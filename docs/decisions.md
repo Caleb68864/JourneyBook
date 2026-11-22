@@ -1357,3 +1357,11 @@ Each entry follows this shape:
 - Surfaces: dotnet/JourneyBook.Infrastructure/GeneratedPdfs/GeneratedPdfArtifacts.cs, dotnet/JourneyBook.Infrastructure/GeneratedPdfs/GeneratedPdfService.cs, dotnet/JourneyBook.Infrastructure/Projects/ProjectService.cs, dotnet/JourneyBook.Infrastructure/Rendering/RenderJobRunner.cs, dotnet/JourneyBook.Infrastructure/DependencyInjection.cs, dotnet/JourneyBook.Tests/Rendering/RenderJobRunnerTests.cs, dotnet/JourneyBook.Tests/Api/GeneratedPdfFileCleanupTests.cs
 - Watch: still orphaned: (a) a render's partial file when a crash strands it (`FailStrandedAsync` nulls `FilePath`, and a Rendering row never had one); (b) a project or record deleted while its render is in flight: the worker writes the PDF afterwards, and both the Completed and the Failed write find no row. Files already orphaned before this change stay; nothing sweeps the directory for files without rows.
 - Commit: (pending)
+
+## 2026-11-21 — The `Completed` write is retried
+- Symptom: `RenderJobRunner` retried the Failed/Cancelled write (2026-11-09) but wrote `Completed` once, so one transient DB error turned a render that finished into a Failed row.
+- Fix: the Completed write gets the same retry (`OutcomeRetryDelays`, 250 ms then 1 s), resending one request object built once. The write sets fixed values, so a retry after a write that did commit is a no-op. After the last attempt the exception reaches the existing catch, which records the informative Failed with the file path.
+- Evidence: `A_transient_failure_writing_Completed_is_retried_and_the_render_is_Completed` fails on the old runner (got Rendering, Completed, Failed). The two existing "Completed write fails" tests now fail every Completed attempt (`FailOnUpdates = [1, 2, 3]`) and use zero delays. .NET 363/363 with Docker; TS 671.
+- Surfaces: dotnet/JourneyBook.Infrastructure/Rendering/RenderJobRunner.cs, dotnet/JourneyBook.Tests/Rendering/RenderJobRunnerTests.cs
+- Watch: a row deleted while it renders now costs up to 1.25 s of retries before the Failed write, which also fails (row gone) and is logged.
+- Commit: (pending)
