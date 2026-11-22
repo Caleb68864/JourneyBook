@@ -1336,7 +1336,21 @@ found while closing the 2026-11-09 list, plus that list's two test-coverage gaps
   worker finishes later, and a worker still drawing across an API restart; both write after
   the cleanup. Files orphaned before this change stay.
 - [ ] **What the golden fixture cannot see** (see the 2026-11-09 list).
-- [ ] **What `scale-fidelity.test.ts` cannot see** (see the 2026-11-09 list).
+- [x] ~~**What `scale-fidelity.test.ts` cannot see**~~ ✅ 2026-11-21.
+  `render-cli/src/print-fidelity.test.ts` renders through `renderAtlas` with a basemap
+  (stubbed tiles) at five setups (defaults; wide margins with a 0.75 in gutter; landscape;
+  15% overlap; landscape with wide margins, gutter and 25% overlap), multi-page each, and
+  reads every page back off the file: the page prints at 1:24,000 on **both** axes
+  (geodesic ground off the bbox vs the measured map box, 0.5%); the scale bar is as long as
+  its **printed label** says (read off the page, not recomputed with `niceScaleBar`, 0.5%);
+  and every embedded panel's pixel size is the Web Mercator crop of a page's bbox (computed
+  in the test from the bbox, within 2 px). Mutation-checked: a crop 3% short fails all 5
+  (panel "is no page's Mercator crop", off 3.0–3.2%), a bar drawn 2% long fails all 5.
+  **Finding, not a bug:** the panel's pixel aspect differs from the printed box's by
+  0.32–0.43% at 41°N. EPSG:3857 is spherical, while the box is sized from ellipsoidal ground
+  (N/M ≈ 1.0039 here). The crop's corners still land on the box edges, so the 0.4% is spread
+  evenly across the panel. The test pins it below 0.6% so a change is noticed. Still not
+  covered: latitudes other than ~41°N in the printed output, and A4/other paper.
 
 ## Phase 1: Print Geometry
 Build the Docker-hosted React/Vite/shadcn/Tailwind web app skeleton, define the outdoor field-guide visual system, accept bounding boxes, create page grid, generate overview and detail pages, and validate Letter-size PDF output from the preferred client-side React PDF path.
