@@ -39,14 +39,27 @@ public sealed class HttpRangeStream(HttpClient http, string url) : Stream
             Headers = { Range = new RangeHeaderValue(_position, _position + buffer.Length - 1) },
         };
         using var res = await http.SendAsync(req, ct);
+        if (UpstreamThrottle.IsThrottle(res.StatusCode))
+        {
+            throw new UpstreamThrottledException((int)res.StatusCode, UpstreamThrottle.RetryAfterOf(res, DateTimeOffset.UtcNow));
+        }
         if (!res.IsSuccessStatusCode)
         {
             throw new IOException($"Range request failed: {(int)res.StatusCode}");
         }
 
         var bytes = await res.Content.ReadAsByteArrayAsync(ct);
-        var n = Math.Min(bytes.Length, buffer.Length);
-        bytes.AsSpan(0, n).CopyTo(buffer.Span);
+        // A host that ignores Range answers 200 with the WHOLE file. Its first bytes used to be
+        // copied as if they were the bytes at _position, so every read past the header was
+        // silently the wrong part of the archive. Take the slice at _position instead.
+        var start = 0;
+        if (res.StatusCode == System.Net.HttpStatusCode.OK)
+        {
+            if (_position >= bytes.Length) return 0;
+            start = (int)_position;
+        }
+        var n = Math.Min(bytes.Length - start, buffer.Length);
+        bytes.AsSpan(start, n).CopyTo(buffer.Span);
         _position += n;
         return n;
     }

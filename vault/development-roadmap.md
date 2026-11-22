@@ -1310,6 +1310,58 @@ Suites on this branch: TS atlas-core 102, pdf-client 71, map-sources 94, web 214
 integration). Harness checks lint, typecheck-covers-tests, golden-fixture,
 test-filter-partitions, migrations-current, secrets and project-references pass.
 
+## Follow-ups — 2026-11-21
+
+Branch `work/2026-11-21-coverage-and-leftovers` from `master` at `a8b5a0f` (PR #15). Items
+found while closing the 2026-11-09 list, plus that list's two test-coverage gaps.
+
+- [x] ~~**`PmTilesFetcher`'s HTTP-range path answers 502 for everything.**~~ ✅ 2026-11-21. A
+  throttled range request (429/503) now passes on like the raster fetcher's
+  (`UpstreamThrottledException` → `FetchedTile.Throttled`; `UpstreamThrottle` is the shared
+  Retry-After reader). **Also fixed, found reading it:** a host that ignores `Range` and
+  answers 200 with the whole file had its first bytes copied as if they were the bytes at the
+  requested offset, so every read past the header was the wrong part of the archive.
+  `HttpRangeStream` now slices a 200 at its position. `PmTilesRemoteFetchTests` serves the
+  shared raster fixture through a stub handler: 2 tests fail on the old code, the 2 controls
+  (ranged host, 500) pass on both.
+- [x] ~~**Partial or late PDFs left on disk**~~ ✅ 2026-11-21. The engine streams the PDF to its
+  final name, so a crash mid-write leaves a partial file. The `Rendering` write now names the
+  output file (`atlas-{id}.pdf`, unique to the record), so: crash reconciliation
+  (`FailStrandedAsync`) deletes a stranded render's partial file; a render that fails in the
+  worker deletes whatever it left; and when the `Completed` write finds no row (the record or
+  its project was deleted mid-render, and its DELETE found no file yet) the runner deletes the
+  late PDF. Download still serves `Completed` only. 4 new tests fail on the old code (3 runner
+  unit, 1 Api); 2 controls (a completed render keeps its file; reconciliation leaves a finished
+  one) pass on both. Not covered: a render the API stopped waiting for (timeout) that the
+  worker finishes later, and a worker still drawing across an API restart; both write after
+  the cleanup. Files orphaned before this change stay.
+- [x] ~~**What the golden fixture cannot see**~~ ✅ 2026-11-21 (the geometry half).
+  `render-cli/src/contract-golden.test.ts` pins the whole `assembleContract` output (the
+  render worker's entry point) to `data/fixtures/contract-cases.json` for six cases: one
+  location page; locations with their own scale, pin and notes; zoom ladders (default and
+  per-location); the cover grid; route corridor pages with the polyline; and a bbox grid in
+  landscape with wide margins, a gutter and 10% overlap. Numbers at 10 decimal places, a
+  check that each case really reaches its mode, and `UPDATE_FIXTURES=1` to regenerate.
+  Mutation-checked against the old fixture: route page centres moved 5% of a step fail the
+  new file and pass `sample-atlas.json` (6/6); location pages 1% too tall fail 5 of 6 new
+  cases and pass the old one. The PDF and panel half is the print-fidelity test above. The
+  worker wire was already pinned (`WorkerWirePayloadParityTests`, `wire-contract.test.ts`).
+- [x] ~~**What `scale-fidelity.test.ts` cannot see**~~ ✅ 2026-11-21.
+  `render-cli/src/print-fidelity.test.ts` renders through `renderAtlas` with a basemap
+  (stubbed tiles) at five setups (defaults; wide margins with a 0.75 in gutter; landscape;
+  15% overlap; landscape with wide margins, gutter and 25% overlap), multi-page each, and
+  reads every page back off the file: the page prints at 1:24,000 on **both** axes
+  (geodesic ground off the bbox vs the measured map box, 0.5%); the scale bar is as long as
+  its **printed label** says (read off the page, not recomputed with `niceScaleBar`, 0.5%);
+  and every embedded panel's pixel size is the Web Mercator crop of a page's bbox (computed
+  in the test from the bbox, within 2 px). Mutation-checked: a crop 3% short fails all 5
+  (panel "is no page's Mercator crop", off 3.0–3.2%), a bar drawn 2% long fails all 5.
+  **Finding, not a bug:** the panel's pixel aspect differs from the printed box's by
+  0.32–0.43% at 41°N. EPSG:3857 is spherical, while the box is sized from ellipsoidal ground
+  (N/M ≈ 1.0039 here). The crop's corners still land on the box edges, so the 0.4% is spread
+  evenly across the panel. The test pins it below 0.6% so a change is noticed. Still not
+  covered: latitudes other than ~41°N in the printed output, and A4/other paper.
+
 ## Phase 1: Print Geometry
 Build the Docker-hosted React/Vite/shadcn/Tailwind web app skeleton, define the outdoor field-guide visual system, accept bounding boxes, create page grid, generate overview and detail pages, and validate Letter-size PDF output from the preferred client-side React PDF path.
 

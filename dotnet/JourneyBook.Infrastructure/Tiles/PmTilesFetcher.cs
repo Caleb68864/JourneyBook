@@ -59,6 +59,11 @@ public sealed class PmTilesFetcher(HttpClient http, IConfiguration config) : ITi
                 return new FetchedTile(bytes, ContentTypeFor(tileType), Empty: false);
             }
         }
+        catch (UpstreamThrottledException throttled)
+        {
+            // The archive's host is busy, not broken: pass it on like the raster fetcher does.
+            return FetchedTile.Throttled(throttled.Status, throttled.RetryAfter);
+        }
         catch
         {
             return null; // corrupt/unreadable archive → 502
