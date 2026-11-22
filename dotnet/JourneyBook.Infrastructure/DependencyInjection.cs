@@ -40,6 +40,7 @@ public static class DependencyInjection
         services.AddDbContext<JourneyBookDbContext>(options =>
             options.UseNpgsql(connectionString, npgsql => npgsql.UseNetTopologySuite()));
 
+        services.AddSingleton<GeneratedPdfArtifacts>();
         services.AddScoped<IProjectService, ProjectService>();
         services.AddScoped<ILocationService, LocationService>();
         services.AddScoped<ITileSourceService, TileSourceService>();

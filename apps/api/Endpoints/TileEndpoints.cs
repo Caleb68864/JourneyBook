@@ -53,6 +53,15 @@ public static class TileEndpoints
                     return Results.BadRequest(new { error = "Zoom exceeds the source's maximum." });
                 case TileStatus.UpstreamError:
                     return Results.StatusCode(StatusCodes.Status502BadGateway);
+                case TileStatus.UpstreamThrottled:
+                    // Pass the source's "busy" on as it said it, Retry-After included. A bare 502
+                    // here used to hide it, so the render worker (which honours Retry-After) and a
+                    // browser both retried inside the window the source had asked them to wait out.
+                    if (tile.RetryAfterSeconds is int retryAfter)
+                    {
+                        response.Headers[HeaderNames.RetryAfter] = retryAfter.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                    }
+                    return Results.StatusCode(tile.ThrottledStatus ?? StatusCodes.Status503ServiceUnavailable);
                 case TileStatus.Empty:
                     return Results.StatusCode(StatusCodes.Status204NoContent);
                 case TileStatus.OfflineNotAllowed:

@@ -92,18 +92,37 @@ public sealed class RenderJobRunner(
                 linked.Token);
 
             finished = result;
-            await pdfService.UpdateStatusAsync(
-                job.GeneratedPdfId,
-                new UpdateGeneratedPdfStatusRequest(
-                    "Completed",
-                    result.OutputPath,
-                    SourceMetadataSnapshot: ProvenanceOf(job, result),
-                    PageCount: result.PageCount),
-                // CancellationToken.None: a render that finished must be RECORDED as
-                // finished even if the host began stopping in the meantime.
-                // Otherwise a shutdown landing between the worker's answer and this
-                // write loses a PDF that is sitting on disk.
-                CancellationToken.None);
+            var completed = new UpdateGeneratedPdfStatusRequest(
+                "Completed",
+                result.OutputPath,
+                SourceMetadataSnapshot: ProvenanceOf(job, result),
+                PageCount: result.PageCount);
+            // Retried like the Failed/Cancelled write. It used to be one attempt, so a
+            // single DB blip turned a finished render into a Failed row. The same request
+            // every time: the write sets fields to fixed values, so a retry after a write
+            // that did commit changes nothing. Only the final failure reaches the catch.
+            for (var attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    await pdfService.UpdateStatusAsync(
+                        job.GeneratedPdfId,
+                        completed,
+                        // CancellationToken.None: a render that finished must be RECORDED as
+                        // finished even if the host began stopping in the meantime.
+                        // Otherwise a shutdown landing between the worker's answer and this
+                        // write loses a PDF that is sitting on disk.
+                        CancellationToken.None);
+                    break;
+                }
+                catch (Exception writeEx) when (attempt < OutcomeRetryDelays.Length)
+                {
+                    logger.LogWarning(writeEx,
+                        "Could not record Completed for pdf {GeneratedPdfId} (attempt {Attempt}); retrying.",
+                        job.GeneratedPdfId, attempt + 1);
+                    await Task.Delay(OutcomeRetryDelays[attempt]);
+                }
+            }
         }
         catch (Exception ex)
         {
@@ -126,7 +145,12 @@ public sealed class RenderJobRunner(
                     job.ProjectId, job.GeneratedPdfId);
             }
 
-            await WriteOutcomeAsync(job, status, message);
+            // A render that finished keeps its file on the Failed row. Null here used to
+            // orphan it: nothing pointed at the PDF, so retention deleted the row and left
+            // the file, and nothing else would ever find it. The download endpoint serves
+            // Completed rows only, so this exposes nothing; it lets retention and DELETE
+            // reclaim the file.
+            await WriteOutcomeAsync(job, status, message, finished?.OutputPath);
         }
         finally
         {
@@ -297,13 +321,13 @@ public sealed class RenderJobRunner(
     /// over. A final failure is logged with the outcome it was trying to record, so
     /// the reason is at least in the log even when it never reaches the row.
     /// </remarks>
-    private async Task WriteOutcomeAsync(RenderJob job, string status, string message)
+    private async Task WriteOutcomeAsync(RenderJob job, string status, string message, string? filePath = null)
     {
         for (var attempt = 0; ; attempt++)
         {
             try
             {
-                await WriteAsync(job, status, null, message);
+                await WriteAsync(job, status, filePath, message);
                 return;
             }
             catch (Exception writeEx) when (attempt < OutcomeRetryDelays.Length)

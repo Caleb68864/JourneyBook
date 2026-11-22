@@ -1008,15 +1008,44 @@ Each fix has a test that failed before it. Write-ups in `docs/decisions.md` unde
 
 **Found, not fixed.**
 
-- **The `Completed` write is still single-shot.** Retrying it needs care (provenance snapshot,
+- ~~**The `Completed` write is still single-shot.**~~ ✅ 2026-11-21 (branch
+  `fix/tile-retry-after-and-upstream-warn`). Retried with the same delays as the
+  Failed/Cancelled write (250 ms, 1 s). The care the note asked for: the retry resends the
+  *same* request object (fixed status, path, snapshot, page count), so a retry after a write
+  that did commit changes nothing, and the file stays owned by the one row. Only the final
+  failure falls through to the informative Failed (which now keeps `FilePath`, above).
+  `RenderJobRunnerTests.A_transient_failure_writing_Completed_is_retried_and_the_render_is_Completed`
+  fails on the old code. *As found:* Retrying it needs care (provenance snapshot,
   file-path ownership), so its failure now lands as an informative Failed instead.
-- **Retention may delete the orphaned PDF.** A render recorded Failed after it finished has a
+- ~~**Retention may delete the orphaned PDF.**~~ ✅ 2026-11-21 (branch
+  `fix/tile-retry-after-and-upstream-warn`). Checked against the code: it was the opposite.
+  Retention deletes the file a row points at, so with `FilePath` null it deleted the row and
+  **left** the PDF on disk for ever. The Failed row of a finished render now keeps
+  `FilePath` (download still serves `Completed` only). Found alongside it, same shape:
+  `DELETE /api/generated-pdfs/{id}` removed the row and never the file, and deleting a
+  project cascaded its rows and left every file. Both now delete the files, after the rows
+  are gone (`GeneratedPdfArtifacts`, the one path-confined delete). 3 new tests fail on the
+  old code (1 runner unit, 2 Api). *As found:* A render recorded Failed after it finished has a
   file on disk that the Failed row does not point at (`FilePath` is null). Nothing reclaims or
   re-links it.
-- **A 429's `Retry-After` is ignored.** `fetchTile` backs off a fixed 200/400 ms whatever
-  the source asks for, so a throttled render spends its three attempts inside the window the
-  source said to wait out.
-- **The worker logs an upstream (tile) failure at `info`.** `render-route.ts` writes every
+- ~~**A 429's `Retry-After` is ignored.**~~ ✅ 2026-11-21 (branch
+  `fix/tile-retry-after-and-upstream-warn`). `fetchTile` waits `max(backoff, Retry-After)`
+  on a retryable status; `parseRetryAfter` reads delay-seconds and HTTP-dates. A
+  Retry-After over 30 s (`maxRetryAfterMs`) ends that tile's retries, labelled
+  `HTTP 429 (Retry-After over 30 s)`. 4 new `panel.test.ts` tests fail on the old code.
+  ✅ *Proxy too (2026-11-21, same branch):* the C# tile proxy answered a bare 502 for every
+  upstream non-2xx, so in compose (worker → proxy → USGS) a 429 and its `Retry-After` never
+  reached the worker. `RasterXyzFetcher` now returns `FetchedTile.Throttled` for a 429/503,
+  `TileService` maps it to `TileStatus.UpstreamThrottled` (not cached, Retry-After rounded
+  up to whole seconds), and `/api/tiles` answers the upstream's status with `Retry-After`.
+  6 new .NET tests (4 unit, 2 Api) fail with the behaviour reverted. *As found:* `fetchTile` backs off a fixed
+  200/400 ms whatever the source asks for, so a throttled render spends its three attempts
+  inside the window the source said to wait out.
+- ~~**The worker logs an upstream (tile) failure at `info`.**~~ ✅ 2026-11-21 (same
+  branch). The summary line for `errorKind: "upstream"` is `warn`. The test the note said
+  was missing exists: `render-route.test.ts` "failure log level" captures the Fastify
+  logger and forces an outage by stubbing every tile to 503; it fails on the old code
+  (level 30, expected 40). *As found:* `render-route.ts` writes every
   failed render's summary line at `info`; only `internal` errors also get an `error` line. A
   log filter at `warn` therefore shows nothing during a total tile outage. `upstream` should
   be `warn`. Not done here: the route test has no log capture and no cheap way to force an
@@ -1045,6 +1074,16 @@ Each fix has a test that failed before it. Write-ups in `docs/decisions.md` unde
   assertion that a timed-out test's late tile requests leaked into (`[12, 16]` vs `[12]`). With
   `--testTimeout=60000` all 123 pass. The basemap tests share one global fetch mock, so a
   timed-out test can corrupt the next one's counts.
+  *2026-11-16:* fixed for the render-cli basemap tests only (see "Decision 7 re-verified").
+  ✅ *2026-11-21 (branch `fix/tile-retry-after-and-upstream-warn`): the rest of it.* The
+  same 5 s default was failing elsewhere: with 48 busy loops on this 8-core machine (load
+  ~92), unmodified `pnpm -r test` failed **11** tests on timeouts (map-sources 5, render-cli 2
+  outside the basemap describe, render-worker 4), and at ambient load ~80 from other work
+  map-sources alone failed 2–3. Every one is real CPU (sharp composites, PDF layout, the
+  6,510-case zoom sweep), not a hang. The four packages that render (map-sources,
+  pdf-client, render-cli, render-worker) now run `vitest run --testTimeout=60000
+  --hookTimeout=60000`; under the same 48 burners all 671 pass (load ~98). atlas-core and
+  web are pure and fast and keep the default. A real hang still fails, at 60 s.
 
 Suites on this branch: TS atlas-core 102, pdf-client 71, map-sources 93 (one new), web 180,
 render-cli 123 (with a 60 s timeout, see above), render-worker 37. .NET without Docker: 239

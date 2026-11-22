@@ -8,6 +8,7 @@ public enum TileStatus
     UnknownSource,  // 404 — no registry row for the key
     ZoomOutOfRange, // 400 — z exceeds the source's MaxZoom
     UpstreamError,  // 502 — fetch failed (network/timeout/non-2xx/corrupt archive)
+    UpstreamThrottled, // 429/503 as the upstream sent it, with its Retry-After — the source is busy
     OfflineNotAllowed, // 403 — a pmtiles (offline package) row whose source terms do not allow offline use
 }
 
@@ -24,11 +25,20 @@ public record TileResult(
     string Attribution,
     string ETag,
     bool CacheHit,
-    int? MaxAgeSeconds = null)
+    int? MaxAgeSeconds = null,
+    int? ThrottledStatus = null,
+    int? RetryAfterSeconds = null)
 {
     public static TileResult UnknownSource() => new(TileStatus.UnknownSource, [], "", "", "", false);
     public static TileResult ZoomOutOfRange() => new(TileStatus.ZoomOutOfRange, [], "", "", "", false);
     public static TileResult UpstreamError() => new(TileStatus.UpstreamError, [], "", "", "", false);
+
+    /// <summary>
+    /// The upstream answered <paramref name="status"/> (429 or 503). <paramref name="retryAfterSeconds"/>
+    /// is its <c>Retry-After</c>, rounded up to whole seconds, or null when it sent none.
+    /// </summary>
+    public static TileResult UpstreamThrottled(int status, int? retryAfterSeconds) =>
+        new(TileStatus.UpstreamThrottled, [], "", "", "", false, ThrottledStatus: status, RetryAfterSeconds: retryAfterSeconds);
     public static TileResult OfflineNotAllowed() => new(TileStatus.OfflineNotAllowed, [], "", "", "", false);
     public static TileResult EmptyTile(string attribution) => new(TileStatus.Empty, [], "", attribution, "", false);
 }

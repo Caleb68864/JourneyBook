@@ -3,7 +3,7 @@ import { promises as fsp } from "node:fs";
 import * as os from "node:os";
 import * as nodePath from "node:path";
 import sharp from "sharp";
-import { resolveTileUrl, renderMapPanel, USGS_TOPO, TILE_USER_AGENT } from "./panel.js";
+import { resolveTileUrl, renderMapPanel, parseRetryAfter, USGS_TOPO, TILE_USER_AGENT } from "./panel.js";
 import { TILE_SIZE, lngLatToGlobalPixel, tileRangeForBBox } from "./tilemath.js";
 
 describe("resolveTileUrl", () => {
@@ -274,6 +274,67 @@ describe("tile fetch hardening", () => {
     const tiles = fetchMock.mock.calls.length;
     expect(tiles).toBeGreaterThan(0);
     expect(new Set(fetchMock.mock.calls.map((c) => String(c[0]))).size).toBe(tiles);
+  });
+
+  // A throttled source says how long to wait. The fixed 200/400 ms backoff used
+  // to spend all three attempts inside that window, which is the behaviour that
+  // gets a client banned.
+  it("waits out a 429's Retry-After before retrying, not the fixed backoff", async () => {
+    const times: number[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, _init?: RequestInit) => {
+        times.push(Date.now());
+        if (times.length === 1) {
+          return new Response(null, { status: 429, headers: { "Retry-After": "1" } });
+        }
+        return new Response(new Uint8Array(TILE_PNG), { status: 200 });
+      }),
+    );
+    const panel = await renderMapPanel([...bbox], 256, undefined, { tileConcurrency: 1 });
+    expect(panel.tilesMissing).toBe(0);
+    // The retry of the first tile is the second request.
+    expect(times[1]! - times[0]!).toBeGreaterThanOrEqual(950);
+  });
+
+  it("gives up on a tile whose Retry-After is longer than it will wait, and says so", async () => {
+    const fetchMock = vi.fn(
+      async (_url: string, _init?: RequestInit) =>
+        new Response(null, { status: 429, headers: { "Retry-After": "3600" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const err = await renderMapPanel([...bbox], 256, undefined, { tileConcurrency: 1 }).then(
+      () => new Error("expected renderMapPanel to throw"),
+      (e: unknown) => e as Error,
+    );
+    // One request per tile: no retry inside the hour the source asked for.
+    const tiles = fetchMock.mock.calls.length;
+    expect(tiles).toBeGreaterThan(0);
+    expect(new Set(fetchMock.mock.calls.map((c) => String(c[0]))).size).toBe(tiles);
+    expect(err.message).toMatch(new RegExp(`Causes: ${tiles}x HTTP 429 \\(Retry-After over 30 s\\)`));
+  });
+});
+
+describe("parseRetryAfter", () => {
+  const now = Date.parse("2026-11-21T12:00:00Z");
+
+  it("reads delay-seconds", () => {
+    expect(parseRetryAfter("120", now)).toBe(120_000);
+    expect(parseRetryAfter(" 0 ", now)).toBe(0);
+  });
+
+  it("reads an HTTP-date relative to now, and a past date as 0", () => {
+    expect(parseRetryAfter("Sat, 21 Nov 2026 12:00:30 GMT", now)).toBe(30_000);
+    expect(parseRetryAfter("Sat, 21 Nov 2026 11:00:00 GMT", now)).toBe(0);
+  });
+
+  it("returns null for absent or unreadable values", () => {
+    expect(parseRetryAfter(null, now)).toBeNull();
+    expect(parseRetryAfter(undefined, now)).toBeNull();
+    expect(parseRetryAfter("", now)).toBeNull();
+    expect(parseRetryAfter("1.5", now)).toBeNull();
+    expect(parseRetryAfter("-3", now)).toBeNull();
+    expect(parseRetryAfter("soon", now)).toBeNull();
   });
 });
 

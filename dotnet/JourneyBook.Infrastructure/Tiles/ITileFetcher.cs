@@ -2,8 +2,26 @@ using JourneyBook.Application.TileSources;
 
 namespace JourneyBook.Infrastructure.Tiles;
 
-/// <summary>Bytes fetched from upstream plus their content-type. <c>Empty</c> marks a sparse miss.</summary>
-public record FetchedTile(byte[] Bytes, string ContentType, bool Empty);
+/// <summary>
+/// Bytes fetched from upstream plus their content-type. <c>Empty</c> marks a sparse miss.
+/// <c>ThrottledStatus</c> (429 or 503, with no bytes) marks an upstream that said "busy, come
+/// back later", with its <c>Retry-After</c> when it sent one; see <see cref="Throttled"/>.
+/// </summary>
+public record FetchedTile(
+    byte[] Bytes,
+    string ContentType,
+    bool Empty,
+    int? ThrottledStatus = null,
+    TimeSpan? RetryAfter = null)
+{
+    /// <summary>
+    /// The upstream throttled this request. Kept apart from a plain failure (<c>null</c>, which
+    /// becomes 502) so the proxy can pass the status and the source's <c>Retry-After</c> on to
+    /// its own caller: the render worker honours <c>Retry-After</c>, and a bare 502 hid it.
+    /// </summary>
+    public static FetchedTile Throttled(int status, TimeSpan? retryAfter) =>
+        new([], "", Empty: false, ThrottledStatus: status, RetryAfter: retryAfter);
+}
 
 /// <summary>
 /// Fetches a single tile for a given source kind. Implementations return <c>null</c> on an

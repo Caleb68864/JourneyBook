@@ -139,6 +139,12 @@ public class RenderJobRunnerTests
         IRenderCancellationRegistry? cancellations = null) =>
         new(pdfs, worker, cancellations ?? new StubCancellations(), NullLogger<RenderJobRunner>.Instance);
 
+    private static RenderJobRunner NoDelayRunnerFor(IGeneratedPdfService pdfs, IRenderWorkerClient worker) =>
+        new(pdfs, worker, new StubCancellations(), NullLogger<RenderJobRunner>.Instance)
+        {
+            OutcomeRetryDelays = [TimeSpan.Zero, TimeSpan.Zero],
+        };
+
     // ── Tests ────────────────────────────────────────────────────────────────
 
     [Fact]
@@ -265,17 +271,72 @@ public class RenderJobRunnerTests
     [Fact]
     public async Task A_failure_recording_Completed_says_the_render_finished_and_where_the_file_is()
     {
-        var pdfs = new RecordingPdfService { FailOnUpdate = 1 };
+        // Writes 1-3: Completed and its two retries, all failing. Write 4: Failed.
+        var pdfs = new RecordingPdfService { FailOnUpdates = [1, 2, 3] };
         var worker = new StubWorkerClient(req => new RenderWorkerResult(req.OutputFileName, 7, null, null));
 
-        await RunnerFor(pdfs, worker).RunAsync(SampleJob());
+        await NoDelayRunnerFor(pdfs, worker).RunAsync(SampleJob());
 
-        Assert.Equal(["Rendering", "Completed", "Failed"], pdfs.Updates.Select(u => u.Status));
+        Assert.Equal(["Rendering", "Completed", "Completed", "Completed", "Failed"], pdfs.Updates.Select(u => u.Status));
         var message = pdfs.Updates[^1].ErrorMessage!;
         Assert.Contains("render finished", message);
         Assert.Contains("atlas-test.pdf", message);
         Assert.Contains("7 page(s)", message);
         Assert.Contains("Row vanished", message);
+    }
+
+    /// <summary>
+    /// The Failed row of a render that finished still points at its file. It used to carry
+    /// a null FilePath, which orphaned the PDF: retention deletes the file a row points at,
+    /// so it deleted the row and left the file, and nothing else would ever find it.
+    /// </summary>
+    [Fact]
+    public async Task A_finished_render_recorded_as_Failed_keeps_its_file_so_retention_can_reclaim_it()
+    {
+        var pdfs = new RecordingPdfService { FailOnUpdates = [1, 2, 3] };
+        var worker = new StubWorkerClient(req => new RenderWorkerResult(req.OutputFileName, 7, null, null));
+
+        await NoDelayRunnerFor(pdfs, worker).RunAsync(SampleJob());
+
+        var failed = pdfs.Updates[^1];
+        Assert.Equal("Failed", failed.Status);
+        Assert.Equal(SampleJob().WorkerRequest.OutputFileName, failed.FilePath);
+    }
+
+    /// <summary>
+    /// One blip writing Completed is retried, not recorded as a failure. The write used to
+    /// be a single attempt, so a render that finished became a Failed row on any transient
+    /// database error.
+    /// </summary>
+    [Fact]
+    public async Task A_transient_failure_writing_Completed_is_retried_and_the_render_is_Completed()
+    {
+        // Write 0 = Rendering, write 1 = Completed (throws), write 2 = the retry.
+        var pdfs = new RecordingPdfService { FailOnUpdates = [1] };
+        var worker = new StubWorkerClient(req => new RenderWorkerResult(req.OutputFileName, 3, null, null));
+        var runner = new RenderJobRunner(pdfs, worker, new StubCancellations(), NullLogger<RenderJobRunner>.Instance)
+        {
+            OutcomeRetryDelays = [TimeSpan.Zero, TimeSpan.Zero],
+        };
+
+        await runner.RunAsync(SampleJob());
+
+        Assert.Equal(["Rendering", "Completed", "Completed"], pdfs.Updates.Select(u => u.Status));
+        Assert.Equal(3, pdfs.Updates[^1].PageCount);
+        Assert.Same(pdfs.Updates[1], pdfs.Updates[2]);
+    }
+
+    /// <summary>The control: a render that never produced a file records none.</summary>
+    [Fact]
+    public async Task A_render_that_failed_in_the_worker_records_no_file()
+    {
+        var pdfs = new RecordingPdfService();
+        var worker = new StubWorkerClient(_ => throw new InvalidOperationException("worker exploded"));
+
+        await RunnerFor(pdfs, worker).RunAsync(SampleJob());
+
+        Assert.Equal("Failed", pdfs.Updates[^1].Status);
+        Assert.Null(pdfs.Updates[^1].FilePath);
     }
 
     /// <summary>

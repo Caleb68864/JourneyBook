@@ -364,7 +364,12 @@ export async function renderRoute(app: FastifyInstance, opts: RenderWorkerOption
         const kind = classify(err);
         const message = err instanceof Error ? err.message : String(err);
         jobs.fail(jobId, kind, message);
-        app.log.info({
+        // An upstream (tile source) failure is the operator's to see: at `info`
+        // a log filtered to `warn` showed nothing during a total tile outage.
+        // Input errors and cancels are the caller's, and stay at `info`;
+        // `internal` gets its own `error` line below.
+        const level = kind === "upstream" ? "warn" : "info";
+        app.log[level]({
           jobId,
           outputPath: requestedRelPath,
           mode: body.mode,
