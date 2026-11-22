@@ -154,6 +154,7 @@ const renderBodySchema = {
     referenceGrid: { type: "boolean" },
     cropMarks: { type: "boolean" },
     locatorInset: { type: "boolean" },
+    worksheet: { type: "boolean" },
     declinationDate: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
     notes: { type: "boolean" },
     zoomLevels: { type: "array", items: { type: "string", minLength: 1 } },

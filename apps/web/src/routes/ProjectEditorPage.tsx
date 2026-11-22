@@ -67,6 +67,7 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
   const [notes, setNotes] = useState(true);
   const [cropMarks, setCropMarks] = useState(false);
   const [locatorInset, setLocatorInset] = useState(false);
+  const [worksheet, setWorksheet] = useState(false);
   // Basemap knobs, chosen at render time like tier. `basemap` was hardcoded true
   // on the wire until the API grew a member for it, so there was no way to ask
   // for the fast line-art proof the CLI has always had. null format/quality mean
@@ -796,6 +797,15 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
                   </span>
                 </span>
               </label>
+              <label className="mb-3 flex items-start gap-2">
+                <input type="checkbox" checked={worksheet} onChange={(e) => setWorksheet(e.target.checked)} className="mt-0.5 accent-forest-700" />
+                <span className="flex flex-col gap-0.5">
+                  <span className="font-mono text-[11px] uppercase tracking-widest text-bark-600">Azimuth Worksheet</span>
+                  <span className="font-mono text-[10px] text-bark-500">
+                    Adds a practice page: measure the grid and magnetic azimuth and distance between your stops in order, with an answer key on its own page. Needs two or more locations.
+                  </span>
+                </span>
+              </label>
               <div className="mb-3">
                 <BasemapOptions
                   value={{ basemap, panelFormat, panelQuality, panelZoomStep }}
@@ -826,6 +836,7 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
                   panelWidthPx,
                   cropMarks,
                   locatorInset,
+                  worksheet,
                 } satisfies RenderOptionsState}
                 disabled={!hasGeometry || savedOverLimit}
               />

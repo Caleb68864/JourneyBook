@@ -36,6 +36,50 @@ function panelFraction(point: LngLat, bbox: BBox): [number, number] {
   return [clamp01(u), clamp01(v)];
 }
 
+/** A full UTM value as a grid line is labelled at the map edge: 678000mE, 4517000mN. */
+function fullValue(utmValue: number, axis: "E" | "N"): string {
+  return `${Math.round(utmValue)}m${axis}`;
+}
+
+/**
+ * The 100 km squares the page touches, each with a label anchor inside its own part of the
+ * page: just inside the south-west corner of the square's intersection with the page, so it
+ * reads like the square identifier printed in each square on a military map.
+ */
+function hundredKmSquares(
+  proj: ReturnType<typeof createUtmProjector>,
+  bbox: BBox,
+  eMin: number,
+  eMax: number,
+  nMin: number,
+  nMax: number,
+): { id: string; x: number; y: number }[] {
+  const out: { id: string; x: number; y: number }[] = [];
+  const HUNDRED_KM = 100_000;
+  for (let e0 = Math.floor(eMin / HUNDRED_KM) * HUNDRED_KM; e0 < eMax; e0 += HUNDRED_KM) {
+    for (let n0 = Math.floor(nMin / HUNDRED_KM) * HUNDRED_KM; n0 < nMax; n0 += HUNDRED_KM) {
+      const left = Math.max(e0, eMin);
+      const right = Math.min(e0 + HUNDRED_KM, eMax);
+      const bottom = Math.max(n0, nMin);
+      const top = Math.min(n0 + HUNDRED_KM, nMax);
+      const w = right - left;
+      const h = top - bottom;
+      if (w <= 0 || h <= 0) continue;
+      // Anchor 4% in from the region's south-west corner; the square is named from its middle
+      // so a boundary rounding error cannot name the neighbour.
+      const anchor = proj.inverse([left + 0.04 * w, bottom + 0.04 * h]);
+      const middle = proj.inverse([left + w / 2, bottom + h / 2]);
+      const [x, y] = panelFraction(anchor, bbox);
+      // Skip a sliver too thin to hold a label (part of a square only just touching the page).
+      if (w < 0.04 * (eMax - eMin) || h < 0.04 * (nMax - nMin)) continue;
+      const m = parseUsngCollar(mgrsForward([middle.lng, middle.lat], 1));
+      if (!m.zoneDesignator) continue;
+      out.push({ id: `${m.zoneDesignator} ${m.hundredKmSquare}`, x, y });
+    }
+  }
+  return out;
+}
+
 /** Two-digit USNG km label for a UTM easting or northing value. */
 function kmLabel(utmValue: number): string {
   return Math.floor(((utmValue % 100_000) + 100_000) % 100_000 / 1000)
@@ -61,7 +105,7 @@ export function buildUsngGrid(
   bbox: BBox,
   _panelWidthPx: number,
   _panelHeightPx: number,
-  opts?: { intervalMeters?: number },
+  opts?: { intervalMeters?: number; mgrs?: boolean },
 ): UsngGridOverlay {
   const [west, south, east, north] = bbox;
   const centreLng = (west + east) / 2;
@@ -112,6 +156,7 @@ export function buildUsngGrid(
 
     const lines: UsngGridOverlay["lines"] = [];
     const labels: UsngGridOverlay["labels"] = [];
+    const full = opts?.mgrs === true;
 
     // Easting (vertical) lines — constant UTM easting, spans full northing range.
     for (let e = firstE; e <= lastE + 0.5; e += interval) {
@@ -120,7 +165,8 @@ export function buildUsngGrid(
 
       lines.push({ x1, y1, x2, y2, axis: "easting" });
 
-      const text = kmLabel(e);
+      // Level 4: the first (westmost) line carries the full value, as military maps print it.
+      const text = full && e === firstE ? fullValue(e, "E") : kmLabel(e);
       // y2 is near top (northing max → north edge), y1 is near bottom.
       labels.push({ x: x2, y: 0, text, edge: "top" });
       labels.push({ x: x1, y: 1, text, edge: "bottom" });
@@ -133,7 +179,7 @@ export function buildUsngGrid(
 
       lines.push({ x1, y1, x2, y2, axis: "northing" });
 
-      const text = kmLabel(n);
+      const text = full && n === firstN ? fullValue(n, "N") : kmLabel(n);
       // x1 is near left (easting min → west edge), x2 is near right.
       labels.push({ x: 0, y: y1, text, edge: "left" });
       labels.push({ x: 1, y: y2, text, edge: "right" });
@@ -148,7 +194,13 @@ export function buildUsngGrid(
       // degrade gracefully — collar stays empty
     }
 
-    return { lines, labels, collar };
+    if (!full) return { lines, labels, collar };
+
+    // Level 4: every 100 km square on the page, its identifier inside its own region.
+    const squares = hundredKmSquares(proj, bbox, utmEMin, utmEMax, utmNMin, utmNMax);
+    const centreId = collar.zoneDesignator ? `${collar.zoneDesignator} ${collar.hundredKmSquare}` : "";
+    const ids = [...new Set(squares.map((s) => s.id))].sort((a, b) => (a === centreId ? -1 : b === centreId ? 1 : a < b ? -1 : 1));
+    return { lines, labels, collar: { ...collar, squares: ids }, mgrs: { squares } };
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     console.warn(`buildUsngGrid: empty overlay for bbox [${bbox.join(", ")}]: ${detail}`);

@@ -28,6 +28,7 @@ import {
   type UsngGridOverlay,
   mapBoxInches,
   threeNorths,
+  worksheetLegs,
 } from "@journeybook/atlas-core";
 import { renderAtlasPdfToFile, type PageNorths, type RouteOverlay } from "@journeybook/pdf-client";
 import {
@@ -143,6 +144,11 @@ export interface RenderAtlasInput {
    * printed figures name their year; this makes a render reproducible.
    */
   declinationDate?: string;
+  /**
+   * Append an azimuth worksheet and its answer key (Stage 6B Level 4): one leg per pair of
+   * consecutive locations. Needs at least two locations. Default false.
+   */
+  worksheet?: boolean;
   /**
    * Default zoom ladder applied to every location that has no `zoomLevels` of
    * its own: one page per scale preset id, ids `L#a`, `L#b`, …. A location's own
@@ -1019,7 +1025,8 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
   for (const page of contract.pages) {
     if (page.tier >= 3) {
       try {
-        const overlay = buildUsngGrid(page.bbox, PANEL_PX, PANEL_PX);
+        // Level 4 labels the grid in full MGRS (100 km square identifiers, full first-line values).
+        const overlay = buildUsngGrid(page.bbox, PANEL_PX, PANEL_PX, { mgrs: page.tier >= 4 });
         if (!grids) grids = {};
         grids[page.id] = overlay;
       } catch (err) {
@@ -1044,6 +1051,20 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
       norths[page.id] = {
         unavailable: `Declination not shown: ${err instanceof Error ? err.message.replace(/, so no declination is given\.$/, "") : String(err)}`,
       };
+    }
+  }
+
+  // Azimuth worksheet legs between consecutive locations, on the declination date.
+  let worksheet: { legs: ReturnType<typeof worksheetLegs>; model: string } | undefined;
+  if (input.worksheet) {
+    if (locationList.length < 2) {
+      stderr.write("  worksheet skipped: it needs at least two locations to make a leg\n");
+    } else {
+      const stops = locationList.map((loc, i) => ({
+        label: loc.label ? `L${i + 1} ${loc.label}` : `L${i + 1}`,
+        center: loc.center,
+      }));
+      worksheet = { legs: worksheetLegs(stops, northsDate), model: "WMM2025" };
     }
   }
 
@@ -1154,6 +1175,7 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
     cropMarks: input.cropMarks ?? false,
     locatorInset: input.locatorInset ?? false,
     ...(norths ? { norths } : {}),
+    ...(worksheet ? { worksheet } : {}),
   });
 
   report("done");

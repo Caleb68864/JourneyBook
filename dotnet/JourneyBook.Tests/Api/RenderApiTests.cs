@@ -687,6 +687,7 @@ public class RenderApiTests(RenderApiFactory factory) : IClassFixture<RenderApiF
         // Stage 1D furniture is off unless asked for.
         Assert.False(sent.CropMarks);
         Assert.False(sent.LocatorInset);
+        Assert.False(sent.Worksheet);
     }
 
     /// <summary>Crop marks and the locator inset, asked for on the render, reach the worker request.</summary>
@@ -697,7 +698,7 @@ public class RenderApiTests(RenderApiFactory factory) : IClassFixture<RenderApiF
         var projectId = await CreateProjectAsync("Furniture Project");
 
         var resp = await _client.PostAsJsonAsync($"/api/projects/{projectId}/render",
-            new RenderProjectRequest(Tier: 1, CropMarks: true, LocatorInset: true));
+            new RenderProjectRequest(Tier: 1, CropMarks: true, LocatorInset: true, Worksheet: true));
 
         Assert.Equal(HttpStatusCode.Accepted, resp.StatusCode);
         var body = await resp.Content.ReadFromJsonAsync<RenderProjectResponse>();
@@ -705,6 +706,7 @@ public class RenderApiTests(RenderApiFactory factory) : IClassFixture<RenderApiF
         Assert.True(factory.FakeClient.Requests.TryGetValue($"atlas-{body.GeneratedPdfId:N}.pdf", out var sent));
         Assert.True(sent!.CropMarks);
         Assert.True(sent.LocatorInset);
+        Assert.True(sent.Worksheet);
     }
 
     /// <summary>

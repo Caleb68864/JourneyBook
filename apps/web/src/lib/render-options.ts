@@ -66,6 +66,8 @@ export interface RenderOptionsState {
   cropMarks: boolean;
   /** A whole-atlas locator inset over each map's lower-right corner (Stage 1D). Off by default. */
   locatorInset: boolean;
+  /** An azimuth worksheet and answer key after the map pages (Stage 6B Level 4). Off by default. */
+  worksheet: boolean;
 }
 
 export const DEFAULT_RENDER_OPTIONS: RenderOptionsState = {
@@ -85,6 +87,7 @@ export const DEFAULT_RENDER_OPTIONS: RenderOptionsState = {
   panelWidthPx: null,
   cropMarks: false,
   locatorInset: false,
+  worksheet: false,
 };
 
 /** The `POST /projects/{id}/render` body for a given panel state. */
@@ -103,6 +106,7 @@ export interface RenderRequestBody {
   panelWidthPx?: number;
   cropMarks?: true;
   locatorInset?: true;
+  worksheet?: true;
 }
 
 /**
@@ -142,6 +146,7 @@ export function toRenderRequestBody(state: RenderOptionsState): RenderRequestBod
     // it sent before they existed.
     ...(state.cropMarks ? { cropMarks: true as const } : {}),
     ...(state.locatorInset ? { locatorInset: true as const } : {}),
+    ...(state.worksheet ? { worksheet: true as const } : {}),
   };
 }
 

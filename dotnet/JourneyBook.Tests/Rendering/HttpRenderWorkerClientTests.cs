@@ -243,7 +243,8 @@ public class HttpRenderWorkerClientTests
             Locations: [],
             OutputFileName: "atlas-furniture.pdf",
             CropMarks: on,
-            LocatorInset: on);
+            LocatorInset: on,
+            Worksheet: on);
 
         await client.RenderAsync(req);
 
@@ -251,6 +252,7 @@ public class HttpRenderWorkerClientTests
         var root = doc.RootElement;
         Assert.Equal(on, root.TryGetProperty("cropMarks", out var crop));
         Assert.Equal(on, root.TryGetProperty("locatorInset", out var inset));
+        Assert.Equal(on, root.TryGetProperty("worksheet", out _));
         if (on)
         {
             Assert.True(crop.GetBoolean());

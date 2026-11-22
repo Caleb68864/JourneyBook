@@ -43,7 +43,10 @@ public record RenderProjectRequest(
     // wire, sent only when on): crop marks at each map-box corner, and a whole-atlas locator
     // inset over each map's lower-right corner. Neither moves the map box.
     bool CropMarks = false,
-    bool LocatorInset = false);
+    bool LocatorInset = false,
+    // Stage 6B Level 4: an azimuth worksheet and answer key after the map pages (camelCase
+    // `worksheet`, sent only when on). Needs two or more locations; off by default.
+    bool Worksheet = false);
 
 /// <summary>
 /// Render-accepted response (202): the record id, its status at the moment of
@@ -165,7 +168,10 @@ public record RenderWorkerRequest(
     // wire, sent only when on): crop marks at each map-box corner, and a whole-atlas locator
     // inset over each map's lower-right corner. Neither moves the map box.
     bool CropMarks = false,
-    bool LocatorInset = false);
+    bool LocatorInset = false,
+    // Stage 6B Level 4: an azimuth worksheet and answer key after the map pages (camelCase
+    // `worksheet`, sent only when on). Needs two or more locations; off by default.
+    bool Worksheet = false);
 
 /// <summary>A single landmark forwarded to the render worker.</summary>
 public record RenderLandmarkDto(double Longitude, double Latitude, string Name, string Category, double Score);

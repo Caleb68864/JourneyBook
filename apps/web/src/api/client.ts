@@ -513,6 +513,8 @@ export const api = {
         cropMarks?: boolean;
         /** Whole-atlas locator inset over each map's lower-right corner. Off unless sent. */
         locatorInset?: boolean;
+        /** Azimuth worksheet + answer key after the map pages. Off unless sent. */
+        worksheet?: boolean;
       },
     ) =>
       request<RenderResult>("POST", `/projects/${projectId}/render`, { tier, ...opts }),
