@@ -588,7 +588,16 @@ Goal: implement the [Map Tiers (Learning Curve)](#map-tiers-learning-curve-featu
 > MGRS. The `mgrs` library it uses is held to an independent implementation of the standard
 > square lettering and to the repo's proj4 UTM (to 1 m) at 16 points worldwide
 > (`map-sources/src/mgrs-labels.test.ts`). Northern hemisphere only, as the Level 3 grid is.
-> **Still not built:** azimuth worksheets, and the three-norths/G-M teaching text. **The teaching text stays blocked:** the current TC 3-25.26 (15 Nov 2013)
+> **2026-11-22: azimuth worksheets built (opt-in). Decided by agent (owner may revisit):** off
+> by default, since they add two pages. With `worksheet` (`--worksheet`, "Azimuth Worksheet"
+> in the editor) and two or more locations, the atlas ends with a worksheet (short
+> instructions in this project's own words, then one row per leg between consecutive stops
+> with blanks for grid azimuth, magnetic azimuth and distance) and an answer key on its own
+> page: grid azimuth from the start's UTM grid north and its back azimuth, magnetic = grid −
+> G-M at the start on the declination date ("not available" outside WMM2025), and ground
+> distance. Leg maths held to legs built in UTM metres (`atlas-core/src/worksheet.test.ts`).
+> **Still not built:** the three-norths/G-M teaching text (blocked, see above); a worksheet
+> for legs other than the stops in order (to landmarks, or chosen by hand). **The teaching text stays blocked:** the current TC 3-25.26 (15 Nov 2013)
 > carries "Distribution authorized to U.S. government agencies and their contractors" per
 > every copy found, not a public-release statement, and its official armypubs listing could not
 > be reached to confirm otherwise. Only the superseded FM 3-25.26 (2001) is marked "approved for

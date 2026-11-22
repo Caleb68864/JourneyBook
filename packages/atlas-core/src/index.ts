@@ -16,6 +16,7 @@ export * from "./projection.js";
 export * from "./grid.js";
 export * from "./declination.js";
 export * from "./north.js";
+export * from "./worksheet.js";
 export { WMM2025_EPOCH, WMM2025_VALID_UNTIL } from "./wmm2025.js";
 export * from "./validation.js";
 export * from "./route.js";

@@ -148,10 +148,12 @@ describe("toRenderRequestBody, Stage 1D furniture", () => {
     const body = toRenderRequestBody(DEFAULT_RENDER_OPTIONS);
     expect("cropMarks" in body).toBe(false);
     expect("locatorInset" in body).toBe(false);
+    expect("worksheet" in body).toBe(false);
   });
 
   it("[BEHAVIORAL] sends each one when it is on", () => {
     expect(toRenderRequestBody({ ...DEFAULT_RENDER_OPTIONS, cropMarks: true })).toMatchObject({ cropMarks: true });
     expect(toRenderRequestBody({ ...DEFAULT_RENDER_OPTIONS, locatorInset: true })).toMatchObject({ locatorInset: true });
+    expect(toRenderRequestBody({ ...DEFAULT_RENDER_OPTIONS, worksheet: true })).toMatchObject({ worksheet: true });
   });
 });

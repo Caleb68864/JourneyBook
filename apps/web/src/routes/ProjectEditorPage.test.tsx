@@ -182,5 +182,9 @@ describe("ProjectEditorPage wires the Stage 1D furniture", () => {
 
     fireEvent.click(screen.getByRole("checkbox", { name: /page locator/i }));
     expect(seen.generate.at(-1)!.options).toMatchObject({ cropMarks: true, locatorInset: true });
+
+    expect(seen.generate.at(-1)!.options).toMatchObject({ worksheet: false });
+    fireEvent.click(screen.getByRole("checkbox", { name: /azimuth worksheet/i }));
+    expect(seen.generate.at(-1)!.options).toMatchObject({ worksheet: true });
   });
 });

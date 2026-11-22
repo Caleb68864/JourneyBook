@@ -26,6 +26,7 @@ import {
   type ScalePreset,
   type ThreeNorths,
   type UsngGridOverlay,
+  type WorksheetLeg,
   formatEastWest,
 } from "@journeybook/atlas-core";
 import { brand, PIN_SHAPES, resolvePinShape, resolvePinColor } from "@journeybook/ui";
@@ -1270,6 +1271,105 @@ interface TocEntry {
  * to flip to. Page numbers are physical (this TOC is page 1), so a reader can find
  * any location at a glance.
  */
+/** "36.9°" for an azimuth, "5.00 km" / "850 m" for a distance. */
+export function formatAzimuth(deg: number): string {
+  return `${deg.toFixed(1)}°`;
+}
+export function formatDistance(m: number): string {
+  return m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`;
+}
+
+/** The azimuth worksheet's instructions, in this project's own words. */
+export const WORKSHEET_INSTRUCTIONS = [
+  "For each leg, find both stops on their pages and join them with a straight line.",
+  "Grid azimuth: with a protractor, measure the angle clockwise from grid north (along the vertical grid lines) to your line.",
+  "Magnetic azimuth: take the G-M angle printed on the start's page. Subtract it if it is east; add it if it is west. That is the number to set on a compass.",
+  "Distance: measure the line against the page's scale bar.",
+  "Check your answers on the next page.",
+] as const;
+
+const worksheetStyles = StyleSheet.create({
+  heading: { fontSize: 11, fontFamily: "Helvetica-Bold", color: FOREST, marginTop: 8, marginBottom: 6 },
+  instruction: { fontSize: 8, color: INK, marginBottom: 2 },
+  row: { flexDirection: "row", borderBottomWidth: 0.5, borderBottomColor: BARK, paddingVertical: 6, alignItems: "flex-end" },
+  head: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: INK, paddingBottom: 3, marginTop: 10 },
+  leg: { width: 26, fontSize: 8, fontFamily: "Helvetica-Bold", color: FOREST },
+  stops: { width: 150, fontSize: 8, color: INK },
+  cell: { width: 82, fontSize: 8, color: INK },
+  headCell: { fontSize: 7, fontFamily: "Helvetica-Bold", color: BARK },
+  blank: { width: 70, borderBottomWidth: 0.5, borderBottomColor: INK, height: 10, marginRight: 12 },
+});
+
+/**
+ * Stage 6B Level 4's azimuth worksheet and its answer key, appended after the map pages (opt-in).
+ * One row per leg between consecutive stops; the worksheet leaves grid azimuth, magnetic azimuth
+ * and distance blank, and the key, on its own page so it can be taken out, fills them in.
+ */
+function WorksheetPages({ title, legs, model }: { title: string; legs: WorksheetLeg[]; model?: string }) {
+  const Header = ({ id }: { id: string }) => (
+    <View style={styles.header}>
+      <Text style={styles.title}>{title}</Text>
+      <Text style={styles.pageId}>{id}</Text>
+    </View>
+  );
+  // Plain words, not arrows: the standard-14 fonts print only WinAnsi, and "→" or "−" were
+  // silently dropped from the page ("L1 Capitol  L2 Haymarket").
+  const columns = ["Leg", "From, to", "Grid azimuth", "Magnetic azimuth", "Distance"];
+  const HeadRow = () => (
+    <View style={worksheetStyles.head} fixed>
+      <Text style={[worksheetStyles.leg, worksheetStyles.headCell]}>{columns[0]}</Text>
+      <Text style={[worksheetStyles.stops, worksheetStyles.headCell]}>{columns[1]}</Text>
+      <Text style={[worksheetStyles.cell, worksheetStyles.headCell]}>{columns[2]}</Text>
+      <Text style={[worksheetStyles.cell, worksheetStyles.headCell]}>{columns[3]}</Text>
+      <Text style={[worksheetStyles.cell, worksheetStyles.headCell]}>{columns[4]}</Text>
+    </View>
+  );
+  const stopsOf = (l: WorksheetLeg) => `${l.from} to ${l.to}`;
+  return (
+    <>
+      <Page size="LETTER" orientation="portrait" style={[styles.page, { padding: 0.75 * PT }]}>
+        <View style={[styles.neatline, { padding: 18 }]}>
+          <Header id="WORKSHEET" />
+          <Text style={worksheetStyles.heading}>Azimuth worksheet</Text>
+          {WORKSHEET_INSTRUCTIONS.map((line, i) => (
+            <Text key={i} style={worksheetStyles.instruction}>{`${i + 1}. ${line}`}</Text>
+          ))}
+          <HeadRow />
+          {legs.map((l, i) => (
+            <View key={i} style={worksheetStyles.row} wrap={false}>
+              <Text style={worksheetStyles.leg}>{i + 1}</Text>
+              <Text style={worksheetStyles.stops}>{stopsOf(l)}</Text>
+              <View style={worksheetStyles.blank} />
+              <View style={worksheetStyles.blank} />
+              <View style={worksheetStyles.blank} />
+            </View>
+          ))}
+        </View>
+      </Page>
+      <Page size="LETTER" orientation="portrait" style={[styles.page, { padding: 0.75 * PT }]}>
+        <View style={[styles.neatline, { padding: 18 }]}>
+          <Header id="ANSWER KEY" />
+          <Text style={worksheetStyles.heading}>Azimuth worksheet: answers</Text>
+          <HeadRow />
+          {legs.map((l, i) => (
+            <View key={i} style={worksheetStyles.row} wrap={false}>
+              <Text style={worksheetStyles.leg}>{i + 1}</Text>
+              <Text style={worksheetStyles.stops}>{stopsOf(l)}</Text>
+              <Text style={worksheetStyles.cell}>{`${formatAzimuth(l.gridAzimuth)} (back ${formatAzimuth(l.backAzimuth)})`}</Text>
+              <Text style={worksheetStyles.cell}>{l.magneticAzimuth === null ? "not available" : formatAzimuth(l.magneticAzimuth)}</Text>
+              <Text style={worksheetStyles.cell}>{formatDistance(l.distanceMeters)}</Text>
+            </View>
+          ))}
+          <View style={{ flexGrow: 1 }} />
+          <Text style={[styles.small, { color: BARK }]}>
+            {`Grid azimuths from grid north of each start's UTM zone; magnetic = grid - G-M${model ? ` (${model})` : ""}; distances on the ground. Answers to 0.1°: a protractor reading within a degree or two is good work.`}
+          </Text>
+        </View>
+      </Page>
+    </>
+  );
+}
+
 function TableOfContents({ title, entries }: { title: string; entries: TocEntry[] }) {
   return (
     <Page
@@ -1321,6 +1421,7 @@ export function AtlasDocument({
   cropMarks = false,
   locatorInset = false,
   norths,
+  worksheet,
 }: {
   contract: AtlasContract;
   title: string;
@@ -1367,6 +1468,8 @@ export function AtlasDocument({
   locatorInset?: boolean;
   /** map pageId -> three norths for tier-4 pages (the declination diagram). */
   norths?: Record<string, PageNorths>;
+  /** Azimuth worksheet and answer key appended after the map pages, when there are legs. */
+  worksheet?: { legs: WorksheetLeg[]; model?: string };
 }) {
   // Front matter (title page, overview, then TOC) precedes the content pages and shifts their
   // physical page numbers. Both are computed from the same offset so the TOC, the
@@ -1423,6 +1526,9 @@ export function AtlasDocument({
           norths={norths?.[page.id]}
         />
       ))}
+      {worksheet && worksheet.legs.length > 0 ? (
+        <WorksheetPages title={title} legs={worksheet.legs} {...(worksheet.model ? { model: worksheet.model } : {})} />
+      ) : null}
     </Document>
   );
 }

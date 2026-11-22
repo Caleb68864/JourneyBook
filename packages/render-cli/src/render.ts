@@ -28,6 +28,7 @@ import {
   type UsngGridOverlay,
   mapBoxInches,
   threeNorths,
+  worksheetLegs,
 } from "@journeybook/atlas-core";
 import { renderAtlasPdfToFile, type PageNorths, type RouteOverlay } from "@journeybook/pdf-client";
 import {
@@ -143,6 +144,11 @@ export interface RenderAtlasInput {
    * printed figures name their year; this makes a render reproducible.
    */
   declinationDate?: string;
+  /**
+   * Append an azimuth worksheet and its answer key (Stage 6B Level 4): one leg per pair of
+   * consecutive locations. Needs at least two locations. Default false.
+   */
+  worksheet?: boolean;
   /**
    * Default zoom ladder applied to every location that has no `zoomLevels` of
    * its own: one page per scale preset id, ids `L#a`, `L#b`, …. A location's own
@@ -1048,6 +1054,20 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
     }
   }
 
+  // Azimuth worksheet legs between consecutive locations, on the declination date.
+  let worksheet: { legs: ReturnType<typeof worksheetLegs>; model: string } | undefined;
+  if (input.worksheet) {
+    if (locationList.length < 2) {
+      stderr.write("  worksheet skipped: it needs at least two locations to make a leg\n");
+    } else {
+      const stops = locationList.map((loc, i) => ({
+        label: loc.label ? `L${i + 1} ${loc.label}` : `L${i + 1}`,
+        center: loc.center,
+      }));
+      worksheet = { legs: worksheetLegs(stops, northsDate), model: "WMM2025" };
+    }
+  }
+
   // Build route overlays for corridor (R#) pages: clip the global polyline to
   // each page's bbox and normalize to (0..1) coordinates for RouteLayer.
   let routes: Record<string, RouteOverlay> | undefined;
@@ -1155,6 +1175,7 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
     cropMarks: input.cropMarks ?? false,
     locatorInset: input.locatorInset ?? false,
     ...(norths ? { norths } : {}),
+    ...(worksheet ? { worksheet } : {}),
   });
 
   report("done");

@@ -97,7 +97,8 @@ public class HttpRenderWorkerClient(HttpClient http, RenderWorkerPollOptions? po
         // Stage 1D furniture. Nullable and sent only when on, so a render without them
         // serializes exactly as it did before they existed.
         bool? CropMarks = null,
-        bool? LocatorInset = null);
+        bool? LocatorInset = null,
+        bool? Worksheet = null);
 
     private sealed record WorkerCenter(double Lng, double Lat);
 
@@ -214,7 +215,8 @@ public class HttpRenderWorkerClient(HttpClient http, RenderWorkerPollOptions? po
                 PanelFormat: ToWirePanelFormat(request.PanelFormat),
                 PanelQuality: request.PanelQuality,
                 CropMarks: request.CropMarks ? true : null,
-                LocatorInset: request.LocatorInset ? true : null);
+                LocatorInset: request.LocatorInset ? true : null,
+                Worksheet: request.Worksheet ? true : null);
         }
 
         if (request.Locations.Count > 0)
@@ -249,7 +251,8 @@ public class HttpRenderWorkerClient(HttpClient http, RenderWorkerPollOptions? po
                 PanelFormat: ToWirePanelFormat(request.PanelFormat),
                 PanelQuality: request.PanelQuality,
                 CropMarks: request.CropMarks ? true : null,
-                LocatorInset: request.LocatorInset ? true : null);
+                LocatorInset: request.LocatorInset ? true : null,
+                Worksheet: request.Worksheet ? true : null);
         }
 
         throw new InvalidOperationException(

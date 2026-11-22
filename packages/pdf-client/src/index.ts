@@ -67,6 +67,8 @@ export interface RenderPdfOptions {
   locatorInset?: boolean;
   /** map pageId -> three norths for tier-4 pages, drawn as the declination diagram. */
   norths?: Record<string, PageNorths>;
+  /** Azimuth worksheet + answer key pages appended after the map pages (Stage 6B Level 4). */
+  worksheet?: { legs: WorksheetLeg[]; model?: string };
 }
 
 function documentElement(options: RenderPdfOptions) {
@@ -89,6 +91,7 @@ function documentElement(options: RenderPdfOptions) {
     cropMarks: options.cropMarks ?? false,
     locatorInset: options.locatorInset ?? false,
     norths: options.norths,
+    worksheet: options.worksheet,
   });
 }
 
@@ -117,6 +120,7 @@ export async function renderCalibrationPdfToFile(outputPath: string): Promise<st
 }
 
 import type { PageNorths } from "./AtlasDocument.js";
+import type { WorksheetLeg } from "@journeybook/atlas-core";
 
 export {
   AtlasDocument,
@@ -126,6 +130,9 @@ export {
   LOCATOR_INSET_MAX,
   diagramAngles,
   northsCaption,
+  formatAzimuth,
+  formatDistance,
+  WORKSHEET_INSTRUCTIONS,
   type PageNorths,
   type RouteOverlay,
   type LocatorCell,

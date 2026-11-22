@@ -174,3 +174,28 @@ describe("Stage 6B Level 4 full MGRS labels through renderAtlas", () => {
     expect(seen.some((t) => /\d+m[EN]$/.test(t))).toBe(false);
   });
 });
+
+describe("Stage 6B Level 4 azimuth worksheet through renderAtlas", () => {
+  const STOPS = [
+    { center: { lng: -96.7026, lat: 40.8136 }, label: "Capitol" },
+    { center: { lng: -96.7116, lat: 40.8169 }, label: "Haymarket" },
+    { center: { lng: -96.7734, lat: 40.7786 }, label: "Pioneers" },
+  ];
+
+  it("[BEHAVIORAL] worksheet: true appends the worksheet and key, one leg per consecutive pair", async () => {
+    const pdf = await renderTo({ mode: "location", locations: STOPS, worksheet: true, declinationDate: "2026-07-02", tableOfContents: false, overview: false });
+    const pages = measurePdfPages(pdf);
+    expect(pages).toHaveLength(STOPS.length + 2);
+    const key = pages.at(-1)!.texts;
+    expect(key).toContain("ANSWER KEY");
+    expect(key).toContain("L1 Capitol to L2 Haymarket");
+    expect(key).toContain("L2 Haymarket to L3 Pioneers");
+    expect(key.some((t) => t.startsWith("L3 Pioneers to"))).toBe(false);
+  });
+
+  it("[CONTROL] off by default, and skipped with fewer than two locations", async () => {
+    expect(measurePdfPages(await renderTo({ mode: "location", locations: STOPS, tableOfContents: false, overview: false }))).toHaveLength(3);
+    expect(measurePdfPages(await renderTo({ worksheet: true }))).toHaveLength(1);
+    expect(inputFromArgs(["--location", "-96.7,40.8", "--scale", "usgs-7-5-min", "--worksheet"])).toMatchObject({ worksheet: true });
+  });
+});
