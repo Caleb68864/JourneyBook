@@ -1324,8 +1324,17 @@ found while closing the 2026-11-09 list, plus that list's two test-coverage gaps
   `HttpRangeStream` now slices a 200 at its position. `PmTilesRemoteFetchTests` serves the
   shared raster fixture through a stub handler: 2 tests fail on the old code, the 2 controls
   (ranged host, 500) pass on both.
-- [ ] **Partial or late PDFs left on disk** by a crash mid-render, or by deleting a record or
-  project while its render runs.
+- [x] ~~**Partial or late PDFs left on disk**~~ ✅ 2026-11-21. The engine streams the PDF to its
+  final name, so a crash mid-write leaves a partial file. The `Rendering` write now names the
+  output file (`atlas-{id}.pdf`, unique to the record), so: crash reconciliation
+  (`FailStrandedAsync`) deletes a stranded render's partial file; a render that fails in the
+  worker deletes whatever it left; and when the `Completed` write finds no row (the record or
+  its project was deleted mid-render, and its DELETE found no file yet) the runner deletes the
+  late PDF. Download still serves `Completed` only. 4 new tests fail on the old code (3 runner
+  unit, 1 Api); 2 controls (a completed render keeps its file; reconciliation leaves a finished
+  one) pass on both. Not covered: a render the API stopped waiting for (timeout) that the
+  worker finishes later, and a worker still drawing across an API restart; both write after
+  the cleanup. Files orphaned before this change stay.
 - [ ] **What the golden fixture cannot see** (see the 2026-11-09 list).
 - [ ] **What `scale-fidelity.test.ts` cannot see** (see the 2026-11-09 list).
 

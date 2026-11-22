@@ -2,6 +2,7 @@ using System.Text.Json;
 using JourneyBook.Application.GeneratedPdfs;
 using JourneyBook.Application.Rendering;
 using Microsoft.Extensions.Logging;
+using JourneyBook.Infrastructure.GeneratedPdfs;
 
 namespace JourneyBook.Infrastructure.Rendering;
 
@@ -35,7 +36,8 @@ public sealed class RenderJobRunner(
     IGeneratedPdfService pdfService,
     IRenderWorkerClient workerClient,
     IRenderCancellationRegistry cancellations,
-    ILogger<RenderJobRunner> logger) : IRenderJobRunner
+    ILogger<RenderJobRunner> logger,
+    GeneratedPdfArtifacts? artifacts = null) : IRenderJobRunner
 {
     /// <summary>Longest error text persisted; matches the column's max length.</summary>
     private const int MaxErrorLength = 2000;
@@ -73,8 +75,14 @@ public sealed class RenderJobRunner(
             // uncaught, was swallowed by RenderJobProcessor's catch, and left the row
             // at Pending for ever. That is precisely the case the processor's "belt to
             // the braces" comment claims RunAsync covers.
+            // The output path goes on the row from the start, not only at Completed. The name is
+            // this record's alone (atlas-{id}.pdf), and a row that names its file is one whose
+            // file can be found again: by crash reconciliation (FailStrandedAsync deletes the
+            // partial write), and by DELETE while the render is still running.
             await pdfService.UpdateStatusAsync(
-                job.GeneratedPdfId, new UpdateGeneratedPdfStatusRequest("Rendering"), linked.Token);
+                job.GeneratedPdfId,
+                new UpdateGeneratedPdfStatusRequest("Rendering", job.WorkerRequest.OutputFileName),
+                linked.Token);
 
             var result = await workerClient.RenderAsync(
                 job.WorkerRequest,
@@ -105,7 +113,7 @@ public sealed class RenderJobRunner(
             {
                 try
                 {
-                    await pdfService.UpdateStatusAsync(
+                    var recorded = await pdfService.UpdateStatusAsync(
                         job.GeneratedPdfId,
                         completed,
                         // CancellationToken.None: a render that finished must be RECORDED as
@@ -113,6 +121,17 @@ public sealed class RenderJobRunner(
                         // Otherwise a shutdown landing between the worker's answer and this
                         // write loses a PDF that is sitting on disk.
                         CancellationToken.None);
+                    if (recorded is null)
+                    {
+                        // The row is gone: the record (or its project) was deleted while the
+                        // worker was still drawing. Its DELETE found no file to remove, because
+                        // the file did not exist yet. Nothing will ever point at this one, so
+                        // remove it now rather than leave it on the volume for ever.
+                        logger.LogWarning(
+                            "Render for pdf {GeneratedPdfId} finished after its record was deleted; removing '{OutputPath}'.",
+                            job.GeneratedPdfId, result.OutputPath);
+                        artifacts?.TryDelete(result.OutputPath);
+                    }
                     break;
                 }
                 catch (Exception writeEx) when (attempt < OutcomeRetryDelays.Length)
@@ -150,6 +169,13 @@ public sealed class RenderJobRunner(
             // the file, and nothing else would ever find it. The download endpoint serves
             // Completed rows only, so this exposes nothing; it lets retention and DELETE
             // reclaim the file.
+            if (finished is null)
+            {
+                // The render did not finish, so whatever is at its output path is a partial
+                // write (the engine streams the PDF to its final name). The name is this
+                // record's alone, so deleting it cannot touch another render's file.
+                artifacts?.TryDelete(job.WorkerRequest.OutputFileName);
+            }
             await WriteOutcomeAsync(job, status, message, finished?.OutputPath);
         }
         finally

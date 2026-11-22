@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Configuration;
+using JourneyBook.Infrastructure.GeneratedPdfs;
 using System.Text.Json;
 using JourneyBook.Application.GeneratedPdfs;
 using JourneyBook.Application.Rendering;
@@ -32,6 +34,9 @@ public class RenderJobRunnerTests
         /// <summary>Every status write (0-based) that should throw.</summary>
         public HashSet<int> FailOnUpdates { get; init; } = [];
 
+        /// <summary>Status writes from this index on find no row (the record was deleted).</summary>
+        public int? RowGoneFrom { get; init; }
+
         public Task<GeneratedPdfResponse?> UpdateStatusAsync(
             Guid id, UpdateGeneratedPdfStatusRequest request, CancellationToken ct = default)
         {
@@ -41,7 +46,12 @@ public class RenderJobRunnerTests
                 throw new InvalidOperationException("Row vanished between accept and dequeue.");
             }
             Updates.Add(request);
-            return Task.FromResult<GeneratedPdfResponse?>(null);
+            if (RowGoneFrom is int gone && Updates.Count - 1 >= gone)
+            {
+                return Task.FromResult<GeneratedPdfResponse?>(null);
+            }
+            return Task.FromResult<GeneratedPdfResponse?>(new GeneratedPdfResponse(
+                id, Guid.Empty, request.Status, request.FilePath, DateTimeOffset.UtcNow, null, null));
         }
 
         public Task<GeneratedPdfResponse?> CreateAsync(Guid projectId, CreateGeneratedPdfRequest request, CancellationToken ct = default)
@@ -324,6 +334,93 @@ public class RenderJobRunnerTests
         Assert.Equal(["Rendering", "Completed", "Completed"], pdfs.Updates.Select(u => u.Status));
         Assert.Equal(3, pdfs.Updates[^1].PageCount);
         Assert.Same(pdfs.Updates[1], pdfs.Updates[2]);
+    }
+
+    // ── Files the render leaves behind ──────────────────────────────────────
+
+    private sealed class TempGeneratedDir : IDisposable
+    {
+        public string Root { get; } = Path.Combine(Path.GetTempPath(), "jb-runner-gen-" + Guid.NewGuid().ToString("N"));
+
+        public TempGeneratedDir() => Directory.CreateDirectory(Root);
+
+        public GeneratedPdfArtifacts Artifacts() => new(new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["GeneratedPdf:GeneratedDir"] = Root })
+            .Build());
+
+        public string Write(string name)
+        {
+            var path = Path.Combine(Root, name);
+            File.WriteAllText(path, "%PDF partial");
+            return path;
+        }
+
+        public void Dispose()
+        {
+            if (Directory.Exists(Root)) Directory.Delete(Root, recursive: true);
+        }
+    }
+
+    /// <summary>The row names its file from Rendering on, so crash reconciliation can find it.</summary>
+    [Fact]
+    public async Task The_Rendering_write_names_the_output_file()
+    {
+        var pdfs = new RecordingPdfService();
+        var worker = new StubWorkerClient(req => new RenderWorkerResult(req.OutputFileName, 1, null, null));
+        var job = SampleJob();
+
+        await RunnerFor(pdfs, worker).RunAsync(job);
+
+        Assert.Equal("Rendering", pdfs.Updates[0].Status);
+        Assert.Equal(job.WorkerRequest.OutputFileName, pdfs.Updates[0].FilePath);
+    }
+
+    /// <summary>
+    /// The record was deleted while the worker drew. Its DELETE found no file (none existed
+    /// yet), so the finished PDF would have had nothing pointing at it.
+    /// </summary>
+    [Fact]
+    public async Task A_render_that_finishes_after_its_record_was_deleted_removes_its_file()
+    {
+        using var dir = new TempGeneratedDir();
+        var job = SampleJob();
+        var file = dir.Write(job.WorkerRequest.OutputFileName);
+        var pdfs = new RecordingPdfService { RowGoneFrom = 1 };
+        var worker = new StubWorkerClient(req => new RenderWorkerResult(req.OutputFileName, 1, null, null));
+
+        await new RenderJobRunner(pdfs, worker, new StubCancellations(), NullLogger<RenderJobRunner>.Instance, dir.Artifacts())
+            .RunAsync(job);
+
+        Assert.False(File.Exists(file), "a finished PDF whose record is gone stayed on disk");
+    }
+
+    /// <summary>A failed render's partial write is removed; the control keeps a finished one.</summary>
+    [Fact]
+    public async Task A_render_that_failed_in_the_worker_removes_its_partial_file()
+    {
+        using var dir = new TempGeneratedDir();
+        var job = SampleJob();
+        var file = dir.Write(job.WorkerRequest.OutputFileName);
+        var worker = new StubWorkerClient(_ => throw new InvalidOperationException("worker exploded"));
+
+        await new RenderJobRunner(new RecordingPdfService(), worker, new StubCancellations(), NullLogger<RenderJobRunner>.Instance, dir.Artifacts())
+            .RunAsync(job);
+
+        Assert.False(File.Exists(file), "a failed render's partial PDF stayed on disk");
+    }
+
+    [Fact]
+    public async Task Control_a_completed_render_keeps_its_file()
+    {
+        using var dir = new TempGeneratedDir();
+        var job = SampleJob();
+        var file = dir.Write(job.WorkerRequest.OutputFileName);
+        var worker = new StubWorkerClient(req => new RenderWorkerResult(req.OutputFileName, 1, null, null));
+
+        await new RenderJobRunner(new RecordingPdfService(), worker, new StubCancellations(), NullLogger<RenderJobRunner>.Instance, dir.Artifacts())
+            .RunAsync(job);
+
+        Assert.True(File.Exists(file));
     }
 
     /// <summary>The control: a render that never produced a file records none.</summary>

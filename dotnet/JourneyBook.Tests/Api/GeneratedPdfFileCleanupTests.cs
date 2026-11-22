@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using JourneyBook.Application.GeneratedPdfs;
 using JourneyBook.Application.Projects;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace JourneyBook.Tests.Api;
 
@@ -62,6 +63,32 @@ public class GeneratedPdfFileCleanupTests(GeneratedDirApiFactory factory) : ICla
         Assert.False(File.Exists(failed), "a deleted project's Failed-but-finished PDF stayed on disk");
         // Control: only that project's files.
         Assert.True(File.Exists(other), "deleting one project removed another project's PDF");
+    }
+
+    /// <summary>
+    /// A render stranded by a crash: its row says Rendering and names its file, and what is on
+    /// disk is a partial write nobody will finish. Reconciliation used to fail the row and leave
+    /// the file.
+    /// </summary>
+    [Fact]
+    public async Task Crash_reconciliation_removes_a_stranded_renders_partial_file()
+    {
+        var projectId = await ProjectAsync("Crash partial");
+        var (stranded, partial) = await RecordWithFileAsync(projectId, "Rendering");
+        var (_, finished) = await RecordWithFileAsync(projectId, "Completed");
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<IGeneratedPdfService>()
+                .FailStrandedAsync("stranded by test");
+        }
+
+        Assert.False(File.Exists(partial), "a crash-stranded partial PDF stayed on disk");
+        // Control: a finished render is not wreckage.
+        Assert.True(File.Exists(finished));
+        var row = await _client.GetFromJsonAsync<GeneratedPdfResponse>($"/api/generated-pdfs/{stranded}");
+        Assert.Equal("Failed", row!.Status);
+        Assert.Null(row.FilePath);
     }
 }
 

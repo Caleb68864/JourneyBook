@@ -170,6 +170,10 @@ public class GeneratedPdfService : IGeneratedPdfService
 
         foreach (var pdf in stranded)
         {
+            // A Rendering row names its output file from the start (RenderJobRunner), and
+            // after a crash what is there is a partial write nobody will finish. It used to
+            // be left on the volume with no row pointing at it.
+            if (pdf.Status == PdfStatus.Rendering) _artifacts.TryDelete(pdf.FilePath);
             pdf.Status = PdfStatus.Failed;
             pdf.ErrorMessage = reason;
             // No artifact to keep: a Pending row never had one, and a Rendering row's
