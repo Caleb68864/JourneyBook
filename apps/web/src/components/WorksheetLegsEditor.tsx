@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 
 /** One end a leg can start or finish at: a location ("L2") or a landmark (by name). */
 export interface LegEnd {
@@ -29,6 +29,15 @@ export function WorksheetLegsEditor({ ends, value, onChange }: WorksheetLegsEdit
   const toId = useId();
   const [from, setFrom] = useState(ends[0]?.ref ?? "");
   const [to, setTo] = useState(ends[1]?.ref ?? "");
+  // Keep the picks on ends that exist: seeded once, they went stale when a location or landmark
+  // was added or removed, and Add then pushed a ref the select was no longer showing.
+  const refs = ends.map((e) => e.ref).join("\u0000");
+  useEffect(() => {
+    const has = (r: string) => ends.some((e) => e.ref === r);
+    if (!has(from)) setFrom(ends[0]?.ref ?? "");
+    if (!has(to)) setTo(ends[1]?.ref ?? ends[0]?.ref ?? "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `refs` is the identity of `ends`
+  }, [refs]);
   const labelOf = (ref: string) => ends.find((e) => e.ref === ref)?.label ?? ref;
   const canAdd = from !== "" && to !== "" && from !== to;
   const select = "border border-bark-400 bg-cream-50 px-2 py-1 font-mono text-[11px] text-charcoal-900";

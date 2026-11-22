@@ -222,6 +222,48 @@ public class RenderApiTests(RenderApiFactory factory) : IClassFixture<RenderApiF
         Assert.Equal(["Fourth", "Second", "Third", "First"], sent!.Locations.Select(l => l.Label));
     }
 
+    /// <summary>
+    /// Worksheet requests the worker would refuse are refused here, before the Pending record:
+    /// a 400 on the POST, not a Failed job after the 202.
+    /// </summary>
+    [Fact]
+    public async Task Bad_worksheet_requests_are_400s_before_any_record_is_made()
+    {
+        var post = await _client.PostAsJsonAsync("/api/projects", new CreateProjectRequest("Worksheet Rules", "usgs-7-5-min"));
+        var projectId = (await post.Content.ReadFromJsonAsync<ProjectResponse>())!.Id;
+        foreach (var (name, lng) in new[] { ("A", -96.70), ("B", -96.71) })
+            Assert.Equal(HttpStatusCode.Created, (await _client.PostAsJsonAsync($"/api/projects/{projectId}/locations", new CreateLocationRequest(name, lng, 40.81))).StatusCode);
+
+        async Task<(HttpStatusCode Status, string Body)> Render(RenderProjectRequest r)
+        {
+            var res = await _client.PostAsJsonAsync($"/api/projects/{projectId}/render", r);
+            return (res.StatusCode, await res.Content.ReadAsStringAsync());
+        }
+
+        var lowTier = await Render(new RenderProjectRequest(Tier: 3, Worksheet: true));
+        Assert.Equal(HttpStatusCode.BadRequest, lowTier.Status);
+        Assert.Contains("needs tier 4", lowTier.Body);
+        var past = await Render(new RenderProjectRequest(Tier: 4, Worksheet: true, WorksheetLegs: [new RenderWorksheetLegDto("L1", "L3")]));
+        Assert.Equal(HttpStatusCode.BadRequest, past.Status);
+        Assert.Contains("L1–L2", past.Body);
+        var landmark = await Render(new RenderProjectRequest(Tier: 4, Worksheet: true, IncludeLandmarks: false, WorksheetLegs: [new RenderWorksheetLegDto("L1", "Water Tower")]));
+        Assert.Equal(HttpStatusCode.BadRequest, landmark.Status);
+        Assert.Contains("landmarks are not included", landmark.Body);
+        var tooMany = await Render(new RenderProjectRequest(Tier: 4, Worksheet: true, WorksheetLegs: Enumerable.Range(0, 51).Select(_ => new RenderWorksheetLegDto("L1", "L2")).ToList()));
+        Assert.Equal(HttpStatusCode.BadRequest, tooMany.Status);
+        var empty = await Render(new RenderProjectRequest(Tier: 4, Worksheet: true, WorksheetLegs: [new RenderWorksheetLegDto("L1", " ")]));
+        Assert.Equal(HttpStatusCode.BadRequest, empty.Status);
+
+        // None of them made a record.
+        var records = await _client.GetFromJsonAsync<List<GeneratedPdfResponse>>($"/api/projects/{projectId}/generated-pdfs");
+        Assert.Empty(records!);
+
+        // A good one is accepted.
+        factory.FakeClient.ShouldFail = false;
+        var ok = await Render(new RenderProjectRequest(Tier: 4, Worksheet: true, WorksheetLegs: [new RenderWorksheetLegDto("l2", "L1")]));
+        Assert.Equal(HttpStatusCode.Accepted, ok.Status);
+    }
+
     [Fact]
     public async Task Render_with_no_extent_or_locations_returns_400()
     {
@@ -747,8 +789,8 @@ public class RenderApiTests(RenderApiFactory factory) : IClassFixture<RenderApiF
         var projectId = await CreateProjectAsync("Furniture Project");
 
         var resp = await _client.PostAsJsonAsync($"/api/projects/{projectId}/render",
-            new RenderProjectRequest(Tier: 1, CropMarks: true, LocatorInset: true, Worksheet: true,
-                WorksheetLandmarks: true, WorksheetLegs: [new RenderWorksheetLegDto("L1", "L2")]));
+            new RenderProjectRequest(Tier: 4, CropMarks: true, LocatorInset: true, Worksheet: true,
+                WorksheetLandmarks: true));
 
         Assert.Equal(HttpStatusCode.Accepted, resp.StatusCode);
         var body = await resp.Content.ReadFromJsonAsync<RenderProjectResponse>();
@@ -758,7 +800,6 @@ public class RenderApiTests(RenderApiFactory factory) : IClassFixture<RenderApiF
         Assert.True(sent.LocatorInset);
         Assert.True(sent.Worksheet);
         Assert.True(sent.WorksheetLandmarks);
-        Assert.Equal([new RenderWorksheetLegDto("L1", "L2")], sent.WorksheetLegs);
     }
 
     /// <summary>

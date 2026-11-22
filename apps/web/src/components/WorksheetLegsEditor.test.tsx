@@ -34,4 +34,15 @@ describe("WorksheetLegsEditor", () => {
     fireEvent.click(screen.getByRole("button", { name: "Remove leg 1" }));
     expect(onChange).toHaveBeenCalledWith([{ from: "L2", to: "Water Tower" }]);
   });
+
+  it("[BEHAVIORAL] moves its picks back onto ends that exist when the ends change", () => {
+    const onChange = vi.fn();
+    const { rerender } = render(<WorksheetLegsEditor ends={ENDS} value={[]} onChange={onChange} />);
+    fireEvent.change(screen.getByLabelText("Leg start"), { target: { value: "Water Tower" } });
+    // The landmark is no longer offered (deleted, or landmarks turned off).
+    rerender(<WorksheetLegsEditor ends={ENDS.slice(0, 2)} value={[]} onChange={onChange} />);
+    expect((screen.getByLabelText("Leg start") as HTMLSelectElement).value).toBe("L1");
+    fireEvent.click(screen.getByRole("button", { name: "Add leg" }));
+    expect(onChange).toHaveBeenLastCalledWith([{ from: "L1", to: "L2" }]);
+  });
 });

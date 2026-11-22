@@ -401,6 +401,11 @@ function validateInput(input: RenderAtlasInput): void {
   if (!Number.isInteger(input.tier) || input.tier < 1 || input.tier > 4) {
     throw new Error(`Invalid tier ${String(input.tier)}: must be an integer 1–4.`);
   }
+  if (input.worksheet && input.tier < 4) {
+    // Its instructions say to measure from grid north and use the G-M angle printed on the
+    // start's page; only tier 4 prints both (the UTM grid is tier 3, the G-M angle tier 4).
+    throw new Error("Invalid worksheet: the azimuth worksheet needs tier 4 (the UTM grid and the G-M angle on each page).");
+  }
   if (input.worksheetLegs !== undefined) {
     // Checked here, at the boundary, so a bad reference is a 400 on the request, not a job that
     // fails a moment later. The same rule `resolveStop` applies when the legs are built.

@@ -88,6 +88,19 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
       cancelled = true;
     };
   }, [worksheet, projectId]);
+  // Hand-picked legs are kept by location id ("loc:<id>") and landmark ("lm:<name>"), not by
+  // position: "L3" kept as text rebinds to another place when a location is deleted. They are
+  // turned into the engine's positional "L3" only for the request, and a leg whose place is
+  // gone (or whose landmark is no longer included) is dropped, not sent.
+  const legEnds = [
+    ...locations.map((loc, i) => ({ ref: `loc:${loc.id}`, label: `L${i + 1} ${loc.name}` })),
+    ...(includeLandmarks ? landmarkNames.map((name) => ({ ref: `lm:${name}`, label: `${name} (landmark)` })) : []),
+  ];
+  const endRefs = new Set(legEnds.map((e) => e.ref));
+  const validLegs = worksheetLegs.filter((l) => endRefs.has(l.from) && endRefs.has(l.to));
+  const toWire = (ref: string) =>
+    ref.startsWith("loc:") ? `L${locations.findIndex((l) => `loc:${l.id}` === ref) + 1}` : ref.slice("lm:".length);
+  const wireLegs = validLegs.map((l) => ({ from: toWire(l.from), to: toWire(l.to) }));
   // Basemap knobs, chosen at render time like tier. `basemap` was hardcoded true
   // on the wire until the API grew a member for it, so there was no way to ask
   // for the fast line-art proof the CLI has always had. null format/quality mean
@@ -818,15 +831,26 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
                 </span>
               </label>
               <label className="mb-3 flex items-start gap-2">
-                <input type="checkbox" checked={worksheet} onChange={(e) => setWorksheet(e.target.checked)} className="mt-0.5 accent-forest-700" />
+                <input
+                  type="checkbox"
+                  checked={tier === 4 && worksheet}
+                  disabled={tier !== 4}
+                  onChange={(e) => setWorksheet(e.target.checked)}
+                  className="mt-0.5 accent-forest-700"
+                />
                 <span className="flex flex-col gap-0.5">
                   <span className="font-mono text-[11px] uppercase tracking-widest text-bark-600">Azimuth Worksheet</span>
+                  {tier !== 4 ? (
+                    <span className="font-mono text-[10px] text-bark-500">
+                      Needs Tier 4: the worksheet is measured on the grid with the G-M angle, which only Tier 4 pages print.
+                    </span>
+                  ) : null}
                   <span className="font-mono text-[10px] text-bark-500">
                     Adds a practice page: measure the grid and magnetic azimuth and distance between your stops in order, with an answer key on its own page. Needs two or more locations.
                   </span>
                 </span>
               </label>
-              {worksheet ? (
+              {tier === 4 && worksheet ? (
                 <div className="mb-3 ml-5 flex flex-col gap-2">
                   {/* Landmark legs need the landmarks sent with the render, which only happens
                       with Include Landmarks on; offering them otherwise made a render the
@@ -846,14 +870,7 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
                       ) : null}
                     </span>
                   </label>
-                  <WorksheetLegsEditor
-                    ends={[
-                      ...locations.map((loc, i) => ({ ref: `L${i + 1}`, label: `L${i + 1} ${loc.name}` })),
-                      ...(includeLandmarks ? landmarkNames.map((name) => ({ ref: name, label: `${name} (landmark)` })) : []),
-                    ]}
-                    value={worksheetLegs}
-                    onChange={setWorksheetLegs}
-                  />
+                  <WorksheetLegsEditor ends={legEnds} value={validLegs} onChange={setWorksheetLegs} />
                 </div>
               ) : null}
               <div className="mb-3">
@@ -886,12 +903,9 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
                   panelWidthPx,
                   cropMarks,
                   locatorInset,
-                  worksheet,
+                  worksheet: tier === 4 && worksheet,
                   worksheetLandmarks: includeLandmarks && worksheetLandmarks,
-                  // A picked landmark leg is dropped if landmarks are then turned off.
-                  worksheetLegs: includeLandmarks
-                    ? worksheetLegs
-                    : worksheetLegs.filter((l) => /^L\d+$/.test(l.from) && /^L\d+$/.test(l.to)),
+                  worksheetLegs: wireLegs,
                 } satisfies RenderOptionsState}
                 disabled={!hasGeometry || savedOverLimit}
               />

@@ -182,8 +182,8 @@ describe("Stage 6B Level 4 azimuth worksheet through renderAtlas", () => {
     { center: { lng: -96.7734, lat: 40.7786 }, label: "Pioneers" },
   ];
 
-  it("[BEHAVIORAL] worksheet: true appends the worksheet and key, one leg per consecutive pair", async () => {
-    const pdf = await renderTo({ mode: "location", locations: STOPS, worksheet: true, declinationDate: "2026-07-02", tableOfContents: false, overview: false });
+  it("[BEHAVIORAL] worksheet: true, tier: 4 appends the worksheet and key, one leg per consecutive pair", async () => {
+    const pdf = await renderTo({ mode: "location", locations: STOPS, worksheet: true, tier: 4, declinationDate: "2026-07-02", tableOfContents: false, overview: false });
     const pages = measurePdfPages(pdf);
     expect(pages).toHaveLength(STOPS.length + 2);
     const key = pages.at(-1)!.texts;
@@ -199,7 +199,9 @@ describe("Stage 6B Level 4 azimuth worksheet through renderAtlas", () => {
 
   it("[CONTROL] off by default, and skipped with fewer than two locations", async () => {
     expect(measurePdfPages(await renderTo({ mode: "location", locations: STOPS, tableOfContents: false, overview: false }))).toHaveLength(3);
-    expect(measurePdfPages(await renderTo({ worksheet: true }))).toHaveLength(1);
+    expect(measurePdfPages(await renderTo({ worksheet: true, tier: 4 }))).toHaveLength(1);
+    // Below tier 4 there is no G-M angle on the page to measure with, so it is refused.
+    await expect(renderTo({ mode: "location", locations: STOPS, worksheet: true, tier: 3 })).rejects.toThrow(/worksheet needs tier 4/);
     expect(inputFromArgs(["--location", "-96.7,40.8", "--scale", "usgs-7-5-min", "--worksheet"])).toMatchObject({ worksheet: true });
   });
 });
@@ -247,7 +249,7 @@ describe("grid north per zone through renderAtlas", () => {
     const pdf = await renderTo({
       mode: "location",
       locations: [{ center: { lng: -102.05, lat: 40.8 } }, { center: { lng: -101.95, lat: 40.8 } }, { center: { lng: -101.9, lat: 40.82 } }],
-      worksheet: true,
+      worksheet: true, tier: 4,
       declinationDate: "2026-07-02",
       tableOfContents: false,
       overview: false,
@@ -285,7 +287,7 @@ describe("worksheet legs to landmarks and hand-picked legs through renderAtlas",
     { lng: -97.5, lat: 41.2, name: "Far Hill", category: "peak", score: 3 }, // on no page
   ];
   const keyOf = async (extra: Record<string, unknown>) => {
-    const pdf = await renderTo({ mode: "location", locations: STOPS, landmarks: LANDMARKS, worksheet: true, declinationDate: "2026-07-02", tableOfContents: false, overview: false, ...extra });
+    const pdf = await renderTo({ mode: "location", locations: STOPS, landmarks: LANDMARKS, worksheet: true, tier: 4, declinationDate: "2026-07-02", tableOfContents: false, overview: false, ...extra });
     return measurePdfPages(pdf).at(-1)!.texts;
   };
 
@@ -305,10 +307,10 @@ describe("worksheet legs to landmarks and hand-picked legs through renderAtlas",
   });
 
   it("refuses an unknown leg end before rendering, and the CLI flags reach the engine", async () => {
-    await expect(renderTo({ mode: "location", locations: STOPS, worksheet: true, worksheetLegs: [{ from: "L1", to: "L9" }] })).rejects.toThrow(
+    await expect(renderTo({ mode: "location", locations: STOPS, worksheet: true, tier: 4, worksheetLegs: [{ from: "L1", to: "L9" }] })).rejects.toThrow(
       /Invalid worksheet leg end "L9": not a location \(L1–L3\)/,
     );
-    await expect(renderTo({ mode: "location", locations: STOPS, worksheet: true, worksheetLegs: [{ from: "L1", to: "Nowhere" }] })).rejects.toThrow(
+    await expect(renderTo({ mode: "location", locations: STOPS, worksheet: true, tier: 4, worksheetLegs: [{ from: "L1", to: "Nowhere" }] })).rejects.toThrow(
       /Invalid worksheet leg end "Nowhere"/,
     );
     expect(

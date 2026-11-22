@@ -1425,6 +1425,13 @@ Not fixed from the review: none; all eight findings were verified and fixed on t
   junction page's squares were not listed centre-first.
 - [x] ~~**Worksheet header row 122 pt off its columns; "360.0°"; southern junction caption east-first.**~~ ✅
   (independent review) Each fails on the old renderer.
+- [x] ~~**The worksheet was offered at tiers without the grid or G-M angle; bad legs became failed jobs; picked legs went stale.**~~ ✅
+  (independent review) The worksheet now needs tier 4 (engine, API, a disabled checkbox with a
+  note). The API refuses bad hand-picked legs with a 400 before any record exists. The editor
+  keys legs by location id and landmark, so deleting a location drops its legs instead of
+  rebinding "L3" to another place. Each fails on the old code.
+
+All nine findings of the final review are fixed on this branch.
 
 ## Phase 1: Print Geometry
 Build the Docker-hosted React/Vite/shadcn/Tailwind web app skeleton, define the outdoor field-guide visual system, accept bounding boxes, create page grid, generate overview and detail pages, and validate Letter-size PDF output from the preferred client-side React PDF path.
