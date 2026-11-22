@@ -1395,6 +1395,9 @@ Across the code the 2026-11-21/22 branches touched. Branch `work/2026-11-22-stag
   header's metadata length was allocated (OverflowException, a 500; now "unreadable", 400);
   finished API-side jobs were never evicted (now after `MapPackages:FinishedRetentionMinutes`,
   60). Each has a test that fails on the old code.
+- [x] ~~**The worker's `/package` had no limit on concurrent jobs, and `./x` was not `x`.**~~ ✅
+  One package in flight by default (429 beyond it), names compared after resolving, and
+  `maxTiles` capped at 100,000 in the schema. The test fails on the old route (202, not 409).
 
 ## Phase 1: Print Geometry
 Build the Docker-hosted React/Vite/shadcn/Tailwind web app skeleton, define the outdoor field-guide visual system, accept bounding boxes, create page grid, generate overview and detail pages, and validate Letter-size PDF output from the preferred client-side React PDF path.

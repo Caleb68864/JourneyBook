@@ -22,7 +22,16 @@ interface PackageRouteOptions extends FastifyPluginOptions {
   tileBaseUrlAllowlist?: readonly string[];
   /** Finished jobs stay readable this long. Default 1 hour: a package can take a while to collect. */
   retentionMs?: number;
+  /**
+   * Packages in flight at once. Default 1: each job holds every tile, then the whole archive,
+   * in memory (up to `maxTiles`), so two or three large ones could take the worker, and every
+   * render in it, down. `/render` has had the same kind of bound since the job protocol.
+   */
+  maxActivePackages?: number;
 }
+
+/** Largest `maxTiles` a request may ask for: about the memory of a few hundred MB of tiles. */
+export const MAX_PACKAGE_TILES_CEILING = 100_000;
 
 export type PackageJobState = "packaging" | "completed" | "failed";
 
@@ -48,7 +57,7 @@ const bodySchema = {
     outputName: { type: "string", minLength: 1, maxLength: 200, pattern: "\\.pmtiles$" },
     tileBaseUrl: { type: "string", pattern: "^https?://" },
     tileSourceId: { type: "string", minLength: 1 },
-    maxTiles: { type: "integer", minimum: 1 },
+    maxTiles: { type: "integer", minimum: 1, maximum: MAX_PACKAGE_TILES_CEILING },
   },
 } as const;
 
@@ -66,6 +75,7 @@ export async function packageRoute(app: FastifyInstance, opts: PackageRouteOptio
   const packagesDir = opts.packagesDir ? path.resolve(opts.packagesDir) : undefined;
   const allowlist = opts.tileBaseUrlAllowlist ?? [];
   const retentionMs = opts.retentionMs ?? 60 * 60 * 1000;
+  const maxActive = opts.maxActivePackages ?? 1;
   const jobs = new Map<string, { record: PackageJobRecord; finishedAt?: number }>();
 
   const sweep = () => {
@@ -89,13 +99,22 @@ export async function packageRoute(app: FastifyInstance, opts: PackageRouteOptio
     if (path.isAbsolute(body.outputName) || !full.startsWith(rootSep)) {
       return reply.status(400).send({ error: "outputName must stay inside the packages folder" });
     }
-    if (fs.existsSync(full) || [...jobs.values()].some((j) => j.record.state === "packaging" && j.record.outputName === body.outputName)) {
-      return reply.status(409).send({ error: `A package named ${body.outputName} already exists or is being made.` });
+    // The name as the folder sees it: `./x.pmtiles` and `a/../x.pmtiles` are `x.pmtiles`. The
+    // in-flight check compared the raw string, so two spellings of one file both went ahead.
+    const outputName = path.relative(packagesDir, full).split(path.sep).join("/");
+    const inFlight = [...jobs.values()].filter((j) => j.record.state === "packaging");
+    if (fs.existsSync(full) || inFlight.some((j) => j.record.outputName === outputName)) {
+      return reply.status(409).send({ error: `A package named ${outputName} already exists or is being made.` });
+    }
+    if (inFlight.length >= maxActive) {
+      return reply.status(429).send({
+        error: `This worker is already making ${inFlight.length} package(s); retry when one finishes.`,
+      });
     }
 
     sweep();
     const id = randomUUID();
-    const record: PackageJobRecord = { id, state: "packaging", outputName: body.outputName };
+    const record: PackageJobRecord = { id, state: "packaging", outputName };
     const job: { record: PackageJobRecord; finishedAt?: number } = { record };
     jobs.set(id, job);
 
@@ -119,19 +138,19 @@ export async function packageRoute(app: FastifyInstance, opts: PackageRouteOptio
           await fs.promises.link(temp, full);
         } catch (err) {
           if ((err as NodeJS.ErrnoException).code === "EEXIST") {
-            throw new Error(`A package named ${body.outputName} appeared while this one was being made; it was left as it was.`);
+            throw new Error(`A package named ${outputName} appeared while this one was being made; it was left as it was.`);
           }
           throw err;
         } finally {
           await fs.promises.rm(temp, { force: true });
         }
         job.record = { ...record, state: "completed", tiles: result.plan.tiles, bytes: result.archive.length, tileType: result.tileType };
-        app.log.info({ jobId: id, outputName: body.outputName, tiles: result.plan.tiles }, "package written");
+        app.log.info({ jobId: id, outputName, tiles: result.plan.tiles }, "package written");
       } catch (err) {
         await fs.promises.rm(temp, { force: true }).catch(() => undefined);
         const message = err instanceof Error ? err.message : String(err);
         job.record = { ...record, state: "failed", error: message };
-        app.log.warn({ jobId: id, outputName: body.outputName, error: message }, "package failed");
+        app.log.warn({ jobId: id, outputName, error: message }, "package failed");
       } finally {
         job.finishedAt = Date.now();
       }

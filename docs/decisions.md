@@ -1521,3 +1521,11 @@ Each entry follows this shape:
 - Surfaces: dotnet/JourneyBook.Infrastructure/Tiles/MapPackageJobs.cs, dotnet/JourneyBook.Infrastructure/Tiles/PmTilesReader.cs, dotnet/JourneyBook.Infrastructure/DependencyInjection.cs, apps/api/Endpoints/MapPackageEndpoints.cs, dotnet/JourneyBook.Tests/MapPackageJobsTests.cs, dotnet/JourneyBook.Tests/Api/MapPackageJobsApiTests.cs, dotnet/JourneyBook.Tests/RasterPackageFixtureTests.cs
 - Watch: a worker that is down for the whole run now keeps the job "packaging" until the 6-hour deadline instead of failing at once.
 - Commit: (pending)
+
+## 2026-11-22 — The worker makes one package at a time, compares resolved names, caps maxTiles
+- Symptom (independent review, verified): (1) `POST /package` started a detached `buildRasterPackage` for every request. Each holds every tile and then the whole archive in memory (default 20,000 tiles, `maxTiles` unbounded), so a few large requests, or repeated POSTs straight to the unauthenticated worker on the compose network, could run it out of memory and kill renders in flight. `/render` refuses with 429 past `maxActiveJobs`; `/package` had no bound. (2) The in-flight duplicate check compared the raw `outputName`, so `x.pmtiles` and `./x.pmtiles` (or `a/../x.pmtiles`) both built the same file.
+- Fix: `maxActivePackages` (default 1) answers 429 while that many are in flight. `outputName` is normalised to its path relative to the packages folder before it is checked or recorded. The body schema caps `maxTiles` at `MAX_PACKAGE_TILES_CEILING` (100,000).
+- Evidence: `package-route.test.ts` "one package at a time, one spelling per file, and a ceiling on maxTiles", with tile fetches held: `./sub/../held.pmtiles` while `held.pmtiles` is in flight → 409; another package → 429; `maxTiles: 10_000_000` → 400; the first then completes. On the old route the respelled name was accepted (202). Worker 46. The API passes a worker 429 through as 429 (`PackageWorkerRefusedException`).
+- Surfaces: services/render-worker/src/package-route.ts, services/render-worker/src/package-route.test.ts
+- Watch: a second admin who starts a package while one runs now gets 429 and must retry.
+- Commit: (pending)
