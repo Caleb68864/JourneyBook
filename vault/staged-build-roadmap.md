@@ -583,7 +583,7 @@ Branch `work/stage-7` (not pushed, so CI is unread).
 
 | Stage 7 item | State | Proof |
 |---|---|---|
-| Cache-manifest model in Postgres | **Partly done (2026-11-16)** | No table of its own. A finished render's `GeneratedPdf.SourceMetadataSnapshot` (jsonb) now carries `tileCache`: the registry row's key, kind, URL, source date and version, the attribution, the `[W,S,E,N]` bbox and zoom range the engine pulled, tile and panel counts, and the row's declared max-age. Written by `RenderJobRunner.TileCacheOf`; bbox and zooms come from the engine (`TileCoverage` in `render-cli/src/render.ts`). A table is only worth having once there are extracts to list; see below. |
+| Cache-manifest model in Postgres | **Partly done (2026-11-16)**; *2026-11-21: package manifest is `GET /api/map-packages`, from the archives' headers, no table (decision 4)* | No table of its own. A finished render's `GeneratedPdf.SourceMetadataSnapshot` (jsonb) now carries `tileCache`: the registry row's key, kind, URL, source date and version, the attribution, the `[W,S,E,N]` bbox and zoom range the engine pulled, tile and panel counts, and the row's declared max-age. Written by `RenderJobRunner.TileCacheOf`; bbox and zooms come from the engine (`TileCoverage` in `render-cli/src/render.ts`). A table is only worth having once there are extracts to list; see below. |
 | Server-side short-lived tile cache for render jobs | **Partly done** *(2026-11-21: an age limit exists, `TileCache:MaxAgeDays`, off by default; see decision 2)* | `TileCache` (`dotnet/.../Tiles/TileCache.cs`) is a disk cache under `data/cache` that the proxy reads and writes; compose routes the worker through it (`Tiles__ProxyBaseUrl`). It is not short-lived: nothing expires a tile by age, and the size prune is off (`TileCache:MaxSizeMb` = 0). |
 | Optional `pmtiles extract` for a selected bbox | **Built as raster packaging (2026-11-16)** | Not `pmtiles extract` (that cuts a vector planet, ruled out by decision b). `journeybook package --bbox W,S,E,N --min-zoom a --max-zoom b --out f.pmtiles` fetches every tile through `loadTile` (the render's own path: `--tile-base-url` for the C# proxy's `TileCache`/fetchers, `--tile-cache-dir` for the shared disk cache) and writes raster PMTiles v3 (`writePmTiles`, `packages/map-sources/src/pmtiles.ts`). Strict: any failed tile or a mix of png/jpeg fails the package. CLI only; no endpoint, no UI. |
 | PMTiles packaging, registered as a `TileSource` row | **Partly done** | *(2026-11-16: making a package is built, row above. Round-trip proven without network: `package.test.ts` packages from a fake source and renders a one-page atlas whose every tile is served from the archive; the C# `PmTilesReader` reads the shared fixture `data/fixtures/raster-package/` (`RasterPackageFixtureTests`), and the proxy serves it as a `pmtiles` row (`RasterPackageTilesApiTests`). Registering the row is still by hand: copy the file under `TileCache:PmTilesDir`, `POST /api/tile-sources` with `kind: "pmtiles"`.)* Reading is done: `PmTilesReader`/`PmTilesFetcher` serve a `pmtiles` row from a local archive under `TileCache:PmTilesDir` (default `data/map-packages`) or over HTTP ranges, with tests (`PmTilesReaderTests`, `PmTilesTilesApiTests`). Making a package (Protomaps extract or Planetiler) is not started. The print path draws raster only: `renderMapPanel` composites tile bytes with sharp, so a vector (`pbf`) archive serves to MapLibre but cannot be drawn into a PDF panel. Compose mounts `data/map-packages` into the api read-only at `/app/data/map-packages`, where the default `PmTilesDir` resolves *(2026-11-16, branch `feat/stage-7-compose-offline`; `compose-hardening.sh` item 6 holds it)*. |
@@ -657,8 +657,16 @@ What is left needs an owner decision. The options:
    Branch `work/2026-11-21-stage7-retention`.
 3. ~~**Whether a source's own `MaxAgeSeconds` should replace the global browser max-age.**~~
    Decided 2026-11-16: it does (decision a above), and it is built.
-4. **Whether to build a cache-manifest table now.** A table needs rows, and there will be
-   rows once packages exist (1). Until then the per-render snapshot holds the same facts.
+4. ~~**Whether to build a cache-manifest table now.**~~ **Decided by agent 2026-11-21 (owner
+   may revisit): a manifest derived from the archives, not a table.** `GET /api/map-packages`
+   lists every `*.pmtiles` under `TileCache:PmTilesDir` with what its own PMTiles header says
+   (tile type, zoom range, `[W,S,E,N]` bounds, addressed tile count), its size and modified
+   time, and the keys of the `pmtiles` registry rows that serve it; an unreadable file is
+   listed with the reason. Why not a table: packages are made on the host and copied in by
+   hand, so a table would have no writer, and a copy of the header could drift from the file.
+   No migration, so this is reversible: a table can later be filled from this listing.
+   `MapPackagesApiTests` reads the shared raster fixture (header written by the TS writer);
+   without the route it is a 404. Per-render facts stay in the provenance snapshot.
 
 Folders touched: `packages/map-sources/`, `apps/api/`, `infra/db/migrations/`, `data/cache/`, `data/map-packages/`, `infra/compose/`.
 

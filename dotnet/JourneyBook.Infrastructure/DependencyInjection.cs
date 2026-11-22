@@ -65,6 +65,7 @@ public static class DependencyInjection
         // --- Tile proxy (Stage 3) -------------------------------------------
         var cacheDir = configuration["TileCache:CacheDir"] is { Length: > 0 } dir ? dir : "data/cache";
         services.AddSingleton(new TileCache(cacheDir));
+        services.AddScoped<MapPackageManifest>();
 
         var tileCacheMaxMb = configuration.GetValue("TileCache:MaxSizeMb", 0L);
         var tileCachePruneHours = configuration.GetValue("TileCache:PruneIntervalHours", 24d);

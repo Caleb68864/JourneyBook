@@ -10,6 +10,9 @@ namespace JourneyBook.Infrastructure.Tiles;
 /// or an HTTP range stream), reading only the byte ranges it needs. Returns <c>null</c> when the
 /// tile is absent (sparse archive). No external dependency — the spec prefers a hand-rolled reader.
 /// </summary>
+/// <summary>What a PMTiles v3 header says about its archive. Bounds are [W, S, E, N] in degrees.</summary>
+public sealed record PmTilesHeader(byte TileType, int MinZoom, int MaxZoom, double[] Bounds, long AddressedTiles, long TileContents);
+
 public sealed class PmTilesReader
 {
     private const int HeaderLength = 127;
@@ -21,6 +24,24 @@ public sealed class PmTilesReader
         var header = await ReadRangeAsync(archive, 0, HeaderLength, ct);
         ValidateMagic(header);
         return header[99];
+    }
+
+    /// <summary>
+    /// The PMTiles v3 header's description of the archive: tile type, zoom range, bounds
+    /// (degrees, stored as E7 integers) and tile counts. Read from the first 127 bytes only.
+    /// </summary>
+    public async Task<PmTilesHeader> ReadHeaderAsync(Stream archive, CancellationToken ct)
+    {
+        var header = await ReadRangeAsync(archive, 0, HeaderLength, ct);
+        ValidateMagic(header);
+        double E7(int at) => BinaryPrimitives.ReadInt32LittleEndian(header.AsSpan(at, 4)) / 1e7;
+        return new PmTilesHeader(
+            TileType: header[99],
+            MinZoom: header[100],
+            MaxZoom: header[101],
+            Bounds: [E7(102), E7(106), E7(110), E7(114)],
+            AddressedTiles: (long)BinaryPrimitives.ReadUInt64LittleEndian(header.AsSpan(72, 8)),
+            TileContents: (long)BinaryPrimitives.ReadUInt64LittleEndian(header.AsSpan(88, 8)));
     }
 
     public async Task<byte[]?> ReadTileAsync(Stream archive, int z, int x, int y, CancellationToken ct)
