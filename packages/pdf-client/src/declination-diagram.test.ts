@@ -84,3 +84,12 @@ describe("diagramAngles", () => {
     expect(diagramAngles(-2, -12)).toEqual({ grid: -10, magnetic: -24 });
   });
 });
+
+describe("northsCaption on a zone junction", () => {
+  it("names both zones' grid north and G-M, west zone first", () => {
+    const n = threeNorths({ lng: -102.0001, lat: 40.8 }, MID_2026, 14);
+    const [line1, line2] = northsCaption(n);
+    expect(line1).toMatch(/^MN \d\.\d° E · GN \d\.\d° E \(13\) \/ \d\.\d° W \(14\) of true N$/);
+    expect(line2).toMatch(/^G-M \d\.\d° [EW] \(13\) \/ \d\.\d° [EW] \(14\) · WMM2025 2026\.5$/);
+  });
+});

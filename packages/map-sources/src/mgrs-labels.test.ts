@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createUtmProjector, utmZoneForLongitude, type BBox } from "@journeybook/atlas-core";
+import { createUtmProjector, utmZoneFor, utmZoneForLongitude, type BBox } from "@journeybook/atlas-core";
 import mgrs from "mgrs";
 import { buildUsngGrid } from "./usng-grid.js";
 
@@ -185,5 +185,41 @@ describe("a page spanning two UTM zones", () => {
 
   it("[CONTROL] a page inside one zone has no boundary", () => {
     expect(buildUsngGrid([-96.72, 40.79, -96.68, 40.82], 1000, 1000, { mgrs: true }).zoneBoundary).toBeUndefined();
+  });
+});
+
+describe("the Norway and Svalbard zone exceptions", () => {
+  it("[BEHAVIORAL] utmZoneFor agrees with the MGRS library over both exception regions and around them", () => {
+    const misses: string[] = [];
+    for (let lat = 50.13; lat < 84; lat += 0.41) {
+      for (let lng = -6.07; lng < 46; lng += 0.37) {
+        const lib = Number(/^(\d{1,2})/.exec(mgrs.forward([lng, lat], 1))![1]);
+        const ours = utmZoneFor(lng, lat);
+        if (lib !== ours) misses.push(`${lng.toFixed(2)},${lat.toFixed(2)}: lib ${lib}, ours ${ours}`);
+      }
+    }
+    expect(misses.slice(0, 5)).toEqual([]);
+  });
+
+  it("[BEHAVIORAL] a page at 4°E 60°N is gridded in zone 32 (32V), not 31", () => {
+    const grid = buildUsngGrid([3.98, 59.99, 4.02, 60.01], 1000, 1000, { mgrs: true });
+    expect(grid.collar.zoneDesignator).toBe("32V");
+    expect(grid.zoneBoundary).toBeUndefined();
+    const [e] = createUtmProjector(32).forward({ lng: 4, lat: 60 });
+    expect(e).toBeLessThan(400_000); // far west in zone 32, which is why the exception exists
+    // The LINES are zone 32's: the first easting in full is a zone-32 easting (~3xx km), not
+    // the zone-31 one the same ground has (~5xx km). The collar alone would not show this: it
+    // comes from the MGRS library, which always knew the exception.
+    const full = grid.labels.find((l) => l.text.endsWith("mE"))!.text;
+    expect(Number(full.replace("mE", ""))).toBeLessThan(400_000);
+  });
+
+  it("[BEHAVIORAL] the junctions fall at the exceptions' own boundaries: 3°E in Norway, 9°E on Svalbard", () => {
+    const norway = buildUsngGrid([2.98, 59.99, 3.02, 60.01], 1000, 1000);
+    expect(norway.zoneBoundary).toMatchObject({ westZone: 31, eastZone: 32 });
+    const svalbard = buildUsngGrid([8.95, 77.99, 9.05, 78.01], 1000, 1000);
+    expect(svalbard.zoneBoundary).toMatchObject({ westZone: 31, eastZone: 33 });
+    // And no junction at 6°E on Svalbard, where zone 32 does not exist.
+    expect(buildUsngGrid([5.95, 77.99, 6.05, 78.01], 1000, 1000).zoneBoundary).toBeUndefined();
   });
 });

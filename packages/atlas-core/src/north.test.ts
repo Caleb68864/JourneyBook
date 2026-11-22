@@ -63,3 +63,52 @@ describe("threeNorths", () => {
     expect(formatEastWest(0.04)).toBe("0.0°");
   });
 });
+
+describe("grid north in the zone exceptions", () => {
+  it("[BEHAVIORAL] takes grid north from the point's own zone: zone 32 at 4°E 60°N, not 31", () => {
+    // In zone 32 (CM 9°E) the point is 5° west of the meridian: convergence about -4.3°.
+    // In zone 31 (CM 3°E) it would be +0.9°.
+    const g = gridConvergence({ lng: 4, lat: 60 });
+    expect(g.utmZone).toBe(32);
+    expect(g.degrees).toBeCloseTo(seriesConvergence32(60, 4), 3);
+    expect(g.degrees).toBeLessThan(-4);
+  });
+});
+
+/** The TM series about zone 32's central meridian (9°E), for the exception test. */
+function seriesConvergence32(lat: number, lng: number): number {
+  const phi = (lat * Math.PI) / 180;
+  const dl = ((lng - 9) * Math.PI) / 180;
+  const ep2 = 0.00669437999014 / (1 - 0.00669437999014);
+  const eta2 = ep2 * Math.cos(phi) ** 2;
+  const c2 = (dl * Math.cos(phi)) ** 2;
+  return ((dl * Math.sin(phi) * (1 + (c2 / 3) * (1 + 3 * eta2 + 2 * eta2 * eta2) + ((c2 * c2) / 15) * (2 - Math.tan(phi) ** 2))) * 180) / Math.PI;
+}
+
+describe("grid north on both sides of a zone junction", () => {
+  it("[BEHAVIORAL] gives the other zone's grid north and G-M at the same point", () => {
+    // 102°W is the 13/14 boundary: 3° east of zone 13's meridian, 3° west of zone 14's.
+    const p = { lng: -102.0001, lat: 40.8 };
+    const n = threeNorths(p, new Date(Date.UTC(2026, 6, 2)), 14);
+    expect(n.utmZone).toBe(13);
+    expect(n.otherZone!.utmZone).toBe(14);
+    expect(n.gridConvergence).toBeCloseTo(seriesConvergence(40.8, -102.0001), 4);
+    // Zone 14's convergence there, by the series about its meridian (99°W).
+    const phi = (40.8 * Math.PI) / 180;
+    const dl = ((-102.0001 + 99) * Math.PI) / 180;
+    const ep2 = 0.00669437999014 / (1 - 0.00669437999014);
+    const eta2 = ep2 * Math.cos(phi) ** 2;
+    const c2 = (dl * Math.cos(phi)) ** 2;
+    const z14 = ((dl * Math.sin(phi) * (1 + (c2 / 3) * (1 + 3 * eta2 + 2 * eta2 * eta2) + ((c2 * c2) / 15) * (2 - Math.tan(phi) ** 2))) * 180) / Math.PI;
+    expect(n.otherZone!.gridConvergence).toBeCloseTo(z14, 4);
+    expect(n.otherZone!.gmAngle).toBeCloseTo(n.declination - z14, 4);
+    // About 4° apart: the reason a junction page needs both.
+    expect(n.gridConvergence - n.otherZone!.gridConvergence).toBeGreaterThan(3.5);
+  });
+
+  it("[CONTROL] no other zone unless asked, or when it is the same zone", () => {
+    const d = new Date(Date.UTC(2026, 6, 2));
+    expect(threeNorths({ lng: -96.7, lat: 40.8 }, d).otherZone).toBeUndefined();
+    expect(threeNorths({ lng: -96.7, lat: 40.8 }, d, 14).otherZone).toBeUndefined();
+  });
+});

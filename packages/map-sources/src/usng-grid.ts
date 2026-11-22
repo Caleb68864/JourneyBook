@@ -1,5 +1,5 @@
 import type { BBox, LngLat, UsngGridOverlay } from "@journeybook/atlas-core";
-import { utmZoneForLongitude, createUtmProjector } from "@journeybook/atlas-core";
+import { createUtmProjector, utmZoneFor, utmZoneRange } from "@journeybook/atlas-core";
 import { lngLatToPanelFraction } from "./tilemath.js";
 // `mgrs` is a CommonJS module — a named ESM import (`{ forward }`) typechecks and
 // works under vitest but throws "Named export 'forward' not found" at runtime under
@@ -212,9 +212,9 @@ function zoneJunction(
   westZone: number,
   eastZone: number,
   south: boolean,
-  opts?: { intervalMeters?: number; mgrs?: boolean },
+  opts: { intervalMeters?: number; mgrs?: boolean } | undefined,
+  boundaryLng: number,
 ): UsngGridOverlay {
-  const boundaryLng = eastZone * 6 - 186; // the eastern zone's western meridian
   const interval = opts?.intervalMeters ?? DEFAULT_INTERVAL_M;
   const full = opts?.mgrs === true;
   const w = zonePart(westZone, south, bbox, boundaryLng, "west", interval, full);
@@ -258,16 +258,19 @@ export function buildUsngGrid(
   // throw must never abort the render. Degrade to an empty overlay (the page still
   // renders, grid absent) and log the page bbox so a missing grid is diagnosable.
   try {
-    const zone = utmZoneForLongitude(centreLng);
+    // The centre's zone, with the Norway/Svalbard exceptions.
+    const zone = utmZoneFor(centreLng, centreLat);
     // The page centre's hemisphere decides the northing numbers; a page astride the equator
     // gets its centre's (two-digit labels agree either way: the offset is 10,000 km).
     const proj = createUtmProjector(zone, centreLat < 0);
 
     // A page across a UTM zone boundary: each zone's grid on its own side (see zonePart).
-    const westZone = utmZoneForLongitude(west);
-    const eastZone = utmZoneForLongitude(east - 1e-9);
-    if (westZone !== eastZone && (westZone % 60) + 1 === eastZone) {
-      return zoneJunction(bbox, westZone, eastZone, centreLat < 0, opts);
+    // Zones are taken at the centre's latitude, so the exceptions' boundaries (3°E in Norway,
+    // 9/21/33°E on Svalbard) are where they really are, not every 6°.
+    const westRange = utmZoneRange(west, centreLat);
+    const eastRange = utmZoneRange(east - 1e-9, centreLat);
+    if (westRange.zone !== eastRange.zone && westRange.east === eastRange.west) {
+      return zoneJunction(bbox, westRange.zone, eastRange.zone, centreLat < 0, opts, eastRange.west);
     }
 
     // Project all four corners to find the full UTM extent of the bbox.

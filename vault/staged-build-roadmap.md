@@ -595,7 +595,11 @@ Goal: implement the [Map Tiers (Learning Curve)](#map-tiers-learning-curve-featu
 > only on its own side of the boundary meridian, numbered in its own zone (first eastings in
 > full on both sides, northing labels on each zone's outer edge), both zones' 100 km squares
 > named, and the boundary drawn heavier with "13 | 14 UTM ZONE". The declination diagram's grid
-> north is still the centre's zone.)*
+> north is still the centre's zone.)* *(2026-11-22, later: the Norway (32V) and Svalbard (31X,
+> 33X, 35X, 37X) zone exceptions are applied everywhere a zone is chosen, so junctions fall at
+> 3°E or 9/21/33°E there. A tier-4 junction page's caption gives each zone's grid north and G-M
+> ("GN 2.0° E (13) / 2.0° W (14)"), and worksheet rows say which zone's grid to measure on
+> when an atlas's legs start in different zones.)*
 > **2026-11-22: azimuth worksheets built (opt-in). Decided by agent (owner may revisit):** off
 > by default, since they add two pages. With `worksheet` (`--worksheet`, "Azimuth Worksheet"
 > in the editor) and two or more locations, the atlas ends with a worksheet (short

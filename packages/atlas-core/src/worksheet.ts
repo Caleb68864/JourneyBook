@@ -1,5 +1,5 @@
 import type { BBox, LngLat } from "./model.js";
-import { createUtmProjector, geodesicDistanceMeters, utmZoneForLongitude } from "./projection.js";
+import { createUtmProjector, geodesicDistanceMeters, utmZoneFor } from "./projection.js";
 import { threeNorths } from "./north.js";
 
 /** One stop on a worksheet: where it is, and what the atlas calls it. */
@@ -48,8 +48,8 @@ export function worksheetLegs(
   for (let i = 0; i + 1 < stops.length; i++) {
     const a = stops[i]!;
     const b = stops[i + 1]!;
-    const zone = utmZoneForLongitude(a.center.lng);
-    const utm = createUtmProjector(zone);
+    const zone = utmZoneFor(a.center.lng, a.center.lat);
+    const utm = createUtmProjector(zone, a.center.lat < 0);
     const [ea, na] = utm.forward(a.center);
     const [eb, nb] = utm.forward(b.center);
     const grid = norm((Math.atan2(eb - ea, nb - na) * 180) / Math.PI);

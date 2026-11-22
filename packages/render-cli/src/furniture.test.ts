@@ -228,3 +228,32 @@ describe("a page across a UTM zone boundary through renderAtlas", () => {
     expect(measurePdfPages(pdf)[0]!.texts.join("")).not.toContain("UTM ZONE");
   });
 });
+
+describe("grid north per zone through renderAtlas", () => {
+  it("[BEHAVIORAL] a tier-4 junction page gives each zone's grid north and G-M", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jb-gn-"));
+    try {
+      const out = join(dir, "a.pdf");
+      await renderAtlas({ mode: "location", center: { lng: -102, lat: 40.8 }, scalePresetId: "usgs-7-5-min", tier: 4, declinationDate: "2026-07-02", outputPath: out });
+      const texts = measurePdfPages(readFileSync(out))[0]!.texts;
+      expect(texts.some((t) => /^MN .* · GN \d\.\d° E \(13\) \/ \d\.\d° W \(14\) of true N$/.test(t))).toBe(true);
+      expect(texts.some((t) => /^G-M \d\.\d° [EW] \(13\) \/ \d\.\d° [EW] \(14\) · WMM2025/.test(t))).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("[BEHAVIORAL] worksheet rows name the grid to measure on when legs start in different zones", async () => {
+    const pdf = await renderTo({
+      mode: "location",
+      locations: [{ center: { lng: -102.05, lat: 40.8 } }, { center: { lng: -101.95, lat: 40.8 } }, { center: { lng: -101.9, lat: 40.82 } }],
+      worksheet: true,
+      declinationDate: "2026-07-02",
+      tableOfContents: false,
+      overview: false,
+    });
+    const key = measurePdfPages(pdf).at(-1)!.texts.join(" ");
+    expect(key).toContain("UTM 13 grid");
+    expect(key).toContain("UTM 14 grid");
+  });
+});

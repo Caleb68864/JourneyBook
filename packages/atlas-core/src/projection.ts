@@ -12,6 +12,33 @@ export function utmZoneForLongitude(lng: number): number {
   return Math.floor(normalized / 6) + 1;
 }
 
+/**
+ * The UTM zone of a point, with the two standard exceptions MGRS defines: zone 32 widened to
+ * 3°E–12°E between 56°N and 64°N (south-west Norway), and zones 31, 33, 35 and 37 widened to
+ * 0–9°, 9–21°, 21–33° and 33–42°E between 72°N and 84°N (Svalbard), where 32, 34 and 36 do not
+ * exist. Everywhere else it is {@link utmZoneForLongitude}.
+ */
+export function utmZoneFor(lng: number, lat: number): number {
+  return utmZoneRange(lng, lat).zone;
+}
+
+/** The zone of a point and the longitudes its zone spans at that latitude, west inclusive. */
+export function utmZoneRange(lng: number, lat: number): { zone: number; west: number; east: number } {
+  if (lat >= 56 && lat < 64) {
+    if (lng >= 3 && lng < 12) return { zone: 32, west: 3, east: 12 };
+    if (lng >= 0 && lng < 3) return { zone: 31, west: 0, east: 3 };
+  }
+  if (lat >= 72 && lat < 84 && lng >= 0 && lng < 42) {
+    if (lng < 9) return { zone: 31, west: 0, east: 9 };
+    if (lng < 21) return { zone: 33, west: 9, east: 21 };
+    if (lng < 33) return { zone: 35, west: 21, east: 33 };
+    return { zone: 37, west: 33, east: 42 };
+  }
+  const zone = utmZoneForLongitude(lng);
+  const west = (zone - 1) * 6 - 180;
+  return { zone, west, east: west + 6 };
+}
+
 /** A page-local projector: WGS84 <-> a metric plane (UTM zone of the centre). */
 export interface Projector {
   /** proj4 definition string for the metric CRS. */

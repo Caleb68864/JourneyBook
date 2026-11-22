@@ -316,6 +316,21 @@ export function diagramAngles(gridConvergence: number, declination: number): { g
 export function northsCaption(n: ThreeNorths): [string, string] {
   const rate = n.declinationPerYear;
   const drift = Math.abs(rate) < 0.05 ? "steady" : `MN moves ${formatEastWest(rate)}/yr`;
+  if (n.otherZone) {
+    // A zone junction: each side's grid north and G-M, named by zone, west zone first.
+    // The western zone's grid north lies east of true north here (the point is east of its
+    // central meridian), so sorting by convergence, largest first, puts the west zone first.
+    const sides = [
+      { zone: n.utmZone, gn: n.gridConvergence, gm: n.gmAngle },
+      { zone: n.otherZone.utmZone, gn: n.otherZone.gridConvergence, gm: n.otherZone.gmAngle },
+    ].sort((x, y) => y.gn - x.gn);
+    const a = sides[0]!;
+    const b = sides[1]!;
+    return [
+      `MN ${formatEastWest(n.declination)} · GN ${formatEastWest(a.gn)} (${a.zone}) / ${formatEastWest(b.gn)} (${b.zone}) of true N`,
+      `G-M ${formatEastWest(a.gm)} (${a.zone}) / ${formatEastWest(b.gm)} (${b.zone}) · ${n.model} ${n.year.toFixed(1)}`,
+    ];
+  }
   return [
     `MN ${formatEastWest(n.declination)} · GN ${formatEastWest(n.gridConvergence)} (UTM ${n.utmZone}) of true N`,
     `G-M ${formatEastWest(n.gmAngle)} · ${n.model} ${n.year.toFixed(1)} · ${drift}`,
@@ -1381,8 +1396,14 @@ function WorksheetPages({ title, legs, model }: { title: string; legs: Worksheet
   const stopsOf = (l: WorksheetLeg) => `${l.from} to ${l.to}`;
   // Which sheets to lay side by side for the leg: a leg between stops on different pages has to
   // be measured across them.
-  const pagesOf = (l: WorksheetLeg) =>
-    l.pages && l.pages.length > 0 ? `pages ${l.pages.join(", ")}` : l.pages ? "on no page of this atlas" : "";
+  // Which grid to measure on: the start's UTM zone. Named only when the atlas's legs are not all
+  // in one zone, where it matters.
+  const multiZone = new Set(legs.map((l) => l.utmZone)).size > 1;
+  const pagesOf = (l: WorksheetLeg) => {
+    const where = l.pages && l.pages.length > 0 ? `pages ${l.pages.join(", ")}` : l.pages ? "on no page of this atlas" : "";
+    const grid = multiZone ? `UTM ${l.utmZone} grid` : "";
+    return [where, grid].filter(Boolean).join(" · ");
+  };
   return (
     <>
       <Page size="LETTER" orientation="portrait" style={[styles.page, { padding: 0.75 * PT }]}>

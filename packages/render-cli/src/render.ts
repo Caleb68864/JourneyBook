@@ -28,6 +28,7 @@ import {
   type UsngGridOverlay,
   mapBoxInches,
   threeNorths,
+  utmZoneFor,
   worksheetLegs,
 } from "@journeybook/atlas-core";
 import { renderAtlasPdfToFile, type PageNorths, type RouteOverlay } from "@journeybook/pdf-client";
@@ -1046,7 +1047,11 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
     const [w, s, e, n] = page.bbox;
     norths ??= {};
     try {
-      norths[page.id] = threeNorths({ lng: (w + e) / 2, lat: (s + n) / 2 }, northsDate);
+      // A page across a zone boundary also gets the other zone's grid north and G-M.
+      const boundary = grids?.[page.id]?.zoneBoundary;
+      const centre = { lng: (w + e) / 2, lat: (s + n) / 2 };
+      const other = boundary ? [boundary.westZone, boundary.eastZone] : [];
+      norths[page.id] = threeNorths(centre, northsDate, other.find((z) => z !== utmZoneFor(centre.lng, centre.lat)));
     } catch (err) {
       norths[page.id] = {
         unavailable: `Declination not shown: ${err instanceof Error ? err.message.replace(/, so no declination is given\.$/, "") : String(err)}`,
