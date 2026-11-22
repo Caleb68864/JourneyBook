@@ -56,4 +56,20 @@ public sealed class AdminApiKeyGate(string? configuredKey)
     public string DenialReason => IsConfigured
         ? "A valid X-Admin-Key header is required to modify the tile-source registry."
         : "The tile-source registry is read-only: no TileSources:AdminApiKey is configured on this server.";
+
+    /// <summary>
+    /// The endpoint filter every registry write goes through: 401 with <see cref="DenialReason"/>
+    /// unless the request carries the configured key. One definition, so a new write route cannot
+    /// get a weaker copy of it.
+    /// </summary>
+    public static async ValueTask<object?> Filter(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
+    {
+        var gate = context.HttpContext.RequestServices.GetRequiredService<AdminApiKeyGate>();
+        var presented = context.HttpContext.Request.Headers[HeaderName].ToString();
+        if (!gate.IsAuthorized(presented))
+        {
+            return Results.Json(new { error = gate.DenialReason }, statusCode: StatusCodes.Status401Unauthorized);
+        }
+        return await next(context);
+    }
 }

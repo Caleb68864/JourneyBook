@@ -1,0 +1,183 @@
+using System.Collections.Concurrent;
+using System.Net;
+using System.Net.Http.Json;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+
+namespace JourneyBook.Infrastructure.Tiles;
+
+/// <summary>What the API asks the render worker's <c>POST /package</c> for.</summary>
+public sealed record PackageWorkerRequest(
+    double[] Bbox,
+    int MinZoom,
+    int MaxZoom,
+    string OutputName,
+    string? TileBaseUrl = null,
+    string? TileSourceId = null,
+    int? MaxTiles = null);
+
+/// <summary>The worker's package job record (<c>services/render-worker/src/package-route.ts</c>).</summary>
+public sealed record PackageWorkerJob(
+    string Id,
+    string State,
+    string OutputName,
+    long? Tiles = null,
+    long? Bytes = null,
+    string? TileType = null,
+    string? Error = null);
+
+/// <summary>The worker refused the request; <see cref="Status"/> is its HTTP status (400, 409, 503).</summary>
+public sealed class PackageWorkerRefusedException(int status, string message) : Exception(message)
+{
+    public int Status { get; } = status;
+}
+
+/// <summary>Talks to the render worker's package job routes. The worker owns tile enumeration (ADR 0004).</summary>
+public interface IPackageWorkerClient
+{
+    Task<PackageWorkerJob> StartAsync(PackageWorkerRequest request, CancellationToken ct = default);
+
+    /// <summary>The job, or null when the worker no longer knows it (restarted, or retention passed).</summary>
+    Task<PackageWorkerJob?> GetAsync(string id, CancellationToken ct = default);
+}
+
+public sealed class HttpPackageWorkerClient(HttpClient http) : IPackageWorkerClient
+{
+    private static readonly JsonSerializerOptions s_json = new(JsonSerializerDefaults.Web)
+    {
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    };
+
+    public async Task<PackageWorkerJob> StartAsync(PackageWorkerRequest request, CancellationToken ct = default)
+    {
+        using var res = await http.PostAsJsonAsync("/package", request, s_json, ct);
+        if (res.StatusCode != HttpStatusCode.Accepted)
+        {
+            var error = await ErrorOf(res, ct);
+            throw new PackageWorkerRefusedException((int)res.StatusCode, error);
+        }
+        return (await res.Content.ReadFromJsonAsync<PackageWorkerJob>(s_json, ct))!;
+    }
+
+    public async Task<PackageWorkerJob?> GetAsync(string id, CancellationToken ct = default)
+    {
+        using var res = await http.GetAsync($"/package-jobs/{Uri.EscapeDataString(id)}", ct);
+        if (res.StatusCode == HttpStatusCode.NotFound) return null;
+        res.EnsureSuccessStatusCode();
+        return await res.Content.ReadFromJsonAsync<PackageWorkerJob>(s_json, ct);
+    }
+
+    private static async Task<string> ErrorOf(HttpResponseMessage res, CancellationToken ct)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync(ct));
+            if (doc.RootElement.TryGetProperty("error", out var e) && e.ValueKind == JsonValueKind.String) return e.GetString()!;
+        }
+        catch (JsonException)
+        {
+        }
+        return $"The render worker answered {(int)res.StatusCode}.";
+    }
+}
+
+/// <summary>A package the API asked for, as <c>GET /api/map-packages/jobs/{id}</c> reports it.</summary>
+/// <param name="State"><c>packaging</c>, <c>registering</c>, <c>registered</c> or <c>failed</c>.</param>
+public sealed record MapPackageJobStatus(
+    string Id,
+    string State,
+    string File,
+    string? Key,
+    long? Tiles = null,
+    long? Bytes = null,
+    string? TileSourceKey = null,
+    string? Error = null);
+
+/// <summary>How often the API asks the worker about a package in progress. Seam for tests.</summary>
+public sealed record MapPackageJobOptions(TimeSpan PollInterval, TimeSpan GiveUpAfter);
+
+/// <summary>
+/// Packages the API has started, and the work of finishing them: wait for the worker, then
+/// register the archive as a tile source (<see cref="MapPackageManifest.RegisterAsync"/>). In memory:
+/// a restart forgets the job, not the package; a package that finished unregistered is still
+/// in the manifest and can be registered by hand.
+/// </summary>
+public sealed class MapPackageJobs(
+    IServiceScopeFactory scopes,
+    MapPackageJobOptions options,
+    ILogger<MapPackageJobs> logger)
+{
+    private readonly ConcurrentDictionary<string, MapPackageJobStatus> _jobs = new();
+
+    public MapPackageJobStatus? Get(string id) => _jobs.TryGetValue(id, out var s) ? s : null;
+
+    /// <summary>Ask the worker for a package and track it to registration. Worker refusals throw.</summary>
+    public async Task<MapPackageJobStatus> StartAsync(PackageWorkerRequest request, string? key, CancellationToken ct = default)
+    {
+        PackageWorkerJob job;
+        using (var scope = scopes.CreateScope())
+        {
+            job = await scope.ServiceProvider.GetRequiredService<IPackageWorkerClient>().StartAsync(request, ct);
+        }
+        var status = new MapPackageJobStatus(job.Id, "packaging", request.OutputName, key);
+        _jobs[job.Id] = status;
+        _ = Task.Run(() => FollowAsync(status));
+        return status;
+    }
+
+    private async Task FollowAsync(MapPackageJobStatus status)
+    {
+        var deadline = DateTimeOffset.UtcNow + options.GiveUpAfter;
+        try
+        {
+            while (true)
+            {
+                await Task.Delay(options.PollInterval);
+                PackageWorkerJob? job;
+                using (var scope = scopes.CreateScope())
+                {
+                    job = await scope.ServiceProvider.GetRequiredService<IPackageWorkerClient>().GetAsync(status.Id);
+                }
+                if (job is null)
+                {
+                    _jobs[status.Id] = status with { State = "failed", Error = "The render worker no longer knows this package job (it may have restarted)." };
+                    return;
+                }
+                if (job.State == "failed")
+                {
+                    _jobs[status.Id] = status with { State = "failed", Error = job.Error ?? "The package failed." };
+                    return;
+                }
+                if (job.State == "completed")
+                {
+                    var made = status with { State = "registering", Tiles = job.Tiles, Bytes = job.Bytes };
+                    _jobs[status.Id] = made;
+                    using var scope = scopes.CreateScope();
+                    try
+                    {
+                        var row = await scope.ServiceProvider.GetRequiredService<MapPackageManifest>().RegisterAsync(job.OutputName, status.Key);
+                        _jobs[status.Id] = made with { State = "registered", TileSourceKey = row.Key };
+                    }
+                    catch (MapPackageRegistrationException ex)
+                    {
+                        _jobs[status.Id] = made with { State = "failed", Error = $"The package was written but could not be registered: {ex.Message}" };
+                    }
+                    return;
+                }
+                if (DateTimeOffset.UtcNow > deadline)
+                {
+                    _jobs[status.Id] = status with { State = "failed", Error = "Stopped waiting for the package; it may still finish, and then appears in the manifest unregistered." };
+                    return;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            // Background work: nothing above us would observe this.
+            logger.LogError(ex, "Following package job {JobId} failed", status.Id);
+            _jobs[status.Id] = status with { State = "failed", Error = ex.Message };
+        }
+    }
+}

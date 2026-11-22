@@ -45,7 +45,7 @@ import {
   type RenderPlan,
 } from "./render.js";
 import { loadLocationsFile } from "./locations.js";
-import { DEFAULT_PACKAGE_MAX_TILES, buildRasterPackage, planPackage } from "./package.js";
+import { DEFAULT_PACKAGE_MAX_TILES, buildRasterPackage, estimatePackageSize, planPackage } from "./package.js";
 
 const HELP = `journeybook — headless atlas renderer
 
@@ -60,6 +60,8 @@ Usage:
   journeybook package --bbox W,S,E,N --min-zoom <a> --max-zoom <b> --out <file.pmtiles> [--dry-run]
                               raster PMTiles of USGS topo for offline use (accepts --tile-base-url,
                               --tile-source, --tile-cache-dir; --max-tiles <n>, default ${DEFAULT_PACKAGE_MAX_TILES})
+                              --estimate [--sample <n>] fetches n tiles per zoom (default 8) and
+                              prints a measured size estimate instead of writing a package
 
 Geometry (combine freely; at least one of --bbox / --locations / --location):
   --bbox W,S,E,N              tile a page grid over this extent at --scale
@@ -434,7 +436,37 @@ export async function runCli(args: readonly string[]): Promise<number> {
       if (flags.has("dry-run")) {
         const plan = planPackage(bbox, minZoom, maxZoom, USGS_TOPO.maxZoom);
         for (const z of plan.zooms) stdout.write(`z${z.z}: ${z.tiles} tile${z.tiles === 1 ? "" : "s"}\n`);
-        stdout.write(`total ${plan.tiles} tiles. No byte estimate: tile sizes vary too much by terrain to guess.\n`);
+        stdout.write(
+          `total ${plan.tiles} tiles. No byte estimate without fetching (tile size varies with terrain); ` +
+            `--estimate measures a sample.\n`,
+        );
+        return 0;
+      }
+      if (flags.has("estimate")) {
+        const tileBaseUrl = valueOf(flags, "tile-base-url");
+        const sourceId = valueOf(flags, "tile-source");
+        const cacheDir = valueOf(flags, "tile-cache-dir");
+        const sampleText = valueOf(flags, "sample");
+        const est = await estimatePackageSize({
+          bbox,
+          minZoom,
+          maxZoom,
+          ...(tileBaseUrl ? { tileBaseUrl } : {}),
+          ...(sourceId ? { sourceId } : {}),
+          ...(cacheDir ? { cacheDir } : {}),
+          ...(sampleText ? { samplesPerZoom: Number(sampleText) } : {}),
+        });
+        const mb = (b: number) => (b / (1024 * 1024)).toFixed(1);
+        for (const z of est.zooms) {
+          stdout.write(
+            `z${z.z}: ${z.tiles} tiles × ${z.meanBytes} B mean of ${z.sampled} sampled` +
+              `${z.failed ? ` (${z.failed} failed)` : ""} ≈ ${mb(z.estimatedBytes)} MB\n`,
+          );
+        }
+        stdout.write(
+          `total ${est.plan.tiles} tiles ≈ ${mb(est.estimatedBytes)} MB ` +
+            `(samples range ${mb(est.lowBytes)}–${mb(est.highBytes)} MB; directories add a little).\n`,
+        );
         return 0;
       }
       const out = valueOf(flags, "out");

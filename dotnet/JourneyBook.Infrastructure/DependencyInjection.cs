@@ -123,6 +123,18 @@ public static class DependencyInjection
 
         services.AddScoped<IRenderService, RenderService>();
 
+        // --- Offline packages (Stage 7): made by the worker, registered here ----
+        services.AddHttpClient<IPackageWorkerClient, HttpPackageWorkerClient>(http =>
+        {
+            http.BaseAddress = new Uri(workerBaseUrl);
+            http.Timeout = TimeSpan.FromSeconds(30);
+        });
+        var packagePollMs = configuration.GetValue("MapPackages:PollIntervalMs", 2000);
+        var packageGiveUpHours = configuration.GetValue("MapPackages:GiveUpAfterHours", 6d);
+        services.AddSingleton(new MapPackageJobOptions(
+            TimeSpan.FromMilliseconds(packagePollMs), TimeSpan.FromHours(packageGiveUpHours)));
+        services.AddSingleton<MapPackageJobs>();
+
         // Asynchronous rendering: the request enqueues, a hosted loop performs.
         // The queue is a singleton because the producer (a request scope) and the
         // consumer (the hosted loop) have to share one channel; the runner is scoped

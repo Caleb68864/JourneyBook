@@ -89,6 +89,9 @@ services:
       # service on this network is that the port is `expose`d rather than
       # published — a deployment accident, not a control.
       TILE_BASE_URL_ALLOWLIST: "http://api:8080/api/tiles"
+      # Where POST /package writes offline packages (Stage 7). The api reads the same
+      # folder (read-only) to serve and register them.
+      PACKAGES_DIR: /app/data/map-packages
     # Port 8090 stays internal to the compose network; the unauthenticated
     # worker is not reachable from the host (expose, not host-published ports).
     expose:
@@ -96,6 +99,8 @@ services:
     volumes:
       # Same shared volume as api so worker-written PDFs are visible to the api.
       - ../../data/generated:/app/data/generated
+      # Read-write here: the worker writes packages; the api mounts it read-only.
+      - ../../data/map-packages:/app/data/map-packages
     healthcheck:
       # 127.0.0.1 (not localhost): the worker binds IPv4 0.0.0.0, but localhost
       # resolves to IPv6 ::1 first in the container → connection refused.

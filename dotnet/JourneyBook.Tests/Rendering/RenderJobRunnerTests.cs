@@ -561,7 +561,7 @@ public class RenderJobRunnerTests
 
         await RunnerFor(pdfs, worker).RunAsync(SampleJob());
 
-        var completed = Assert.Single(pdfs.Updates.Where(u => u.Status == "Completed"));
+        var completed = Assert.Single(pdfs.Updates, u => u.Status == "Completed");
         Assert.NotNull(completed.SourceMetadataSnapshot);
 
         using var doc = JsonDocument.Parse(completed.SourceMetadataSnapshot!);
@@ -606,7 +606,7 @@ public class RenderJobRunnerTests
 
         await RunnerFor(pdfs, worker).RunAsync(SampleJob());
 
-        var completed = Assert.Single(pdfs.Updates.Where(u => u.Status == "Completed"));
+        var completed = Assert.Single(pdfs.Updates, u => u.Status == "Completed");
         Assert.NotNull(completed.SourceMetadataSnapshot);
 
         using var doc = JsonDocument.Parse(completed.SourceMetadataSnapshot!);
@@ -628,7 +628,7 @@ public class RenderJobRunnerTests
 
         await RunnerFor(pdfs, worker).RunAsync(SampleJob());
 
-        var completed = Assert.Single(pdfs.Updates.Where(u => u.Status == "Completed"));
+        var completed = Assert.Single(pdfs.Updates, u => u.Status == "Completed");
         using var doc = JsonDocument.Parse(completed.SourceMetadataSnapshot!);
         Assert.Equal(
             JsonValueKind.Null,
@@ -655,7 +655,7 @@ public class RenderJobRunnerTests
 
         await RunnerFor(pdfs, worker).RunAsync(job);
 
-        var completed = Assert.Single(pdfs.Updates.Where(u => u.Status == "Completed"));
+        var completed = Assert.Single(pdfs.Updates, u => u.Status == "Completed");
         using var doc = JsonDocument.Parse(completed.SourceMetadataSnapshot!);
         var cache = doc.RootElement.GetProperty("tileCache");
         Assert.Equal("usgs-topo", cache.GetProperty("sourceKey").GetString());
@@ -694,7 +694,7 @@ public class RenderJobRunnerTests
         await new RenderJobRunner(pdfs, worker, new StubCancellations(), NullLogger<RenderJobRunner>.Instance, tileRetention: retention)
             .RunAsync(SampleJob());
 
-        var completed = Assert.Single(pdfs.Updates.Where(u => u.Status == "Completed"));
+        var completed = Assert.Single(pdfs.Updates, u => u.Status == "Completed");
         using var doc = JsonDocument.Parse(completed.SourceMetadataSnapshot!);
         var cache = doc.RootElement.GetProperty("tileCache");
         Assert.Equal(30, cache.GetProperty("serverCacheMaxAgeDays").GetDouble());
@@ -715,7 +715,7 @@ public class RenderJobRunnerTests
 
         await RunnerFor(pdfs, worker).RunAsync(SampleJob());
 
-        var completed = Assert.Single(pdfs.Updates.Where(u => u.Status == "Completed"));
+        var completed = Assert.Single(pdfs.Updates, u => u.Status == "Completed");
         using var doc = JsonDocument.Parse(completed.SourceMetadataSnapshot!);
         var cache = doc.RootElement.GetProperty("tileCache");
         Assert.Equal(JsonValueKind.Null, cache.GetProperty("sourceKey").ValueKind);
@@ -733,7 +733,7 @@ public class RenderJobRunnerTests
 
         await RunnerFor(pdfs, worker).RunAsync(SampleJob());
 
-        var completed = Assert.Single(pdfs.Updates.Where(u => u.Status == "Completed"));
+        var completed = Assert.Single(pdfs.Updates, u => u.Status == "Completed");
         using var doc = JsonDocument.Parse(completed.SourceMetadataSnapshot!);
         Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("tileCache").ValueKind);
     }
@@ -759,7 +759,7 @@ public class RenderJobRunnerTests
         await RunnerFor(pdfs, worker).RunAsync(SampleJob());
 
         Assert.Empty(pdfs.Progress);
-        var completed = Assert.Single(pdfs.Updates.Where(u => u.Status == "Completed"));
+        var completed = Assert.Single(pdfs.Updates, u => u.Status == "Completed");
         Assert.Equal(7, completed.PageCount);
     }
 
@@ -778,7 +778,7 @@ public class RenderJobRunnerTests
 
         await RunnerFor(pdfs, worker).RunAsync(SampleJob());
 
-        var completed = Assert.Single(pdfs.Updates.Where(u => u.Status == "Completed"));
+        var completed = Assert.Single(pdfs.Updates, u => u.Status == "Completed");
         using var doc = JsonDocument.Parse(completed.SourceMetadataSnapshot!);
         Assert.Equal("The \"National\" Map \\ tiles", doc.RootElement.GetProperty("attribution").GetString());
     }
@@ -799,12 +799,12 @@ public class RenderJobRunnerTests
 
         await RunnerFor(pdfs, worker).RunAsync(SampleJob());
 
-        var pdfPhase = Assert.Single(pdfs.Progress.Where(p => p.Phase == "pdf"));
+        var pdfPhase = Assert.Single(pdfs.Progress, p => p.Phase == "pdf");
         // Same two numbers as the last panel report; only the phase differs.
         Assert.Equal(2, pdfPhase.Progress);
         Assert.Equal(2, pdfPhase.PageCount);
 
-        var contract = Assert.Single(pdfs.Progress.Where(p => p.Phase == "contract"));
+        var contract = Assert.Single(pdfs.Progress, p => p.Phase == "contract");
         Assert.Equal(0, contract.PageCount);
     }
 

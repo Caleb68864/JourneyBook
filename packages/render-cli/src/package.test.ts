@@ -12,7 +12,7 @@ import {
   writePmTiles,
   type PackageTile,
 } from "@journeybook/map-sources";
-import { buildRasterPackage, planPackage, sniffRasterType } from "./package.js";
+import { buildRasterPackage, estimatePackageSize, planPackage, sniffRasterType, spreadIndices } from "./package.js";
 import { assembleContract, planAtlasRender, renderAtlas, type RenderAtlasInput } from "./render.js";
 import { runCli } from "./cli.js";
 
@@ -348,5 +348,84 @@ describe("cli package", () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+describe("estimatePackageSize", () => {
+  /** A source whose tile size depends on z and x, so the estimate has something to measure. */
+  function sizedUpstream(fail?: (z: number, x: number) => boolean) {
+    const calls: string[] = [];
+    const fn = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (!/^https?:/i.test(url)) return realFetch(input, init);
+      calls.push(url);
+      const [z, x] = zxyOf(url);
+      if (fail?.(z, x)) return new Response(null, { status: 404 });
+      // z10: 1000 B; z11: 2000 or 3000 B by x parity. A PNG header first, so it looks like a tile.
+      const size = z === 10 ? 1000 : x % 2 === 0 ? 2000 : 3000;
+      const bytes = Buffer.alloc(size);
+      TILE_PNG.copy(bytes, 0, 0, 8);
+      return new Response(new Uint8Array(bytes), { status: 200, headers: { "content-type": "image/png" } });
+    });
+    return { fn, calls };
+  }
+
+  const BBOX: [number, number, number, number] = [-96.9, 40.7, -96.5, 41.0];
+
+  it("multiplies each zoom's tile count by the mean of a few measured tiles", async () => {
+    const up = sizedUpstream();
+    vi.stubGlobal("fetch", up.fn);
+    const plan = planPackage(BBOX, 10, 11);
+    const est = await estimatePackageSize({ bbox: BBOX, minZoom: 10, maxZoom: 11, samplesPerZoom: 4 });
+
+    // Only the samples were fetched, not the package.
+    expect(up.calls.length).toBe(est.sampled);
+    expect(est.sampled).toBeLessThanOrEqual(8);
+    expect(plan.tiles).toBeGreaterThan(est.sampled);
+
+    const z10 = est.zooms.find((z) => z.z === 10)!;
+    expect(z10.meanBytes).toBe(1000);
+    expect(z10.estimatedBytes).toBe(z10.tiles * 1000);
+    const z11 = est.zooms.find((z) => z.z === 11)!;
+    expect(z11.meanBytes).toBeGreaterThanOrEqual(2000);
+    expect(z11.meanBytes).toBeLessThanOrEqual(3000);
+    expect(est.estimatedBytes).toBe(z10.estimatedBytes + z11.estimatedBytes);
+    // The spread is the samples' own, zoom by zoom.
+    expect(est.lowBytes).toBe(z10.tiles * 1000 + z11.tiles * 2000);
+    expect(est.highBytes).toBe(z10.tiles * 1000 + z11.tiles * 3000);
+  });
+
+  it("leaves failed samples out of the mean and says how many, and refuses a zoom with none", async () => {
+    vi.stubGlobal("fetch", sizedUpstream((z, x) => z === 11 && x % 2 === 1).fn);
+    const est = await estimatePackageSize({ bbox: BBOX, minZoom: 10, maxZoom: 11, samplesPerZoom: 4 });
+    const z11 = est.zooms.find((z) => z.z === 11)!;
+    expect(z11.failed).toBeGreaterThan(0);
+    expect(z11.meanBytes).toBe(2000);
+
+    vi.stubGlobal("fetch", sizedUpstream((z) => z === 11).fn);
+    await expect(estimatePackageSize({ bbox: BBOX, minZoom: 10, maxZoom: 11, samplesPerZoom: 4 })).rejects.toThrow(
+      /Every sample at z11 failed.*HTTP 404/,
+    );
+  });
+
+  it("spreads samples evenly over the range, ends included, without repeats", () => {
+    expect(spreadIndices(10, 3)).toEqual([0, 5, 9]);
+    expect(spreadIndices(3, 8)).toEqual([0, 1, 2]);
+    expect(spreadIndices(9, 1)).toEqual([4]);
+    expect(spreadIndices(0, 4)).toEqual([]);
+  });
+
+  it("the CLI prints a measured estimate with --estimate", async () => {
+    vi.stubGlobal("fetch", sizedUpstream().fn);
+    const out: string[] = [];
+    const spy = vi.spyOn(process.stdout, "write").mockImplementation((s) => (out.push(String(s)), true));
+    try {
+      const code = await runCli(["package", "--bbox", BBOX.join(","), "--min-zoom", "10", "--max-zoom", "10", "--estimate", "--sample", "2"]);
+      expect(code).toBe(0);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(out.join("")).toMatch(/z10: \d+ tiles × 1000 B mean of 2 sampled/);
+    expect(out.join("")).toMatch(/total \d+ tiles ≈ [\d.]+ MB/);
   });
 });

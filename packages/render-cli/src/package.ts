@@ -146,6 +146,107 @@ export async function assertOfflineAllowed(basemap: RasterBasemap, tileBaseUrl?:
   }
 }
 
+/** Tiles fetched per zoom for a size estimate, unless the caller asks for more or fewer. */
+export const DEFAULT_ESTIMATE_SAMPLES_PER_ZOOM = 8;
+
+export interface PackageEstimateZoom {
+  z: number;
+  tiles: number;
+  /** Samples fetched and measured at this zoom. */
+  sampled: number;
+  /** Samples that failed (not counted in the mean). */
+  failed: number;
+  meanBytes: number;
+  /** `tiles × meanBytes`, rounded. */
+  estimatedBytes: number;
+}
+
+export interface PackageEstimate {
+  plan: PackagePlan;
+  zooms: PackageEstimateZoom[];
+  /** Sum of each zoom's `tiles × mean sample size`. */
+  estimatedBytes: number;
+  /** Each zoom at its smallest sample, and at its largest: the spread the samples show, not a bound. */
+  lowBytes: number;
+  highBytes: number;
+  sampled: number;
+  failed: number;
+}
+
+/**
+ * `count` indices spread evenly over `0..n-1`, first and last included, no repeats. Deterministic, so
+ * two estimates of one plan fetch the same tiles (and a second one is served from the cache).
+ */
+export function spreadIndices(n: number, count: number): number[] {
+  if (n <= 0 || count <= 0) return [];
+  if (count >= n) return Array.from({ length: n }, (_, i) => i);
+  if (count === 1) return [Math.floor((n - 1) / 2)];
+  const out = new Set<number>();
+  for (let k = 0; k < count; k++) out.add(Math.round((k * (n - 1)) / (count - 1)));
+  return [...out];
+}
+
+/**
+ * Estimate a package's size by MEASURING a few real tiles per zoom, not by guessing a per-tile
+ * figure: USGS tile size varies with terrain (open plains compress far better than a town), so a
+ * constant would be invented. Fetches through `loadTile`, the package's own path, so the samples
+ * warm the cache the package will read. The archive adds its directories on top (a few bytes
+ * per tile entry), which this leaves out.
+ */
+export async function estimatePackageSize(
+  options: PackageOptions & { samplesPerZoom?: number },
+): Promise<PackageEstimate> {
+  const basemap = options.basemap ?? USGS_TOPO;
+  const urlError = tileBaseUrlError(options.tileBaseUrl);
+  if (urlError) throw new Error(urlError);
+  const plan = planPackage(options.bbox, options.minZoom, options.maxZoom, basemap.maxZoom);
+  const per = options.samplesPerZoom ?? DEFAULT_ESTIMATE_SAMPLES_PER_ZOOM;
+  if (!Number.isInteger(per) || per < 1) throw new Error(`samples per zoom must be a whole number ≥ 1 (got ${per})`);
+  const cacheSource = options.sourceId ?? basemap.id;
+  const { maxZoom: _ignored, ...tileOptions } = options;
+  void _ignored;
+
+  const zooms: PackageEstimateZoom[] = [];
+  let low = 0;
+  let high = 0;
+  for (const zr of plan.zooms) {
+    const width = zr.maxX - zr.minX + 1;
+    const picks = spreadIndices(zr.tiles, per).map((i) => ({ x: zr.minX + (i % width), y: zr.minY + Math.floor(i / width) }));
+    const results = await mapWithConcurrency(
+      picks.map(({ x, y }) => () => loadTile(basemap, zr.z, x, y, cacheSource, tileOptions)),
+      options.tileConcurrency ?? DEFAULT_TILE_CONCURRENCY,
+    );
+    const sizes = results.filter((r) => typeof r !== "string").map((r) => (r as { bytes: Uint8Array }).bytes.length);
+    const failures = results.filter((r): r is string => typeof r === "string");
+    if (sizes.length === 0) {
+      throw new Error(
+        `Every sample at z${zr.z} failed from ${cacheSource}, so there is nothing to estimate from. ` +
+          `Causes: ${summarizeTileFailures(failures)}.`,
+      );
+    }
+    const mean = sizes.reduce((a, b) => a + b, 0) / sizes.length;
+    low += zr.tiles * Math.min(...sizes);
+    high += zr.tiles * Math.max(...sizes);
+    zooms.push({
+      z: zr.z,
+      tiles: zr.tiles,
+      sampled: sizes.length,
+      failed: failures.length,
+      meanBytes: Math.round(mean),
+      estimatedBytes: Math.round(zr.tiles * mean),
+    });
+  }
+  return {
+    plan,
+    zooms,
+    estimatedBytes: zooms.reduce((a, z) => a + z.estimatedBytes, 0),
+    lowBytes: low,
+    highBytes: high,
+    sampled: zooms.reduce((a, z) => a + z.sampled, 0),
+    failed: zooms.reduce((a, z) => a + z.failed, 0),
+  };
+}
+
 /** Fetch every tile in the plan and write the archive. Throws on any failed or non-raster tile. */
 export async function buildRasterPackage(options: PackageOptions): Promise<PackageResult> {
   const basemap = options.basemap ?? USGS_TOPO;

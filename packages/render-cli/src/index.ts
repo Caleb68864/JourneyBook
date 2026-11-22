@@ -30,3 +30,13 @@ export {
   type TileBaseUrlPolicy,
 } from "./tile-url.js";
 export const RENDER_CLI_VERSION = "0.0.0";
+export {
+  buildRasterPackage,
+  estimatePackageSize,
+  planPackage,
+  DEFAULT_PACKAGE_MAX_TILES,
+  type PackageOptions,
+  type PackagePlan,
+  type PackageResult,
+  type PackageEstimate,
+} from "./package.js";
