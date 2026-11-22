@@ -1536,3 +1536,10 @@ Each entry follows this shape:
 - Evidence: `GenerateButton.progress.test.tsx` "a render that completes after the button is gone does not open a tab" holds the status poll, unmounts, then releases it as Completed. The old code called `window.open` once; now it is never called. Web 225.
 - Surfaces: apps/web/src/components/GenerateButton.tsx, apps/web/src/components/GenerateButton.progress.test.tsx
 - Commit: (pending)
+
+## 2026-11-22 — `declinationDate` must be a real day
+- Symptom (independent review, verified): the check was only the `YYYY-MM-DD` pattern, so `2026-13-01` or `2026-02-30` passed. `new Date(...)` was invalid, `decimalYear` returned NaN, and every tier-4 page printed "Declination not shown: WMM2025 is valid for 2025.0 to 2030.0; NaN is outside it". Reachable from the CLI and direct worker calls (the API never sends the field).
+- Fix: `validateInput` also requires a valid `Date` whose ISO day is the input.
+- Evidence: `furniture.test.ts` rejects `2026-13-01` and `2026-02-30`. Against the old `render.ts`, a `2026-13-01` render completed.
+- Surfaces: packages/render-cli/src/render.ts, packages/render-cli/src/furniture.test.ts
+- Commit: (pending)

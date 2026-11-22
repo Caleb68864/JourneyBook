@@ -1401,6 +1401,8 @@ Across the code the 2026-11-21/22 branches touched. Branch `work/2026-11-22-stag
 - [x] ~~**A render finishing after `GenerateButton` unmounted still opened the PDF tab.**~~ ✅
   The earlier fix guarded only the failure path; the success path now returns when the wait
   was aborted. The test (poll held, unmount, released as Completed) fails on the old code.
+- [x] ~~**`declinationDate: "2026-13-01"` printed "NaN is outside it" on tier-4 pages.**~~ ✅
+  The date must round-trip as a real day; the old code rendered it.
 
 ## Phase 1: Print Geometry
 Build the Docker-hosted React/Vite/shadcn/Tailwind web app skeleton, define the outdoor field-guide visual system, accept bounding boxes, create page grid, generate overview and detail pages, and validate Letter-size PDF output from the preferred client-side React PDF path.

@@ -79,7 +79,10 @@ describe("Stage 6B Level 4 declination through renderAtlas", () => {
   });
 
   it("refuses a malformed date, and the CLI flag reaches the engine", async () => {
-    await expect(renderTo({ tier: 4, declinationDate: "2026-7-2" })).rejects.toThrow(/must be YYYY-MM-DD/);
+    await expect(renderTo({ tier: 4, declinationDate: "2026-7-2" })).rejects.toThrow(/must be a real YYYY-MM-DD date/);
+    // The right shape but no such day: it used to become NaN and print "NaN is outside it".
+    await expect(renderTo({ tier: 4, declinationDate: "2026-13-01" })).rejects.toThrow(/must be a real YYYY-MM-DD date/);
+    await expect(renderTo({ tier: 4, declinationDate: "2026-02-30" })).rejects.toThrow(/must be a real YYYY-MM-DD date/);
     expect(
       inputFromArgs(["--location", "-96.7,40.8", "--scale", "usgs-7-5-min", "--declination-date", "2026-07-02"]),
     ).toMatchObject({ declinationDate: "2026-07-02" });

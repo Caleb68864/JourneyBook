@@ -382,8 +382,17 @@ function validateInput(input: RenderAtlasInput): void {
   if (!Number.isInteger(input.tier) || input.tier < 1 || input.tier > 4) {
     throw new Error(`Invalid tier ${String(input.tier)}: must be an integer 1–4.`);
   }
-  if (input.declinationDate !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(input.declinationDate)) {
-    throw new Error(`Invalid declinationDate "${input.declinationDate}": must be YYYY-MM-DD.`);
+  if (input.declinationDate !== undefined) {
+    // Shape AND a real day: "2026-13-01" matches the pattern, makes an invalid Date, and
+    // printed "NaN is outside it" on every tier-4 page.
+    const d = new Date(`${input.declinationDate}T00:00:00Z`);
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(input.declinationDate) ||
+      Number.isNaN(d.getTime()) ||
+      d.toISOString().slice(0, 10) !== input.declinationDate
+    ) {
+      throw new Error(`Invalid declinationDate "${input.declinationDate}": must be a real YYYY-MM-DD date.`);
+    }
   }
   if (input.overlap !== undefined) {
     if (!Number.isFinite(input.overlap) || input.overlap < 0 || input.overlap >= 1) {
