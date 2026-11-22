@@ -436,3 +436,76 @@ describe("render-worker cancel, mid-render", () => {
     expect(existsSync(join(slowDir, "cancelled.pdf"))).toBe(false);
   });
 });
+
+/**
+ * A failed render's summary line, at the level an operator filters on.
+ *
+ * Every failure used to be written at `info`, so a log filtered to `warn` showed
+ * nothing at all during a total tile outage. An upstream failure is `warn`; an
+ * input error is the caller's mistake and stays `info`.
+ */
+describe("render-worker failure log level", () => {
+  let logApp: FastifyInstance;
+  let logDir: string;
+  const lines: Array<{ level: number; outcome?: string; errorKind?: string }> = [];
+
+  beforeAll(async () => {
+    // Every tile is a 503, which the engine records as an upstream failure;
+    // anything else (yoga's wasm `data:` URL) goes to the real fetch.
+    const real = globalThis.fetch;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: unknown, init?: RequestInit) => {
+        if (typeof url !== "string" || !/^https?:/i.test(url)) {
+          return real(url as Parameters<typeof fetch>[0], init);
+        }
+        return new Response(null, { status: 503 });
+      }),
+    );
+    logDir = mkdtempSync(join(tmpdir(), "jb-worker-log-"));
+    logApp = Fastify({
+      logger: {
+        level: "trace",
+        stream: { write: (chunk: string) => void lines.push(JSON.parse(chunk)) },
+      },
+    });
+    await logApp.register(renderRoute, { generatedDir: logDir });
+    await logApp.ready();
+  });
+
+  afterAll(async () => {
+    vi.unstubAllGlobals();
+    await logApp.close();
+    rmSync(logDir, { recursive: true, force: true });
+  });
+
+  it("[BEHAVIORAL] logs an upstream (tile outage) failure at warn", async () => {
+    const accepted = await logApp.inject({
+      method: "POST",
+      url: "/render",
+      payload: {
+        mode: "location",
+        center: { lng: -96.7, lat: 40.8 },
+        scalePresetId: "usgs-7-5-min",
+        tier: 1,
+        basemap: true,
+        panelWidthPx: 256,
+        outputPath: "outage.pdf",
+      },
+    });
+    expect(accepted.statusCode).toBe(202);
+    const { jobId } = accepted.json();
+    let record: JobRecord | null = null;
+    for (let i = 0; i < 900 && record === null; i++) {
+      const r = (await logApp.inject({ method: "GET", url: `/jobs/${jobId}` })).json() as JobRecord;
+      if (r.state !== "rendering") record = r;
+      else await new Promise((t) => setTimeout(t, 20));
+    }
+    expect(record?.errorKind).toBe("upstream");
+
+    const summary = lines.find((l) => l.outcome === "error" && l.errorKind === "upstream");
+    expect(summary).toBeDefined();
+    // pino: 30 info, 40 warn.
+    expect(summary!.level).toBe(40);
+  });
+});

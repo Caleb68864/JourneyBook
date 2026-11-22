@@ -26,6 +26,14 @@ export const DEFAULT_TILE_TIMEOUT_MS = 10_000;
 export const DEFAULT_TILE_ATTEMPTS = 3;
 
 /**
+ * Longest `Retry-After` a tile retry will wait out. A source asking for more
+ * than this is told "no" rather than made to wait: one tile holding a render for
+ * minutes is worse than the tile failing and the failure saying why, and
+ * retrying sooner than asked is the one thing a throttled client must not do.
+ */
+export const DEFAULT_MAX_RETRY_AFTER_MS = 30_000;
+
+/**
  * Concurrent tile requests per panel. A letter page covers ~35 tiles, and the
  * previous code opened all of them at once with `Promise.all` — a burst that
  * looks like a scraper to the source and, across a 30-page atlas rendered
@@ -168,6 +176,11 @@ export interface RenderPanelOptions {
   tileTimeoutMs?: number;
   /** Total attempts per tile. Default {@link DEFAULT_TILE_ATTEMPTS}. */
   tileAttempts?: number;
+  /**
+   * Longest `Retry-After` (on a 429/503) a retry waits out, in ms; a longer one
+   * ends that tile's retries. Default {@link DEFAULT_MAX_RETRY_AFTER_MS}.
+   */
+  maxRetryAfterMs?: number;
   /** Max concurrent tile requests. Default {@link DEFAULT_TILE_CONCURRENCY}. */
   tileConcurrency?: number;
   /**
@@ -246,14 +259,33 @@ function describeFetchError(err: unknown): TileFailure {
   return `network: ${err instanceof Error ? err.message : String(err)}${cause}`;
 }
 
+/**
+ * A `Retry-After` header as milliseconds from `nowMs`, or `null` when it is
+ * absent or unreadable. RFC 9110 allows two forms: delay-seconds (`120`) and an
+ * HTTP-date (`Wed, 21 Oct 2026 07:28:00 GMT`). A date already past is 0.
+ */
+export function parseRetryAfter(value: string | null | undefined, nowMs: number = Date.now()): number | null {
+  if (value == null) return null;
+  const v = value.trim();
+  if (v === "") return null;
+  if (/^\d+$/.test(v)) return Number(v) * 1000;
+  // Only a date-shaped value: `Date.parse` would also read "1.5" or "-3".
+  if (!/[a-z]/i.test(v)) return null;
+  const at = Date.parse(v);
+  if (Number.isNaN(at)) return null;
+  return Math.max(0, at - nowMs);
+}
+
 async function fetchTile(
   url: string,
   timeoutMs: number,
   attempts: number,
+  maxRetryAfterMs: number = DEFAULT_MAX_RETRY_AFTER_MS,
 ): Promise<FetchedTile | TileFailure> {
   let failure: TileFailure = "no attempts made";
   for (let attempt = 1; attempt <= attempts; attempt++) {
     let retryable: boolean;
+    let retryAfterMs: number | null = null;
     try {
       const res = await fetch(url, {
         headers: { "User-Agent": TILE_USER_AGENT },
@@ -274,15 +306,26 @@ async function fetchTile(
       }
       failure = `HTTP ${res.status}`;
       retryable = isRetryableStatus(res.status);
+      if (retryable) retryAfterMs = parseRetryAfter(res.headers?.get?.("retry-after"));
     } catch (err) {
       // Network error or timeout -- the transient case retries exist for.
       failure = describeFetchError(err);
       retryable = true;
     }
     if (!retryable || attempt === attempts) return failure;
-    // Exponential backoff (200 ms, 400 ms). Retrying a throttled source
-    // immediately is how a 429 becomes a ban.
-    await new Promise((resolve) => setTimeout(resolve, 200 * 2 ** (attempt - 1)));
+    // A source that names a window longer than we are willing to wait gets no
+    // retry at all: retrying inside the window is exactly what it asked us not
+    // to do. The label is fixed (no seconds) so `summarizeTileFailures` groups
+    // a whole throttled page under one reason.
+    if (retryAfterMs !== null && retryAfterMs > maxRetryAfterMs) {
+      return `${failure} (Retry-After over ${Math.round(maxRetryAfterMs / 1000)} s)`;
+    }
+    // Exponential backoff (200 ms, 400 ms), or the source's own Retry-After when
+    // that is longer. Retrying a throttled source immediately is how a 429
+    // becomes a ban, and a fixed backoff used to spend all three attempts inside
+    // the window the source had just said to wait out.
+    const backoffMs = 200 * 2 ** (attempt - 1);
+    await new Promise((resolve) => setTimeout(resolve, Math.max(backoffMs, retryAfterMs ?? 0)));
   }
   return failure;
 }
@@ -342,6 +385,7 @@ export async function loadTile(
     resolveTileUrl(basemap, z, x, y, options),
     options?.tileTimeoutMs ?? DEFAULT_TILE_TIMEOUT_MS,
     options?.tileAttempts ?? DEFAULT_TILE_ATTEMPTS,
+    options?.maxRetryAfterMs ?? DEFAULT_MAX_RETRY_AFTER_MS,
   );
   if (typeof tile !== "string" && options?.cacheDir) {
     // The extension is derived, not assumed. This site used to pass a literal

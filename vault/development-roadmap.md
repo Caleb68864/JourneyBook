@@ -1013,10 +1013,20 @@ Each fix has a test that failed before it. Write-ups in `docs/decisions.md` unde
 - **Retention may delete the orphaned PDF.** A render recorded Failed after it finished has a
   file on disk that the Failed row does not point at (`FilePath` is null). Nothing reclaims or
   re-links it.
-- **A 429's `Retry-After` is ignored.** `fetchTile` backs off a fixed 200/400 ms whatever
-  the source asks for, so a throttled render spends its three attempts inside the window the
-  source said to wait out.
-- **The worker logs an upstream (tile) failure at `info`.** `render-route.ts` writes every
+- ~~**A 429's `Retry-After` is ignored.**~~ ✅ 2026-11-21 (branch
+  `fix/tile-retry-after-and-upstream-warn`). `fetchTile` waits `max(backoff, Retry-After)`
+  on a retryable status; `parseRetryAfter` reads delay-seconds and HTTP-dates. A
+  Retry-After over 30 s (`maxRetryAfterMs`) ends that tile's retries, labelled
+  `HTTP 429 (Retry-After over 30 s)`. 4 new `panel.test.ts` tests fail on the old code.
+  Not done: the C# proxy does not pass a source's `Retry-After` on, so through the proxy
+  this only sees what the proxy itself answers. *As found:* `fetchTile` backs off a fixed
+  200/400 ms whatever the source asks for, so a throttled render spends its three attempts
+  inside the window the source said to wait out.
+- ~~**The worker logs an upstream (tile) failure at `info`.**~~ ✅ 2026-11-21 (same
+  branch). The summary line for `errorKind: "upstream"` is `warn`. The test the note said
+  was missing exists: `render-route.test.ts` "failure log level" captures the Fastify
+  logger and forces an outage by stubbing every tile to 503; it fails on the old code
+  (level 30, expected 40). *As found:* `render-route.ts` writes every
   failed render's summary line at `info`; only `internal` errors also get an `error` line. A
   log filter at `warn` therefore shows nothing during a total tile outage. `upstream` should
   be `warn`. Not done here: the route test has no log capture and no cheap way to force an
