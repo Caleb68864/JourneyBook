@@ -111,12 +111,17 @@ export function GenerateButton({ projectId, options, disabled }: GenerateButtonP
       window.open(downloadUrl, "_blank", "noopener,noreferrer");
       setStatus("done");
     } catch (err) {
+      // Aborted by us: the button unmounted (or a newer render replaced this one). The
+      // wait was abandoned, not failed, and there is no UI left that this state belongs to.
+      if (controller.signal.aborted) return;
       setErrorMsg(err instanceof Error ? err.message : "Render failed.");
       setStatus("error");
     } finally {
-      setJobStatus(null);
-      pdfIdRef.current = null;
-      setCancelling(false);
+      if (!controller.signal.aborted) {
+        setJobStatus(null);
+        pdfIdRef.current = null;
+        setCancelling(false);
+      }
     }
   }
 

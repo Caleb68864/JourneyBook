@@ -224,3 +224,38 @@ describe("GenerateButton can stop the render, not just stop watching it", () => 
     expect(await screen.findByText(/already Completed/)).toBeTruthy();
   });
 });
+
+describe("GenerateButton after it is gone", () => {
+  /**
+   * Unmounting mid-render aborts the wait (navigating away abandons the poll, it does not
+   * stop the render). The aborted wait then rejected into `catch`/`finally`, which set
+   * status, error text and job state on a component that no longer exists. Harmless while
+   * jsdom is alive; when that rejection landed after the test environment was torn down,
+   * React reached for `window` and the whole web suite failed on an unhandled
+   * "ReferenceError: window is not defined" (seen under load, from this file). Taking
+   * `window` away here is that teardown, made deterministic.
+   */
+  it("[BEHAVIORAL] an unmount mid-render touches no state when the abandoned wait settles", async () => {
+    stubFetch({ id: "pdf-1", status: "Rendering", progress: 1, pageCount: 4, errorMessage: null });
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => void unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      startRender();
+      await screen.findByRole("button", { name: /Rendering…/ });
+
+      const realWindow = globalThis.window;
+      cleanup();
+      vi.stubGlobal("window", undefined);
+      try {
+        // Past one poll interval (1 s): the old wait slept it out before noticing the abort.
+        await new Promise((r) => setTimeout(r, 1300));
+      } finally {
+        vi.stubGlobal("window", realWindow);
+      }
+      expect(unhandled, String(unhandled[0])).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+});

@@ -1335,6 +1335,15 @@ found while closing the 2026-11-09 list, plus that list's two test-coverage gaps
   one) pass on both. Not covered: a render the API stopped waiting for (timeout) that the
   worker finishes later, and a worker still drawing across an API restart; both write after
   the cleanup. Files orphaned before this change stay.
+- [x] ~~**The web suite fails now and then on "window is not defined"**~~ ✅ 2026-11-21
+  (found running the full suite). `waitForRender`'s sleep ignored its abort signal, so when
+  `GenerateButton` unmounted mid-render the abandoned wait slept out up to a whole poll
+  interval (1 s), then threw into `catch`/`finally`, which set state on the unmounted button.
+  When that landed after the test environment was torn down, React read `window.event` and
+  the run failed on an unhandled rejection. The sleep now wakes on abort, and the button
+  ignores a wait it aborted itself. A new `GenerateButton.progress.test.tsx` case removes
+  `window` after unmount (the teardown, made deterministic): it fails on the old code with 6
+  unhandled rejections, as does the new `render-polling.test.ts` abort case.
 - [x] ~~**What the golden fixture cannot see**~~ ✅ 2026-11-21 (the geometry half).
   `render-cli/src/contract-golden.test.ts` pins the whole `assembleContract` output (the
   render worker's entry point) to `data/fixtures/contract-cases.json` for six cases: one

@@ -147,7 +147,7 @@ export interface WaitForRenderOptions {
   /** Seam for tests: how to read the record. Defaults to the real API. */
   fetchStatus?: (pdfId: string) => Promise<GeneratedPdf>;
   /** Seam for tests: how to wait. Defaults to setTimeout. */
-  sleep?: (ms: number) => Promise<void>;
+  sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   /** Seam for tests: the clock the timeout is measured against. */
   now?: () => number;
 }
@@ -173,8 +173,23 @@ const DEFAULT_INTERVAL_MS = 1000;
  */
 const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000;
 
-const realSleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
+/**
+ * Wait `ms`, or until `signal` aborts, whichever comes first. Abort-aware on purpose: the
+ * old sleep ignored the signal, so an abandoned wait (the button unmounted) kept its timer
+ * for up to a whole interval and only then threw, by which point a test environment could
+ * be gone and React's state update failed on a missing `window`.
+ */
+const realSleep = (ms: number, signal?: AbortSignal): Promise<void> =>
+  new Promise((resolve) => {
+    if (signal?.aborted) return resolve();
+    const timer = setTimeout(done, ms);
+    function done() {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", done);
+      resolve();
+    }
+    signal?.addEventListener("abort", done, { once: true });
+  });
 
 /**
  * Poll a generated-PDF record until it completes, fails, times out, or is aborted.
@@ -263,6 +278,6 @@ export async function waitForRender(
       );
     }
 
-    await sleep(intervalMs);
+    await sleep(intervalMs, signal);
   }
 }
