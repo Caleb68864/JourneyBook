@@ -1335,7 +1335,17 @@ found while closing the 2026-11-09 list, plus that list's two test-coverage gaps
   one) pass on both. Not covered: a render the API stopped waiting for (timeout) that the
   worker finishes later, and a worker still drawing across an API restart; both write after
   the cleanup. Files orphaned before this change stay.
-- [ ] **What the golden fixture cannot see** (see the 2026-11-09 list).
+- [x] ~~**What the golden fixture cannot see**~~ ✅ 2026-11-21 (the geometry half).
+  `render-cli/src/contract-golden.test.ts` pins the whole `assembleContract` output (the
+  render worker's entry point) to `data/fixtures/contract-cases.json` for six cases: one
+  location page; locations with their own scale, pin and notes; zoom ladders (default and
+  per-location); the cover grid; route corridor pages with the polyline; and a bbox grid in
+  landscape with wide margins, a gutter and 10% overlap. Numbers at 10 decimal places, a
+  check that each case really reaches its mode, and `UPDATE_FIXTURES=1` to regenerate.
+  Mutation-checked against the old fixture: route page centres moved 5% of a step fail the
+  new file and pass `sample-atlas.json` (6/6); location pages 1% too tall fail 5 of 6 new
+  cases and pass the old one. The PDF and panel half is the print-fidelity test above. The
+  worker wire was already pinned (`WorkerWirePayloadParityTests`, `wire-contract.test.ts`).
 - [x] ~~**What `scale-fidelity.test.ts` cannot see**~~ ✅ 2026-11-21.
   `render-cli/src/print-fidelity.test.ts` renders through `renderAtlas` with a basemap
   (stubbed tiles) at five setups (defaults; wide margins with a 0.75 in gutter; landscape;

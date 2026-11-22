@@ -1,0 +1,633 @@
+{
+  "note": "Written by packages/render-cli/src/contract-golden.test.ts with UPDATE_FIXTURES=1.",
+  "cases": {
+    "location, one page": {
+      "contract": {
+        "version": 1,
+        "scale": {
+          "id": "usgs-7-5-min",
+          "label": "7.5-minute (1:24,000)",
+          "ratio": 24000,
+          "panelWidthPx": 1078
+        },
+        "margins": {
+          "top": 0.5,
+          "right": 0.5,
+          "bottom": 0.5,
+          "left": 0.5
+        },
+        "pages": [
+          {
+            "id": "L1",
+            "bbox": [
+              -96.7250351695,
+              40.7926694309,
+              -96.6801648305,
+              40.8345261333
+            ],
+            "orientation": "portrait",
+            "tier": 2,
+            "scale": {
+              "id": "usgs-7-5-min",
+              "label": "7.5-minute (1:24,000)",
+              "ratio": 24000,
+              "panelWidthPx": 1078
+            },
+            "neighbors": {}
+          }
+        ]
+      }
+    },
+    "locations with their own scale, pin and notes": {
+      "contract": {
+        "version": 1,
+        "scale": {
+          "id": "usgs-7-5-min",
+          "label": "7.5-minute (1:24,000)",
+          "ratio": 24000,
+          "panelWidthPx": 1078
+        },
+        "margins": {
+          "top": 0.5,
+          "right": 0.5,
+          "bottom": 0.5,
+          "left": 0.5
+        },
+        "pages": [
+          {
+            "id": "L1",
+            "bbox": [
+              -96.7259702744,
+              40.7917972277,
+              -96.6792297256,
+              40.8353979591
+            ],
+            "orientation": "portrait",
+            "title": "Capitol",
+            "pin": {
+              "shape": "star",
+              "color": "red"
+            },
+            "notes": "Start here.",
+            "tier": 3,
+            "scale": {
+              "id": "1-25000",
+              "label": "1:25,000",
+              "ratio": 25000,
+              "panelWidthPx": 1863
+            },
+            "neighbors": {}
+          },
+          {
+            "id": "L2",
+            "bbox": [
+              -96.7958233813,
+              40.7576693062,
+              -96.7509766187,
+              40.7995262634
+            ],
+            "orientation": "portrait",
+            "title": "Pioneers Park",
+            "tier": 3,
+            "scale": {
+              "id": "usgs-7-5-min",
+              "label": "7.5-minute (1:24,000)",
+              "ratio": 24000,
+              "panelWidthPx": 1078
+            },
+            "neighbors": {}
+          }
+        ]
+      }
+    },
+    "zoom ladder, default and per-location": {
+      "contract": {
+        "version": 1,
+        "scale": {
+          "id": "usgs-7-5-min",
+          "label": "7.5-minute (1:24,000)",
+          "ratio": 24000,
+          "panelWidthPx": 1078
+        },
+        "margins": {
+          "top": 0.5,
+          "right": 0.5,
+          "bottom": 0.5,
+          "left": 0.5
+        },
+        "pages": [
+          {
+            "id": "L1a",
+            "bbox": [
+              -96.7961730587,
+              40.7263601401,
+              -96.6090269413,
+              40.9007628489
+            ],
+            "orientation": "portrait",
+            "title": "Capitol",
+            "tier": 2,
+            "scale": {
+              "id": "1-100000",
+              "label": "1:100,000",
+              "ratio": 100000,
+              "panelWidthPx": 1863
+            },
+            "neighbors": {}
+          },
+          {
+            "id": "L1b",
+            "bbox": [
+              -96.7250351695,
+              40.7926694309,
+              -96.6801648305,
+              40.8345261333
+            ],
+            "orientation": "portrait",
+            "title": "Capitol",
+            "tier": 2,
+            "scale": {
+              "id": "usgs-7-5-min",
+              "label": "7.5-minute (1:24,000)",
+              "ratio": 24000,
+              "panelWidthPx": 1078
+            },
+            "neighbors": {}
+          },
+          {
+            "id": "L2a",
+            "bbox": [
+              -96.734036282,
+              40.7959694426,
+              -96.689163718,
+              40.8378261211
+            ],
+            "orientation": "portrait",
+            "title": "Haymarket",
+            "tier": 2,
+            "scale": {
+              "id": "usgs-7-5-min",
+              "label": "7.5-minute (1:24,000)",
+              "ratio": 24000,
+              "panelWidthPx": 1078
+            },
+            "neighbors": {}
+          },
+          {
+            "id": "L2b",
+            "bbox": [
+              -96.7349714333,
+              40.7950972399,
+              -96.6882285667,
+              40.8386979464
+            ],
+            "orientation": "portrait",
+            "title": "Haymarket",
+            "tier": 2,
+            "scale": {
+              "id": "1-25000",
+              "label": "1:25,000",
+              "ratio": 25000,
+              "panelWidthPx": 1863
+            },
+            "neighbors": {}
+          }
+        ]
+      }
+    },
+    "cover grid over the locations": {
+      "contract": {
+        "version": 1,
+        "scale": {
+          "id": "usgs-7-5-min",
+          "label": "7.5-minute (1:24,000)",
+          "ratio": 24000,
+          "panelWidthPx": 1078
+        },
+        "margins": {
+          "top": 0.5,
+          "right": 0.5,
+          "bottom": 0.5,
+          "left": 0.5
+        },
+        "pages": [
+          {
+            "id": "A1",
+            "bbox": [
+              -96.8052965445,
+              40.7977525328,
+              -96.760422778,
+              40.8396091983
+            ],
+            "orientation": "portrait",
+            "tier": 1,
+            "neighbors": {
+              "south": "B1",
+              "east": "A2"
+            }
+          },
+          {
+            "id": "A2",
+            "bbox": [
+              -96.7604368862,
+              40.7977612537,
+              -96.7155631138,
+              40.8396179191
+            ],
+            "orientation": "portrait",
+            "tier": 1,
+            "neighbors": {
+              "south": "B2",
+              "west": "A1",
+              "east": "A3"
+            }
+          },
+          {
+            "id": "A3",
+            "bbox": [
+              -96.715577222,
+              40.7977525328,
+              -96.6707034555,
+              40.8396091983
+            ],
+            "orientation": "portrait",
+            "tier": 1,
+            "neighbors": {
+              "south": "B3",
+              "west": "A2"
+            }
+          },
+          {
+            "id": "B1",
+            "bbox": [
+              -96.8052542778,
+              40.7558955755,
+              -96.7604087089,
+              40.7977525457
+            ],
+            "orientation": "portrait",
+            "tier": 1,
+            "neighbors": {
+              "north": "A1",
+              "east": "B2"
+            }
+          },
+          {
+            "id": "B2",
+            "bbox": [
+              -96.7604227874,
+              40.7559042837,
+              -96.7155772126,
+              40.7977612537
+            ],
+            "orientation": "portrait",
+            "tier": 1,
+            "neighbors": {
+              "north": "A2",
+              "west": "B1",
+              "east": "B3"
+            }
+          },
+          {
+            "id": "B3",
+            "bbox": [
+              -96.7155912911,
+              40.7558955755,
+              -96.6707457222,
+              40.7977525457
+            ],
+            "orientation": "portrait",
+            "tier": 1,
+            "neighbors": {
+              "north": "A3",
+              "west": "B2"
+            }
+          },
+          {
+            "id": "L1",
+            "bbox": [
+              -96.7250351695,
+              40.7926694309,
+              -96.6801648305,
+              40.8345261333
+            ],
+            "orientation": "portrait",
+            "tier": 1,
+            "scale": {
+              "id": "usgs-7-5-min",
+              "label": "7.5-minute (1:24,000)",
+              "ratio": 24000,
+              "panelWidthPx": 1078
+            },
+            "neighbors": {}
+          },
+          {
+            "id": "L2",
+            "bbox": [
+              -96.7958233813,
+              40.7576693062,
+              -96.7509766187,
+              40.7995262634
+            ],
+            "orientation": "portrait",
+            "tier": 1,
+            "scale": {
+              "id": "usgs-7-5-min",
+              "label": "7.5-minute (1:24,000)",
+              "ratio": 24000,
+              "panelWidthPx": 1078
+            },
+            "neighbors": {}
+          },
+          {
+            "id": "L3",
+            "bbox": [
+              -96.734036282,
+              40.7959694426,
+              -96.689163718,
+              40.8378261211
+            ],
+            "orientation": "portrait",
+            "tier": 1,
+            "scale": {
+              "id": "usgs-7-5-min",
+              "label": "7.5-minute (1:24,000)",
+              "ratio": 24000,
+              "panelWidthPx": 1078
+            },
+            "neighbors": {}
+          }
+        ]
+      },
+      "coverBBox": [
+        -96.7934,
+        40.7586,
+        -96.6826,
+        40.8369
+      ]
+    },
+    "route corridor between stops": {
+      "contract": {
+        "version": 1,
+        "scale": {
+          "id": "usgs-7-5-min",
+          "label": "7.5-minute (1:24,000)",
+          "ratio": 24000,
+          "panelWidthPx": 1078
+        },
+        "margins": {
+          "top": 0.5,
+          "right": 0.5,
+          "bottom": 0.5,
+          "left": 0.5
+        },
+        "pages": [
+          {
+            "id": "L1",
+            "bbox": [
+              -96.7958233813,
+              40.7576693062,
+              -96.7509766187,
+              40.7995262634
+            ],
+            "orientation": "portrait",
+            "title": "A",
+            "tier": 2,
+            "scale": {
+              "id": "usgs-7-5-min",
+              "label": "7.5-minute (1:24,000)",
+              "ratio": 24000,
+              "panelWidthPx": 1078
+            },
+            "neighbors": {}
+          },
+          {
+            "id": "L2",
+            "bbox": [
+              -96.7250351695,
+              40.7926694309,
+              -96.6801648305,
+              40.8345261333
+            ],
+            "orientation": "portrait",
+            "title": "B",
+            "tier": 2,
+            "scale": {
+              "id": "usgs-7-5-min",
+              "label": "7.5-minute (1:24,000)",
+              "ratio": 24000,
+              "panelWidthPx": 1078
+            },
+            "neighbors": {}
+          },
+          {
+            "id": "L3",
+            "bbox": [
+              -96.5505701847,
+              40.8962698,
+              -96.5056298153,
+              40.9381257483
+            ],
+            "orientation": "portrait",
+            "title": "C",
+            "tier": 2,
+            "scale": {
+              "id": "usgs-7-5-min",
+              "label": "7.5-minute (1:24,000)",
+              "ratio": 24000,
+              "panelWidthPx": 1078
+            },
+            "neighbors": {}
+          },
+          {
+            "id": "R1",
+            "bbox": [
+              -96.672752723,
+              40.8237775404,
+              -96.6278613944,
+              40.8656340164
+            ],
+            "orientation": "portrait",
+            "tier": 2,
+            "scale": {
+              "id": "usgs-7-5-min",
+              "label": "7.5-minute (1:24,000)",
+              "ratio": 24000,
+              "panelWidthPx": 1078
+            },
+            "neighbors": {
+              "east": "R2"
+            }
+          },
+          {
+            "id": "R2",
+            "bbox": [
+              -96.6378706085,
+              40.8445029712,
+              -96.5929652776,
+              40.8863592964
+            ],
+            "orientation": "portrait",
+            "tier": 2,
+            "scale": {
+              "id": "usgs-7-5-min",
+              "label": "7.5-minute (1:24,000)",
+              "ratio": 24000,
+              "panelWidthPx": 1078
+            },
+            "neighbors": {
+              "west": "R1",
+              "east": "R3"
+            }
+          },
+          {
+            "id": "R3",
+            "bbox": [
+              -96.602966756,
+              40.8652177283,
+              -96.5580474152,
+              40.9070739026
+            ],
+            "orientation": "portrait",
+            "tier": 2,
+            "scale": {
+              "id": "usgs-7-5-min",
+              "label": "7.5-minute (1:24,000)",
+              "ratio": 24000,
+              "panelWidthPx": 1078
+            },
+            "neighbors": {
+              "west": "R2"
+            }
+          }
+        ]
+      },
+      "routePolyline": [
+        {
+          "lng": -96.7734,
+          "lat": 40.7786
+        },
+        {
+          "lng": -96.7026,
+          "lat": 40.8136
+        },
+        {
+          "lng": -96.5281,
+          "lat": 40.9172
+        }
+      ]
+    },
+    "bbox, landscape, wide margins, gutter, overlap": {
+      "contract": {
+        "version": 1,
+        "scale": {
+          "id": "usgs-7-5-min",
+          "label": "7.5-minute (1:24,000)",
+          "ratio": 24000,
+          "panelWidthPx": 1078
+        },
+        "margins": {
+          "top": 0.75,
+          "right": 1,
+          "bottom": 0.75,
+          "left": 1,
+          "gutter": 0.5
+        },
+        "pages": [
+          {
+            "id": "A1",
+            "bbox": [
+              -96.7495003323,
+              40.8251570518,
+              -96.6973900111,
+              40.8505454357
+            ],
+            "orientation": "landscape",
+            "tier": 4,
+            "neighbors": {
+              "south": "B1",
+              "east": "A2"
+            }
+          },
+          {
+            "id": "A2",
+            "bbox": [
+              -96.7026099889,
+              40.8251570518,
+              -96.6504996677,
+              40.8505454357
+            ],
+            "orientation": "landscape",
+            "tier": 4,
+            "neighbors": {
+              "south": "B2",
+              "west": "A1"
+            }
+          },
+          {
+            "id": "B1",
+            "bbox": [
+              -96.7494833411,
+              40.8023074124,
+              -96.6973909108,
+              40.8276958972
+            ],
+            "orientation": "landscape",
+            "tier": 4,
+            "neighbors": {
+              "north": "A1",
+              "south": "C1",
+              "east": "B2"
+            }
+          },
+          {
+            "id": "B2",
+            "bbox": [
+              -96.7026090892,
+              40.8023074124,
+              -96.6505166589,
+              40.8276958972
+            ],
+            "orientation": "landscape",
+            "tier": 4,
+            "neighbors": {
+              "north": "A2",
+              "south": "C2",
+              "west": "B1"
+            }
+          },
+          {
+            "id": "C1",
+            "bbox": [
+              -96.7494663694,
+              40.7794576822,
+              -96.6973918095,
+              40.8048462678
+            ],
+            "orientation": "landscape",
+            "tier": 4,
+            "neighbors": {
+              "north": "B1",
+              "east": "C2"
+            }
+          },
+          {
+            "id": "C2",
+            "bbox": [
+              -96.7026081905,
+              40.7794576822,
+              -96.6505336306,
+              40.8048462678
+            ],
+            "orientation": "landscape",
+            "tier": 4,
+            "neighbors": {
+              "north": "B2",
+              "west": "C1"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

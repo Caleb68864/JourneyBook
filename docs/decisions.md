@@ -1390,3 +1390,11 @@ Each entry follows this shape:
 - Surfaces: packages/render-cli/src/print-fidelity.test.ts
 - Watch: ~10 s of real PDF work; it runs under the 60 s package timeout. One latitude only, Letter only.
 - Commit: (pending)
+
+## 2026-11-21 — Golden contracts for every mode `assembleContract` builds
+- Symptom (gap, from the 2026-11-09 list): the only golden file, `sample-atlas.json`, pins `buildPageGrid` for one bbox-mode parameter set. Location pages, per-location scales, zoom ladders, the cover grid, route corridor pages and non-default page setups are assembled in `render-cli`'s `assembleContract`, and a change to any of them that kept that one grid passed.
+- Fix: `packages/render-cli/src/contract-golden.test.ts` holds six named inputs; `data/fixtures/contract-cases.json` holds their assembled contracts, route polyline and cover extent, rounded to 10 decimal places (undefined fields dropped). Regenerate with `UPDATE_FIXTURES=1`. A further test checks each case reaches its mode (L1a..L2b ladder ids, a 1:25,000 own-scale page, grid ids in the cover case, R# pages and a polyline in the route case), because a first draft's route stops were too close and produced no R pages while still "matching".
+- Evidence: mutation-checked with atlas-core rebuilt. `route.ts` page centres at `(i + 0.45)` instead of `(i + 0.5)` of a step: the new file fails 1 case and `fixture.test.ts` passes 6/6. `grid.ts` location pages 1% too tall: the new file fails 5 cases and `fixture.test.ts` passes 6/6. Restored: 8/8 and 6/6. TS 684 (render-cli 155).
+- Surfaces: packages/render-cli/src/contract-golden.test.ts, data/fixtures/contract-cases.json
+- Watch: not wired into `golden-fixture.sh`; it runs in `pnpm -r test` (CI `ts` job). A deliberate geometry change now needs both golden files regenerated, with the reason in the commit.
+- Commit: (pending)
