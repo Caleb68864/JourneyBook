@@ -102,6 +102,144 @@ function parseUsngCollar(usng: string): { zoneDesignator: string; hundredKmSquar
  * All x/y coordinates are in [0,1] with (0,0) at top-left.
  * Returns an empty overlay for polar/out-of-UTM bboxes rather than throwing.
  */
+/**
+ * The easting at which UTM northing `n` meets meridian `lng` in `proj`'s zone, by bisection
+ * between `eLo` and `eHi` (a meridian is not a straight line on the UTM grid).
+ */
+function eastingAtLongitude(proj: ReturnType<typeof createUtmProjector>, lng: number, n: number, eLo: number, eHi: number): number {
+  let lo = eLo;
+  let hi = eHi;
+  for (let i = 0; i < 50; i++) {
+    const mid = (lo + hi) / 2;
+    if (proj.inverse([mid, n]).lng < lng) lo = mid;
+    else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
+/**
+ * One zone's part of a page that spans a zone boundary: its lines and labels, clipped at the
+ * boundary meridian. `side` says which side of the boundary this zone is on.
+ */
+function zonePart(
+  zone: number,
+  south: boolean,
+  bbox: BBox,
+  boundaryLng: number,
+  side: "west" | "east",
+  interval: number,
+  full: boolean,
+): { lines: UsngGridOverlay["lines"]; labels: UsngGridOverlay["labels"]; squares: { id: string; x: number; y: number }[] } {
+  const [west, southLat, east, north] = bbox;
+  const proj = createUtmProjector(zone, south);
+  const lngMin = side === "west" ? west : boundaryLng;
+  const lngMax = side === "west" ? boundaryLng : east;
+  const corners = [
+    proj.forward({ lng: lngMin, lat: southLat }),
+    proj.forward({ lng: lngMax, lat: southLat }),
+    proj.forward({ lng: lngMin, lat: north }),
+    proj.forward({ lng: lngMax, lat: north }),
+  ];
+  const eMin = Math.min(...corners.map(([e]) => e));
+  const eMax = Math.max(...corners.map(([e]) => e));
+  const nMin = Math.min(...corners.map(([, n]) => n));
+  const nMax = Math.max(...corners.map(([, n]) => n));
+  const inside = (lng: number) => lng >= lngMin - 1e-9 && lng <= lngMax + 1e-9;
+  const lines: UsngGridOverlay["lines"] = [];
+  const labels: UsngGridOverlay["labels"] = [];
+
+  const firstE = Math.ceil(eMin / interval) * interval;
+  for (let e = firstE; e <= eMax + 0.5; e += interval) {
+    // Keep the part of this easting line on the zone's own side of the boundary.
+    const a = proj.inverse([e, nMin]);
+    const b = proj.inverse([e, nMax]);
+    if (!inside(a.lng) && !inside(b.lng)) continue;
+    let nFrom = nMin;
+    let nTo = nMax;
+    if (!inside(a.lng) || !inside(b.lng)) {
+      // Bisect for the northing where this line crosses the boundary meridian.
+      let lo = nMin;
+      let hi = nMax;
+      const loInside = inside(a.lng);
+      for (let i = 0; i < 50; i++) {
+        const mid = (lo + hi) / 2;
+        if (inside(proj.inverse([e, mid]).lng) === loInside) lo = mid;
+        else hi = mid;
+      }
+      if (loInside) nTo = lo;
+      else nFrom = hi;
+    }
+    const [x1, y1] = panelFraction(proj.inverse([e, nFrom]), bbox);
+    const [x2, y2] = panelFraction(proj.inverse([e, nTo]), bbox);
+    lines.push({ x1, y1, x2, y2, axis: "easting" });
+    // Each zone labels its own first line in full: the numbers change zone at the boundary.
+    const text = full && e === firstE ? fullValue(e, "E") : kmLabel(e);
+    if (nTo >= nMax - 1) labels.push({ x: x2, y: 0, text, edge: "top" });
+    if (nFrom <= nMin + 1) labels.push({ x: x1, y: 1, text, edge: "bottom" });
+  }
+
+  const firstN = Math.ceil(nMin / interval) * interval;
+  for (let n = firstN; n <= nMax + 0.5; n += interval) {
+    const eBoundary = eastingAtLongitude(proj, boundaryLng, n, eMin - 50_000, eMax + 50_000);
+    const eOuter = side === "west" ? eastingAtLongitude(proj, west, n, eMin - 50_000, eMax + 50_000) : eastingAtLongitude(proj, east, n, eMin - 50_000, eMax + 50_000);
+    const [eFrom, eTo] = side === "west" ? [eOuter, eBoundary] : [eBoundary, eOuter];
+    if (eTo <= eFrom) continue;
+    const [x1, y1] = panelFraction(proj.inverse([eFrom, n]), bbox);
+    const [x2, y2] = panelFraction(proj.inverse([eTo, n]), bbox);
+    if (y1 <= 0 || y1 >= 1) continue;
+    lines.push({ x1, y1, x2, y2, axis: "northing" });
+    const text = full && n === firstN ? fullValue(n, "N") : kmLabel(n);
+    // Northing labels go on the zone's outer edge, the one edge it owns.
+    labels.push(side === "west" ? { x: 0, y: y1, text, edge: "left" } : { x: 1, y: y2, text, edge: "right" });
+  }
+
+  // The boundary is curved on this zone's grid, so an anchor near it can land on the wrong
+  // side; move it just onto this side rather than lose the square. x is linear in longitude.
+  const boundaryX = (boundaryLng - west) / (east - west);
+  const squares = full
+    ? hundredKmSquares(proj, bbox, eMin, eMax, nMin, nMax).map((sq) => {
+        const lng = west + sq.x * (east - west);
+        if (inside(lng)) return sq;
+        return { ...sq, x: side === "west" ? Math.max(0, boundaryX - 0.12) : Math.min(1, boundaryX + 0.02) };
+      })
+    : [];
+  return { lines, labels, squares };
+}
+
+/** A page spanning the boundary between `westZone` and `eastZone`. */
+function zoneJunction(
+  bbox: BBox,
+  westZone: number,
+  eastZone: number,
+  south: boolean,
+  opts?: { intervalMeters?: number; mgrs?: boolean },
+): UsngGridOverlay {
+  const boundaryLng = eastZone * 6 - 186; // the eastern zone's western meridian
+  const interval = opts?.intervalMeters ?? DEFAULT_INTERVAL_M;
+  const full = opts?.mgrs === true;
+  const w = zonePart(westZone, south, bbox, boundaryLng, "west", interval, full);
+  const e = zonePart(eastZone, south, bbox, boundaryLng, "east", interval, full);
+  const [, s, , n] = bbox;
+  const [bx1, by1] = panelFraction({ lng: boundaryLng, lat: n }, bbox);
+  const [bx2, by2] = panelFraction({ lng: boundaryLng, lat: s }, bbox);
+  const centre = { lng: (bbox[0] + bbox[2]) / 2, lat: (s + n) / 2 };
+  let collar: UsngGridOverlay["collar"] = { zoneDesignator: "", hundredKmSquare: "" };
+  try {
+    collar = parseUsngCollar(mgrsForward([centre.lng, centre.lat], 1));
+  } catch {
+    // collar stays empty
+  }
+  const squares = [...w.squares, ...e.squares];
+  const overlay: UsngGridOverlay = {
+    lines: [...w.lines, ...e.lines],
+    labels: [...w.labels, ...e.labels],
+    collar: full ? { ...collar, squares: [...new Set(squares.map((q) => q.id))] } : collar,
+    zoneBoundary: { x1: bx1, y1: by1, x2: bx2, y2: by2, westZone, eastZone },
+  };
+  if (full) overlay.mgrs = { squares };
+  return overlay;
+}
+
 export function buildUsngGrid(
   bbox: BBox,
   _panelWidthPx: number,
@@ -124,6 +262,13 @@ export function buildUsngGrid(
     // The page centre's hemisphere decides the northing numbers; a page astride the equator
     // gets its centre's (two-digit labels agree either way: the offset is 10,000 km).
     const proj = createUtmProjector(zone, centreLat < 0);
+
+    // A page across a UTM zone boundary: each zone's grid on its own side (see zonePart).
+    const westZone = utmZoneForLongitude(west);
+    const eastZone = utmZoneForLongitude(east - 1e-9);
+    if (westZone !== eastZone && (westZone % 60) + 1 === eastZone) {
+      return zoneJunction(bbox, westZone, eastZone, centreLat < 0, opts);
+    }
 
     // Project all four corners to find the full UTM extent of the bbox.
     const corners = [

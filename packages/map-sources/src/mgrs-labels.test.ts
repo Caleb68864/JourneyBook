@@ -131,3 +131,59 @@ describe("southern hemisphere", () => {
     expect(buildUsngGrid([-10, -85, 10, -82], 800, 1000).lines).toHaveLength(0);
   });
 });
+
+describe("a page spanning two UTM zones", () => {
+  // The 13/14 boundary is 102°W. A ~3 km page centred on it at 40.8°N.
+  const BOUNDARY = -102;
+  const bbox: BBox = [BOUNDARY - 0.018, 40.787, BOUNDARY + 0.018, 40.813];
+  const utm13 = createUtmProjector(13);
+  const utm14 = createUtmProjector(14);
+  const lngAt = (x: number) => bbox[0] + x * (bbox[2] - bbox[0]);
+
+  it("[BEHAVIORAL] draws each zone's grid only on its own side, with the boundary marked", () => {
+    const grid = buildUsngGrid(bbox, 1000, 1000, { mgrs: true });
+    expect(grid.zoneBoundary).toMatchObject({ westZone: 13, eastZone: 14 });
+    const bx = grid.zoneBoundary!.x1;
+    expect(lngAt(bx)).toBeCloseTo(BOUNDARY, 6);
+    const westLines = grid.lines.filter((l) => Math.max(l.x1, l.x2) <= bx + 1e-6);
+    const eastLines = grid.lines.filter((l) => Math.min(l.x1, l.x2) >= bx - 1e-6);
+    // Every line is wholly on one side.
+    expect(westLines.length + eastLines.length).toBe(grid.lines.length);
+    expect(westLines.some((l) => l.axis === "easting")).toBe(true);
+    expect(eastLines.some((l) => l.axis === "easting")).toBe(true);
+  });
+
+  it("[BEHAVIORAL] numbers each side in its own zone, and names the squares of both", () => {
+    const grid = buildUsngGrid(bbox, 1000, 1000, { mgrs: true });
+    // Northing labels sit on each zone's own outer edge. (At the boundary the two zones give the
+    // same northing for the same latitude, by symmetry about their central meridians, so the
+    // eastings are what tell them apart: about 750 km in zone 13 here, 250 km in zone 14.)
+    expect(grid.labels.some((l) => l.edge === "left")).toBe(true);
+    expect(grid.labels.some((l) => l.edge === "right")).toBe(true);
+    const [e13] = utm13.forward({ lng: bbox[0], lat: bbox[1] });
+    const [e14] = utm14.forward({ lng: BOUNDARY, lat: bbox[3] });
+    const first13 = Math.ceil(e13 / 1000) * 1000;
+    const first14 = Math.ceil(e14 / 1000) * 1000;
+    expect(first13).toBeGreaterThan(700_000);
+    expect(first14).toBeLessThan(300_000);
+    const texts = grid.labels.map((l) => l.text);
+    expect(texts).toContain(`${first13}mE`);
+    expect(texts).toContain(`${first14}mE`);
+    // Each full easting is on its own side of the boundary.
+    const bx = grid.zoneBoundary!.x1;
+    for (const l of grid.labels.filter((x) => x.text === `${first13}mE`)) expect(l.x).toBeLessThan(bx);
+    for (const l of grid.labels.filter((x) => x.text === `${first14}mE`)) expect(l.x).toBeGreaterThan(bx);
+    // Squares from both zones, each on its own side.
+    const ids = grid.mgrs!.squares.map((q) => q.id);
+    expect(ids.some((id) => id.startsWith("13T"))).toBe(true);
+    expect(ids.some((id) => id.startsWith("14T"))).toBe(true);
+    for (const q of grid.mgrs!.squares) {
+      expect(q.id.startsWith("13T") ? q.x <= grid.zoneBoundary!.x1 : q.x >= grid.zoneBoundary!.x1).toBe(true);
+    }
+    expect(grid.collar.squares!.some((id) => id.startsWith("13T")) && grid.collar.squares!.some((id) => id.startsWith("14T"))).toBe(true);
+  });
+
+  it("[CONTROL] a page inside one zone has no boundary", () => {
+    expect(buildUsngGrid([-96.72, 40.79, -96.68, 40.82], 1000, 1000, { mgrs: true }).zoneBoundary).toBeUndefined();
+  });
+});

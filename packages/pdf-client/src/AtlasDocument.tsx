@@ -785,6 +785,28 @@ function UsngGridLayer({ overlay, box }: { overlay: UsngGridOverlay; box: MapBox
       {/* Level 4: each 100 km square's identifier inside its own part of the map, the way a
           military map prints it, so a reference can be written in full from either side of a
           square boundary. */}
+      {/* A zone junction: the boundary meridian, heavier than the grid, each zone's number on
+          its own side. Each zone's grid stops at it (map-sources zonePart). */}
+      {overlay.zoneBoundary ? (
+        <>
+          <Line
+            x1={overlay.zoneBoundary.x1 * box.width}
+            y1={overlay.zoneBoundary.y1 * box.height}
+            x2={overlay.zoneBoundary.x2 * box.width}
+            y2={overlay.zoneBoundary.y2 * box.height}
+            stroke={INK}
+            strokeWidth={1.4}
+          />
+          <Text
+            x={overlay.zoneBoundary.x1 * box.width}
+            y={FONT * 2 + 6}
+            textAnchor="middle"
+            style={{ fontSize: 7, fontFamily: "Helvetica-Bold", fill: INK }}
+          >
+            {`${overlay.zoneBoundary.westZone} | ${overlay.zoneBoundary.eastZone} UTM ZONE`}
+          </Text>
+        </>
+      ) : null}
       {(overlay.mgrs?.squares ?? []).map((sq, i) => (
         <Text
           key={`mgrs-sq-${i}`}
