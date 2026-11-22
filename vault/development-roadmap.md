@@ -1403,6 +1403,11 @@ Across the code the 2026-11-21/22 branches touched. Branch `work/2026-11-22-stag
   was aborted. The test (poll held, unmount, released as Completed) fails on the old code.
 - [x] ~~**`declinationDate: "2026-13-01"` printed "NaN is outside it" on tier-4 pages.**~~ ✅
   The date must round-trip as a real day; the old code rendered it.
+- [x] ~~**A large remote archive on a host that ignores Range was downloaded whole on every read.**~~ ✅
+  Refused from the headers when over 16 MiB or of unknown size (small archives still work).
+  The old stream buffered the oversized body before anything could refuse it.
+
+Not fixed from the review: none; all eight findings were verified and fixed on this branch.
 
 ## Phase 1: Print Geometry
 Build the Docker-hosted React/Vite/shadcn/Tailwind web app skeleton, define the outdoor field-guide visual system, accept bounding boxes, create page grid, generate overview and detail pages, and validate Letter-size PDF output from the preferred client-side React PDF path.

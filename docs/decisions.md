@@ -1543,3 +1543,11 @@ Each entry follows this shape:
 - Evidence: `furniture.test.ts` rejects `2026-13-01` and `2026-02-30`. Against the old `render.ts`, a `2026-13-01` render completed.
 - Surfaces: packages/render-cli/src/render.ts, packages/render-cli/src/furniture.test.ts
 - Commit: (pending)
+
+## 2026-11-22 — A large archive on a host that ignores Range is refused, not downloaded whole per read
+- Symptom (independent review, verified): the earlier fix made `HttpRangeStream` read a 200 (Range ignored) correctly by slicing the whole body, but it still buffered the entire remote file on every `ReadAsync`, and a tile is four or five reads. A large archive meant gigabytes of transfer and memory per tile, and past about 2 GB `ReadAsByteArrayAsync` throws (a 502).
+- Fix: requests use `HttpCompletionOption.ResponseHeadersRead`. A 200 with no Content-Length, or one over `MaxWholeFileBytes` (16 MiB), throws `IOException` ("host ignores Range requests and the file is too large…") before the body is read, so the tile is a plain upstream failure. Small whole-file archives still work.
+- Evidence: `PmTilesRemoteFetchTests.A_large_archive_on_a_host_that_ignores_range_is_refused_before_its_body_is_read` serves a 200 declaring 16 MiB + 1 with content that records whether its body was read. Old stream: the body was buffered. New: refused, body never read. The small-archive whole-file test still passes. .NET 393/393 with Docker.
+- Surfaces: dotnet/JourneyBook.Infrastructure/Tiles/HttpRangeStream.cs, dotnet/JourneyBook.Tests/PmTilesRemoteFetchTests.cs
+- Watch: a host that sends a 200 without Content-Length (chunked) is refused even for a small archive.
+- Commit: (pending)

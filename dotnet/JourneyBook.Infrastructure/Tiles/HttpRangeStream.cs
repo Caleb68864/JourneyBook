@@ -30,6 +30,9 @@ public sealed class HttpRangeStream(HttpClient http, string url) : Stream
         return _position;
     }
 
+    /// <summary>Largest archive read whole when its host ignores <c>Range</c> (16 MiB).</summary>
+    public const long MaxWholeFileBytes = 16 * 1024 * 1024;
+
     public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default)
     {
         if (buffer.IsEmpty) return 0;
@@ -38,7 +41,8 @@ public sealed class HttpRangeStream(HttpClient http, string url) : Stream
         {
             Headers = { Range = new RangeHeaderValue(_position, _position + buffer.Length - 1) },
         };
-        using var res = await http.SendAsync(req, ct);
+        // Headers first, so a whole-file answer can be refused before its body is buffered.
+        using var res = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
         if (UpstreamThrottle.IsThrottle(res.StatusCode))
         {
             throw new UpstreamThrottledException((int)res.StatusCode, UpstreamThrottle.RetryAfterOf(res, DateTimeOffset.UtcNow));
@@ -46,6 +50,17 @@ public sealed class HttpRangeStream(HttpClient http, string url) : Stream
         if (!res.IsSuccessStatusCode)
         {
             throw new IOException($"Range request failed: {(int)res.StatusCode}");
+        }
+
+        // A host that ignores Range sends the whole archive on EVERY read (a tile is four or five
+        // reads), so beyond a small archive that is gigabytes per tile, and past 2 GB the buffer
+        // throws. Allow it only for a small file; refuse a large one up front.
+        if (res.StatusCode == System.Net.HttpStatusCode.OK
+            && (res.Content.Headers.ContentLength is not long whole || whole > MaxWholeFileBytes))
+        {
+            throw new IOException(
+                $"The archive's host ignores Range requests and the file is too large to fetch whole on every read " +
+                $"(over {MaxWholeFileBytes / (1024 * 1024)} MiB, or of unknown size).");
         }
 
         var bytes = await res.Content.ReadAsByteArrayAsync(ct);
