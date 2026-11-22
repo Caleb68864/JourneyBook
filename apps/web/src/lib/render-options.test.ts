@@ -142,3 +142,16 @@ describe("relativeSizeAtQuality", () => {
     expect(relativeSizeAtQuality(95)).toBeCloseTo(61.75 / 42.03, 2);
   });
 });
+
+describe("toRenderRequestBody, Stage 1D furniture", () => {
+  it("[CONTROL] sends neither crop marks nor the locator inset by default", () => {
+    const body = toRenderRequestBody(DEFAULT_RENDER_OPTIONS);
+    expect("cropMarks" in body).toBe(false);
+    expect("locatorInset" in body).toBe(false);
+  });
+
+  it("[BEHAVIORAL] sends each one when it is on", () => {
+    expect(toRenderRequestBody({ ...DEFAULT_RENDER_OPTIONS, cropMarks: true })).toMatchObject({ cropMarks: true });
+    expect(toRenderRequestBody({ ...DEFAULT_RENDER_OPTIONS, locatorInset: true })).toMatchObject({ locatorInset: true });
+  });
+});

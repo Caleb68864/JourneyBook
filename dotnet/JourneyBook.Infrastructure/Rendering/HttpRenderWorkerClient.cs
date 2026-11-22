@@ -93,7 +93,11 @@ public class HttpRenderWorkerClient(HttpClient http, RenderWorkerPollOptions? po
         // width its own print needs` back to one global number.
         int? PanelWidthPx,
         string? PanelFormat,
-        int? PanelQuality);
+        int? PanelQuality,
+        // Stage 1D furniture. Nullable and sent only when on, so a render without them
+        // serializes exactly as it did before they existed.
+        bool? CropMarks = null,
+        bool? LocatorInset = null);
 
     private sealed record WorkerCenter(double Lng, double Lat);
 
@@ -208,7 +212,9 @@ public class HttpRenderWorkerClient(HttpClient http, RenderWorkerPollOptions? po
                 Margins: ToWireMargins(request.Margins),
                 PanelWidthPx: request.PanelWidthPx,
                 PanelFormat: ToWirePanelFormat(request.PanelFormat),
-                PanelQuality: request.PanelQuality);
+                PanelQuality: request.PanelQuality,
+                CropMarks: request.CropMarks ? true : null,
+                LocatorInset: request.LocatorInset ? true : null);
         }
 
         if (request.Locations.Count > 0)
@@ -241,7 +247,9 @@ public class HttpRenderWorkerClient(HttpClient http, RenderWorkerPollOptions? po
                 Margins: ToWireMargins(request.Margins),
                 PanelWidthPx: request.PanelWidthPx,
                 PanelFormat: ToWirePanelFormat(request.PanelFormat),
-                PanelQuality: request.PanelQuality);
+                PanelQuality: request.PanelQuality,
+                CropMarks: request.CropMarks ? true : null,
+                LocatorInset: request.LocatorInset ? true : null);
         }
 
         throw new InvalidOperationException(

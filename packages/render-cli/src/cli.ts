@@ -82,6 +82,9 @@ Options:
   --no-toc / --no-overview    suppress the locations contents page / the overview page
   --no-notes / --no-reference-grid
                               suppress the foot-of-page notes area / the A–F×1–8 grid
+  --crop-marks / --locator-inset
+                              add corner crop marks round each map / a whole-atlas
+                              locator in each map's lower-right corner (both off by default)
   --basemap                   fetch a USGS (public-domain) topo panel per page (network)
   --panel-px <n>              target panel width in pixels; overrides the per-scale default
                               for EVERY page (defaults: ${DEFAULT_PANEL_WIDTH_PX}px for
@@ -336,6 +339,8 @@ export function inputFromArgs(args: readonly string[]): Omit<RenderAtlasInput, "
     overview: !flags.has("no-overview"),
     referenceGrid: !flags.has("no-reference-grid"),
     notes: !flags.has("no-notes"),
+    ...(flags.has("crop-marks") ? { cropMarks: true } : {}),
+    ...(flags.has("locator-inset") ? { locatorInset: true } : {}),
   };
 }
 

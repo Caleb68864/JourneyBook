@@ -61,6 +61,10 @@ export interface RenderPdfOptions {
    * page with no panel prints, and both are different from printing a number.
    */
   printDpi?: Record<string, number>;
+  /** Crop marks at each map page's map-box corners, in the margin furniture. Default false. */
+  cropMarks?: boolean;
+  /** Grid-locator inset (whole atlas, this page filled) over each map's lower-right corner. Default false. */
+  locatorInset?: boolean;
 }
 
 function documentElement(options: RenderPdfOptions) {
@@ -80,6 +84,8 @@ function documentElement(options: RenderPdfOptions) {
     printDpi: options.printDpi,
     explorerName: options.explorerName,
     atlasDate: options.atlasDate,
+    cropMarks: options.cropMarks ?? false,
+    locatorInset: options.locatorInset ?? false,
   });
 }
 
@@ -107,7 +113,15 @@ export async function renderCalibrationPdfToFile(outputPath: string): Promise<st
   return outputPath;
 }
 
-export { AtlasDocument, printResolutionCaption, type RouteOverlay } from "./AtlasDocument.js";
+export {
+  AtlasDocument,
+  printResolutionCaption,
+  locatorInsetLayout,
+  CROP_MARK,
+  LOCATOR_INSET_MAX,
+  type RouteOverlay,
+  type LocatorCell,
+} from "./AtlasDocument.js";
 export {
   measurePdfPages,
   largestRect,

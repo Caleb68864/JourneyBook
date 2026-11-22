@@ -62,6 +62,10 @@ export interface RenderOptionsState {
    * other width either changes nothing or quadruples the file.
    */
   panelWidthPx: number | null;
+  /** Crop marks at each map-box corner, for trimming a sheet to its map (Stage 1D). Off by default. */
+  cropMarks: boolean;
+  /** A whole-atlas locator inset over each map's lower-right corner (Stage 1D). Off by default. */
+  locatorInset: boolean;
 }
 
 export const DEFAULT_RENDER_OPTIONS: RenderOptionsState = {
@@ -79,6 +83,8 @@ export const DEFAULT_RENDER_OPTIONS: RenderOptionsState = {
   panelFormat: null,
   panelQuality: null,
   panelWidthPx: null,
+  cropMarks: false,
+  locatorInset: false,
 };
 
 /** The `POST /projects/{id}/render` body for a given panel state. */
@@ -95,6 +101,8 @@ export interface RenderRequestBody {
   panelFormat?: PanelFormat;
   panelQuality?: number;
   panelWidthPx?: number;
+  cropMarks?: true;
+  locatorInset?: true;
 }
 
 /**
@@ -130,6 +138,10 @@ export function toRenderRequestBody(state: RenderOptionsState): RenderRequestBod
     // Omitted when null for the same reason as the two above, and when the
     // basemap is off because there is no panel to size.
     ...(state.basemap && state.panelWidthPx !== null ? { panelWidthPx: state.panelWidthPx } : {}),
+    // Sent only when on, like the wire to the worker: a render with them off sends the body
+    // it sent before they existed.
+    ...(state.cropMarks ? { cropMarks: true as const } : {}),
+    ...(state.locatorInset ? { locatorInset: true as const } : {}),
   };
 }
 

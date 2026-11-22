@@ -509,6 +509,10 @@ export const api = {
         panelQuality?: number;
         /** One width for every page (`RenderProjectRequest.PanelWidthPx`); see `lib/panel-resolution.ts`. */
         panelWidthPx?: number;
+        /** Crop marks at each map-box corner. Off unless sent. */
+        cropMarks?: boolean;
+        /** Whole-atlas locator inset over each map's lower-right corner. Off unless sent. */
+        locatorInset?: boolean;
       },
     ) =>
       request<RenderResult>("POST", `/projects/${projectId}/render`, { tier, ...opts }),

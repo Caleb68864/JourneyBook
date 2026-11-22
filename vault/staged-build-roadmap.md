@@ -328,7 +328,24 @@ Done when:
 - A single page's map panel renders headlessly at the target DPI in the correct projection.
 - The chosen headless render path is documented with its failure modes; QuestPDF fallback trigger is defined.
 
-### Stage 1D: Headless PDF composition with page furniture — 🟡 mostly built (2026-06-24)
+### Stage 1D: Headless PDF composition with page furniture — ✅ built (2026-11-22; crop marks and locator inset are opt-in)
+
+> **2026-11-22: the last two items are built, both off by default. Decided by agent (owner may
+> revisit):** each was held back as "a layout decision, because it takes paper from the map
+> box". Neither does now. **Crop marks** are two 8 pt ticks per map-box corner, on the box's
+> edge lines and 2 pt outside it, in the space the CONTINUE furniture already reserves, so the
+> box and its printed scale are identical with them on. **The grid-locator inset** is the
+> whole atlas in miniature (one rectangle per page, this one filled, at most 72 pt, north up,
+> longitude shrunk by cos lat) drawn *over* the map's lower-right corner rather than beside
+> it, so the map box is unchanged and the cost is about a square inch of covered map, which
+> is why it is opt-in. A one-page atlas gets no inset. Reachable everywhere: `render
+> --crop-marks --locator-inset`, the worker's `cropMarks`/`locatorInset`, `RenderProjectRequest`
+> (`CropMarks`, `LocatorInset`, sent on the wire only when on), and two editor checkboxes
+> ("Crop Marks", "Page Locator"). Measured off the PDF (`crop-marks-locator.test.ts`): all
+> eight ticks where they belong and none inside the map, a rectangle per page in the inset,
+> and the map box equal with each on and off. The ticks are thin filled bars, not an SVG: an
+> SVG's viewport rectangle was larger than the map box and became the page's largest
+> rectangle, which is how `mapBoxOf` (and with it every print-fidelity check) finds the map.
 
 > **Audited 2026-11-16.** The first Done-when line is met and the second mostly: `render --bbox` and `render
 > --location` emit multi-page Letter PDFs (`render.test.ts`, `dry-run.test.ts` count

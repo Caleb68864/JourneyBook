@@ -132,6 +132,10 @@ export interface RenderAtlasInput {
   referenceGrid?: boolean;
   /** Show the foot-of-page notes area on each map page. Default true. */
   notes?: boolean;
+  /** Crop marks at each map page's map-box corners, for trimming a sheet to its map. Default false. */
+  cropMarks?: boolean;
+  /** Grid-locator inset (the whole atlas, this page filled) over each map's lower-right corner. Default false. */
+  locatorInset?: boolean;
   /**
    * Default zoom ladder applied to every location that has no `zoomLevels` of
    * its own: one page per scale preset id, ids `L#a`, `L#b`, …. A location's own
@@ -1110,6 +1114,8 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
     overviewPanel,
     referenceGrid: input.referenceGrid ?? true,
     notes: input.notes ?? true,
+    cropMarks: input.cropMarks ?? false,
+    locatorInset: input.locatorInset ?? false,
   });
 
   report("done");

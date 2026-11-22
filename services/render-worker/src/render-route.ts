@@ -152,6 +152,8 @@ const renderBodySchema = {
     tableOfContents: { type: "boolean" },
     overview: { type: "boolean" },
     referenceGrid: { type: "boolean" },
+    cropMarks: { type: "boolean" },
+    locatorInset: { type: "boolean" },
     notes: { type: "boolean" },
     zoomLevels: { type: "array", items: { type: "string", minLength: 1 } },
     cover: { type: "boolean" },
