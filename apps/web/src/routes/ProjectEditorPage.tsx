@@ -23,6 +23,7 @@ import { GeocodeSearch } from "../components/GeocodeSearch";
 import type { GeocodeResult } from "../api/client";
 import { GenerateButton } from "../components/GenerateButton";
 import { LandmarkImportControl } from "../components/LandmarkImportControl";
+import { WorksheetLegsEditor } from "../components/WorksheetLegsEditor";
 import { PageSetup, type PageSetupValue } from "../components/PageSetup";
 import { PrintCheckLink } from "../components/PrintCheckLink";
 import { TitlePageFields, type TitlePageValue } from "../components/TitlePageFields";
@@ -68,6 +69,25 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
   const [cropMarks, setCropMarks] = useState(false);
   const [locatorInset, setLocatorInset] = useState(false);
   const [worksheet, setWorksheet] = useState(false);
+  const [worksheetLandmarks, setWorksheetLandmarks] = useState(false);
+  const [worksheetLegs, setWorksheetLegs] = useState<{ from: string; to: string }[]>([]);
+  // The project's landmarks, for the hand-picked legs' ends; fetched once the worksheet is on.
+  const [landmarkNames, setLandmarkNames] = useState<string[]>([]);
+  useEffect(() => {
+    if (!worksheet) return;
+    let cancelled = false;
+    api.landmarks
+      .list(projectId)
+      .then((list) => {
+        if (!cancelled) setLandmarkNames(list.map((l) => l.name));
+      })
+      .catch(() => {
+        if (!cancelled) setLandmarkNames([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [worksheet, projectId]);
   // Basemap knobs, chosen at render time like tier. `basemap` was hardcoded true
   // on the wire until the API grew a member for it, so there was no way to ask
   // for the fast line-art proof the CLI has always had. null format/quality mean
@@ -806,6 +826,36 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
                   </span>
                 </span>
               </label>
+              {worksheet ? (
+                <div className="mb-3 ml-5 flex flex-col gap-2">
+                  {/* Landmark legs need the landmarks sent with the render, which only happens
+                      with Include Landmarks on; offering them otherwise made a render the
+                      worker then refused. */}
+                  <label className="flex items-start gap-2">
+                    <input
+                      type="checkbox"
+                      checked={includeLandmarks && worksheetLandmarks}
+                      disabled={!includeLandmarks}
+                      onChange={(e) => setWorksheetLandmarks(e.target.checked)}
+                      className="mt-0.5 accent-forest-700"
+                    />
+                    <span className="flex flex-col gap-0.5">
+                      <span className="font-mono text-[11px] uppercase tracking-widest text-bark-600">Legs To Nearby Landmarks</span>
+                      {!includeLandmarks ? (
+                        <span className="font-mono text-[10px] text-bark-500">Turn on Include Landmarks to use landmarks in the worksheet.</span>
+                      ) : null}
+                    </span>
+                  </label>
+                  <WorksheetLegsEditor
+                    ends={[
+                      ...locations.map((loc, i) => ({ ref: `L${i + 1}`, label: `L${i + 1} ${loc.name}` })),
+                      ...(includeLandmarks ? landmarkNames.map((name) => ({ ref: name, label: `${name} (landmark)` })) : []),
+                    ]}
+                    value={worksheetLegs}
+                    onChange={setWorksheetLegs}
+                  />
+                </div>
+              ) : null}
               <div className="mb-3">
                 <BasemapOptions
                   value={{ basemap, panelFormat, panelQuality, panelZoomStep }}
@@ -837,6 +887,11 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
                   cropMarks,
                   locatorInset,
                   worksheet,
+                  worksheetLandmarks: includeLandmarks && worksheetLandmarks,
+                  // A picked landmark leg is dropped if landmarks are then turned off.
+                  worksheetLegs: includeLandmarks
+                    ? worksheetLegs
+                    : worksheetLegs.filter((l) => /^L\d+$/.test(l.from) && /^L\d+$/.test(l.to)),
                 } satisfies RenderOptionsState}
                 disabled={!hasGeometry || savedOverLimit}
               />

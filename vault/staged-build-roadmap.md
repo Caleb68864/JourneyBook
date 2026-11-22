@@ -630,7 +630,8 @@ Goal: implement the [Map Tiers (Learning Curve)](#map-tiers-learning-curve-featu
 > `worksheetLegs: [{from, to}]` replaces the consecutive list with chosen legs whose ends are
 > "L2" or a landmark's name, refused before rendering if they name nothing. CLI
 > `--worksheet-landmarks`, `--worksheet-leg FROM:TO`; worker schema; `RenderProjectRequest`.
-> The editor control is the next commit.)* **The teaching text stays blocked:** the current TC 3-25.26 (15 Nov 2013)
+> In the editor, ticking Azimuth Worksheet shows "Legs To Nearby Landmarks" and a hand-picked
+> legs list: pick a start and finish from your locations and the project's landmarks.)* **The teaching text stays blocked:** the current TC 3-25.26 (15 Nov 2013)
 > carries "Distribution authorized to U.S. government agencies and their contractors" per
 > every copy found, not a public-release statement, and its official armypubs listing could not
 > be reached to confirm otherwise. Only the superseded FM 3-25.26 (2001) is marked "approved for
