@@ -351,8 +351,11 @@ Done when:
 > --location` emit multi-page Letter PDFs (`render.test.ts`, `dry-run.test.ts` count
 > the pages off the file), and the credit line is printed on map pages
 > (`pdf-client/src/attribution.test.ts`, which reads the PDF's text). That it sits
-> inside the margin follows from the fixed furniture layout; no test measures where
-> it lands, so that half is unverified. Build items: title, page ID, measured
+> inside the margin follows from the fixed furniture layout; ~~no test measures where
+> it lands, so that half is unverified~~ *(2026-11-22: measured,
+> `pdf-client/src/attribution-placement.test.ts`: every credit string's position read off
+> the PDF lies inside the margins at default, landscape, wide-margin-plus-gutter and tier-1
+> setups, short and wrapping credits alike; moving the credit 40 pt down fails all 8)*. Build items: title, page ID, measured
 > scale bar, compass rose (tier ≥ 2), continuation labels, attribution footer, an
 > overview page and the 1-inch calibration tick plus print check page are **done**.
 > The landmark legend is drawn only when a page has landmarks, so a general "legend
