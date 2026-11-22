@@ -597,6 +597,12 @@ Goal: implement the [Map Tiers (Learning Curve)](#map-tiers-learning-curve-featu
 > "Z · UPS (polar grid)" collar, and UPS grid north in the declination diagram and worksheet.
 > **The polar 100 km square letters are not drawn:** neither the `mgrs` library nor NGA's own
 > `mgrs-js` converts polar points, so there is nothing to check them against.)*
+> *(2026-11-22, last: a page that crosses a latitude where the rule changes (84°N/80°S, UTM to
+> UPS; 56°/64°/72°N where the Norway and Svalbard exceptions begin or end, at longitudes where
+> they apply) is split there into bands, each gridded by its own rule, with the line drawn and
+> labelled. All grid lines are now clipped to the panel along the true grid line, not clamped
+> end by end, which also fixes tilted UTM lines (zone 32 at 4°E, up to ~17 m) and lines that
+> started inside the page where an edge meridian bulges between the corners.)*
 > *(2026-11-22: a page that spans two UTM zones is drawn as a zone junction: each zone's grid
 > only on its own side of the boundary meridian, numbered in its own zone (first eastings in
 > full on both sides, northing labels on each zone's outer edge), both zones' 100 km squares

@@ -32,7 +32,7 @@ import {
 } from "@journeybook/atlas-core";
 import { brand, PIN_SHAPES, resolvePinShape, resolvePinColor } from "@journeybook/ui";
 import type { PinStyle } from "@journeybook/atlas-core";
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 
 // Brand token aliases for furniture styling — values come from @journeybook/ui/tokens.
 const INK = brand.ink;
@@ -805,6 +805,18 @@ function UsngGridLayer({ overlay, box }: { overlay: UsngGridOverlay; box: MapBox
           square boundary. */}
       {/* A zone junction: the boundary meridian, heavier than the grid, each zone's number on
           its own side. Each zone's grid stops at it (map-sources zonePart). */}
+      {/* A latitude where the grid's rule changes inside the page: each band is its own grid. */}
+      {(overlay.ruleBoundaries ?? []).map((rb, i) => (
+        <Fragment key={`rule-${i}`}>
+          <Line x1={0} y1={rb.y * box.height} x2={box.width} y2={rb.y * box.height} stroke={INK} strokeWidth={1} strokeDasharray="4 2" />
+          <Text x={4} y={rb.y * box.height - 2} textAnchor="start" style={{ fontSize: 6, fontFamily: "Helvetica-Bold", fill: INK }}>
+            {rb.label}
+          </Text>
+        </Fragment>
+      ))}
+      {(overlay.extraZoneBoundaries ?? []).map((z, i) => (
+        <Line key={`zb-${i}`} x1={z.x1 * box.width} y1={z.y1 * box.height} x2={z.x2 * box.width} y2={z.y2 * box.height} stroke={INK} strokeWidth={1.4} />
+      ))}
       {overlay.zoneBoundary ? (
         <>
           <Line

@@ -318,3 +318,10 @@ describe("worksheet legs to landmarks and hand-picked legs through renderAtlas",
     ).toMatchObject({ worksheetLandmarks: true, worksheetLegs: [{ from: "L1", to: "L1" }, { from: "L1", to: "Water Tower" }] });
   });
 });
+
+describe("a page across a grid-rule latitude through renderAtlas", () => {
+  it("[BEHAVIORAL] a page astride 84°N marks the line where UTM gives way to UPS", async () => {
+    const pdf = await renderTo({ center: { lng: 10.15, lat: 84 }, tier: 3 });
+    expect(measurePdfPages(pdf)[0]!.texts.join("")).toContain("84°N: UPS north of this line, UTM south");
+  });
+});
