@@ -1310,6 +1310,25 @@ Suites on this branch: TS atlas-core 102, pdf-client 71, map-sources 94, web 214
 integration). Harness checks lint, typecheck-covers-tests, golden-fixture,
 test-filter-partitions, migrations-current, secrets and project-references pass.
 
+## Follow-ups — 2026-11-21
+
+Branch `work/2026-11-21-coverage-and-leftovers` from `master` at `a8b5a0f` (PR #15). Items
+found while closing the 2026-11-09 list, plus that list's two test-coverage gaps.
+
+- [x] ~~**`PmTilesFetcher`'s HTTP-range path answers 502 for everything.**~~ ✅ 2026-11-21. A
+  throttled range request (429/503) now passes on like the raster fetcher's
+  (`UpstreamThrottledException` → `FetchedTile.Throttled`; `UpstreamThrottle` is the shared
+  Retry-After reader). **Also fixed, found reading it:** a host that ignores `Range` and
+  answers 200 with the whole file had its first bytes copied as if they were the bytes at the
+  requested offset, so every read past the header was the wrong part of the archive.
+  `HttpRangeStream` now slices a 200 at its position. `PmTilesRemoteFetchTests` serves the
+  shared raster fixture through a stub handler: 2 tests fail on the old code, the 2 controls
+  (ranged host, 500) pass on both.
+- [ ] **Partial or late PDFs left on disk** by a crash mid-render, or by deleting a record or
+  project while its render runs.
+- [ ] **What the golden fixture cannot see** (see the 2026-11-09 list).
+- [ ] **What `scale-fidelity.test.ts` cannot see** (see the 2026-11-09 list).
+
 ## Phase 1: Print Geometry
 Build the Docker-hosted React/Vite/shadcn/Tailwind web app skeleton, define the outdoor field-guide visual system, accept bounding boxes, create page grid, generate overview and detail pages, and validate Letter-size PDF output from the preferred client-side React PDF path.
 

@@ -1365,3 +1365,11 @@ Each entry follows this shape:
 - Surfaces: dotnet/JourneyBook.Infrastructure/Rendering/RenderJobRunner.cs, dotnet/JourneyBook.Tests/Rendering/RenderJobRunnerTests.cs
 - Watch: a row deleted while it renders now costs up to 1.25 s of retries before the Failed write, which also fails (row gone) and is logged.
 - Commit: (pending)
+
+## 2026-11-21 — Remote PMTiles: throttles pass on, and a host that ignores `Range` reads correctly
+- Symptom: (1) `PmTilesFetcher` caught every exception from `HttpRangeStream` as "corrupt archive" and answered 502, so a 429/503 from the archive's host lost its status and Retry-After (the raster fetcher passes them on since the previous change). (2) `HttpRangeStream.ReadAsync` accepted any 2xx and copied the body's first bytes into the buffer. A host that ignores `Range` answers 200 with the whole file, so a read at offset N got bytes 0..len instead of N..N+len: the header parsed (it is at 0) and every directory and tile read after it was the wrong part of the file.
+- Fix: `UpstreamThrottle` (new) holds the 429/503 test and the Retry-After reader, now used by both fetchers. `HttpRangeStream` throws `UpstreamThrottledException` for a throttle, and `PmTilesFetcher` turns it into `FetchedTile.Throttled`. A 200 is sliced at the stream's position (a read past its end returns 0).
+- Evidence: `PmTilesRemoteFetchTests` serves `data/fixtures/raster-package/package.pmtiles` through a stub `HttpMessageHandler`. With `HttpRangeStream.cs` and `PmTilesFetcher.cs` restored from HEAD, 2 fail (the whole-file host: tiles not served; the throttle: got null). The 2 controls pass on both (a ranged host serves every manifest tile by SHA-256; a 500 is still null). .NET 367/367 with Docker.
+- Surfaces: dotnet/JourneyBook.Infrastructure/Tiles/UpstreamThrottle.cs, dotnet/JourneyBook.Infrastructure/Tiles/HttpRangeStream.cs, dotnet/JourneyBook.Infrastructure/Tiles/PmTilesFetcher.cs, dotnet/JourneyBook.Infrastructure/Tiles/RasterXyzFetcher.cs, dotnet/JourneyBook.Tests/PmTilesRemoteFetchTests.cs
+- Watch: a range-ignoring host sends the whole archive for every read, which is correct but slow for a large file. The range stream reads Retry-After dates against the system clock (no seam), so only delay-seconds is tested on this path.
+- Commit: (pending)
