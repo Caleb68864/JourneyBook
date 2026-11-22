@@ -1389,6 +1389,12 @@ Across the code the 2026-11-21/22 branches touched. Branch `work/2026-11-22-stag
 - [x] ~~**The worker's package write could overwrite a package that appeared mid-job.**~~ ✅
   `rename` became `link` + unlink, so "never over an existing file" holds atomically, not
   just at request time. The test that creates the file mid-job fails on the old route.
+- [x] ~~**One failed poll failed a package job for good, so it was never registered.**~~ ✅
+  Transport errors while polling are retried until the deadline. Also from an independent
+  review: `POST /api/map-packages` answered 500 when the worker was down (now 502); a corrupt
+  header's metadata length was allocated (OverflowException, a 500; now "unreadable", 400);
+  finished API-side jobs were never evicted (now after `MapPackages:FinishedRetentionMinutes`,
+  60). Each has a test that fails on the old code.
 
 ## Phase 1: Print Geometry
 Build the Docker-hosted React/Vite/shadcn/Tailwind web app skeleton, define the outdoor field-guide visual system, accept bounding boxes, create page grid, generate overview and detail pages, and validate Letter-size PDF output from the preferred client-side React PDF path.

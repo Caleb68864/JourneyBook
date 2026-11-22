@@ -73,6 +73,9 @@ public class MapPackageJobsApiTests(MapPackageJobsApiFactory factory) : IClassFi
         Assert.Equal(HttpStatusCode.Unauthorized,
             (await factory.CreateClient().PostAsJsonAsync("/api/map-packages", new { bbox = new[] { -97.0, 40.5, -96.5, 41.0 }, minZoom = 10, maxZoom = 12 })).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await admin.GetAsync("/api/map-packages/jobs/nope")).StatusCode);
+        // A worker that cannot be reached is a gateway failure (502), not an unhandled 500.
+        var down = await admin.PostAsJsonAsync("/api/map-packages", new { bbox = new[] { -97.0, 40.5, -96.5, 41.0 }, minZoom = 10, maxZoom = 12, file = "down.pmtiles" });
+        Assert.Equal(HttpStatusCode.BadGateway, down.StatusCode);
     }
 
     /// <summary>
@@ -128,6 +131,7 @@ public sealed class FakePackageWorker : IPackageWorkerClient
         {
             Requests.Add(request);
             if (request.OutputName == "taken.pmtiles") throw new PackageWorkerRefusedException(409, "A package named taken.pmtiles already exists.");
+            if (request.OutputName == "down.pmtiles") throw new HttpRequestException("Connection refused");
             var id = Guid.NewGuid().ToString("N");
             if (request.OutputName.StartsWith("fail-", StringComparison.Ordinal))
             {

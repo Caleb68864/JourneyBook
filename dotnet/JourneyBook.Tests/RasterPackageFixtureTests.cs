@@ -61,4 +61,19 @@ public class RasterPackageFixtureTests
             Assert.Null(await reader.ReadTileAsync(archive, a.Z, a.X, a.Y, CancellationToken.None));
         }
     }
+
+    /// <summary>
+    /// A corrupt header claiming a huge metadata block is an unreadable archive
+    /// (<see cref="InvalidDataException"/>, which registration answers as 400), not an attempt to
+    /// allocate it (an OverflowException, which surfaced as a 500).
+    /// </summary>
+    [Fact]
+    public async Task A_header_claiming_impossible_metadata_is_unreadable_not_a_crash()
+    {
+        var bytes = await File.ReadAllBytesAsync(Path.Combine(FixtureDir(), "package.pmtiles"));
+        BitConverter.GetBytes(ulong.MaxValue / 2).CopyTo(bytes, 32);
+        await using var archive = new MemoryStream(bytes);
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => new PmTilesReader().ReadMetadataAsync(archive, CancellationToken.None));
+    }
 }

@@ -66,6 +66,12 @@ public static class MapPackageEndpoints
             {
                 return Results.Json(new { error = ex.Message }, statusCode: ex.Status);
             }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+            {
+                // The worker is down or not answering: a gateway failure, not our 500.
+                return Results.Json(new { error = $"The render worker could not be reached: {ex.Message}" },
+                    statusCode: StatusCodes.Status502BadGateway);
+            }
         }).AddEndpointFilter(AdminApiKeyGate.Filter);
 
         app.MapGet("/api/map-packages/jobs/{id}", (string id, MapPackageJobs jobs) =>
