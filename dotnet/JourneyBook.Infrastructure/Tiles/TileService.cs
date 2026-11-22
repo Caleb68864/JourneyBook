@@ -58,6 +58,13 @@ public sealed class TileService(
             return TileResult.UpstreamError(); // nothing cached
         }
 
+        if (fetched.ThrottledStatus is int throttled)
+        {
+            // Nothing cached. Rounded UP: a client told "0" for a 0.4 s window would retry inside it.
+            int? retryAfter = fetched.RetryAfter is { } wait ? (int)Math.Ceiling(wait.TotalSeconds) : null;
+            return TileResult.UpstreamThrottled(throttled, retryAfter);
+        }
+
         if (fetched.Empty)
         {
             return TileResult.EmptyTile(source.Attribution);

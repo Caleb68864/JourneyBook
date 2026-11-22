@@ -1018,8 +1018,12 @@ Each fix has a test that failed before it. Write-ups in `docs/decisions.md` unde
   on a retryable status; `parseRetryAfter` reads delay-seconds and HTTP-dates. A
   Retry-After over 30 s (`maxRetryAfterMs`) ends that tile's retries, labelled
   `HTTP 429 (Retry-After over 30 s)`. 4 new `panel.test.ts` tests fail on the old code.
-  Not done: the C# proxy does not pass a source's `Retry-After` on, so through the proxy
-  this only sees what the proxy itself answers. *As found:* `fetchTile` backs off a fixed
+  ✅ *Proxy too (2026-11-21, same branch):* the C# tile proxy answered a bare 502 for every
+  upstream non-2xx, so in compose (worker → proxy → USGS) a 429 and its `Retry-After` never
+  reached the worker. `RasterXyzFetcher` now returns `FetchedTile.Throttled` for a 429/503,
+  `TileService` maps it to `TileStatus.UpstreamThrottled` (not cached, Retry-After rounded
+  up to whole seconds), and `/api/tiles` answers the upstream's status with `Retry-After`.
+  6 new .NET tests (4 unit, 2 Api) fail with the behaviour reverted. *As found:* `fetchTile` backs off a fixed
   200/400 ms whatever the source asks for, so a throttled render spends its three attempts
   inside the window the source said to wait out.
 - ~~**The worker logs an upstream (tile) failure at `info`.**~~ ✅ 2026-11-21 (same
