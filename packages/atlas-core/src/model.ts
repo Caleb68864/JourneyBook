@@ -239,6 +239,12 @@ export interface UsngGridOverlay {
    * northing lines' labels then carry full UTM values ("678000mE"), not two digits.
    */
   mgrs?: { squares: { id: string; x: number; y: number }[] };
+  /**
+   * A page that spans two UTM zones: the boundary meridian as a line across the panel, with the
+   * zone numbers either side. Each zone's grid is drawn only on its own side of it, so the lines
+   * and their numbers are always the right zone's.
+   */
+  zoneBoundary?: { x1: number; y1: number; x2: number; y2: number; westZone: number; eastZone: number };
 }
 
 /**

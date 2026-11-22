@@ -46,16 +46,16 @@ export function createProjector(center: LngLat): Projector {
 }
 
 /**
- * Build a fixed UTM-zone projector for the given zone (northern hemisphere,
- * k0 = 0.9996). Unlike <see cref="createProjector"/>, this is a standard UTM
- * grid — the correct metric plane for USNG/MGRS grid lines, which are defined
- * in UTM zones rather than a page-centred tmerc. Northern hemisphere only (no
- * `+south` false-northing offset); correct for CONUS, and the polar/southern
- * cases are out of scope.
+ * Build a fixed UTM-zone projector for the given zone (k0 = 0.9996). Unlike
+ * <see cref="createProjector"/>, this is a standard UTM grid — the correct metric plane for
+ * USNG/MGRS grid lines, which are defined in UTM zones rather than a page-centred tmerc.
+ * `south` adds the southern hemisphere's 10,000,000 m false northing, so northings there are
+ * the positive values a southern map prints. Directions (grid north, azimuths) are the same
+ * either way; only the northing numbers differ.
  */
-export function createUtmProjector(zone: number): Projector {
+export function createUtmProjector(zone: number, south = false): Projector {
   const definition =
-    `+proj=utm +zone=${zone} +datum=WGS84 +units=m +no_defs`;
+    `+proj=utm +zone=${zone}${south ? " +south" : ""} +datum=WGS84 +units=m +no_defs`;
 
   return {
     definition,

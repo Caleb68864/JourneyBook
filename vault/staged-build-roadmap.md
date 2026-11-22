@@ -587,7 +587,15 @@ Goal: implement the [Map Tiers (Learning Curve)](#map-tiers-learning-curve-featu
 > named inside its own part of the map ("14T PL", "14T QL"), and the collar lists them all ·
 > MGRS. The `mgrs` library it uses is held to an independent implementation of the standard
 > square lettering and to the repo's proj4 UTM (to 1 m) at 16 points worldwide
-> (`map-sources/src/mgrs-labels.test.ts`). Northern hemisphere only, as the Level 3 grid is.
+> (`map-sources/src/mgrs-labels.test.ts`). *(2026-11-22: southern hemisphere too, 80°S to
+> 84°N: the grid uses the southern false northing south of the equator, so a Sydney page gets
+> its lines, "56H" squares and full northings like 6245000mN, and the library is held to the
+> standard there as well. Beyond UTM's limits MGRS uses the polar UPS grid, still not drawn.)*
+> *(2026-11-22: a page that spans two UTM zones is drawn as a zone junction: each zone's grid
+> only on its own side of the boundary meridian, numbered in its own zone (first eastings in
+> full on both sides, northing labels on each zone's outer edge), both zones' 100 km squares
+> named, and the boundary drawn heavier with "13 | 14 UTM ZONE". The declination diagram's grid
+> north is still the centre's zone.)*
 > **2026-11-22: azimuth worksheets built (opt-in). Decided by agent (owner may revisit):** off
 > by default, since they add two pages. With `worksheet` (`--worksheet`, "Azimuth Worksheet"
 > in the editor) and two or more locations, the atlas ends with a worksheet (short
@@ -596,8 +604,19 @@ Goal: implement the [Map Tiers (Learning Curve)](#map-tiers-learning-curve-featu
 > page: grid azimuth from the start's UTM grid north and its back azimuth, magnetic = grid −
 > G-M at the start on the declination date ("not available" outside WMM2025), and ground
 > distance. Leg maths held to legs built in UTM metres (`atlas-core/src/worksheet.test.ts`).
-> **Still not built:** the three-norths/G-M teaching text (blocked, see above); a worksheet
-> for legs other than the stops in order (to landmarks, or chosen by hand). **The teaching text stays blocked:** the current TC 3-25.26 (15 Nov 2013)
+> *(2026-11-22: each row also names the pages the leg crosses, in walking order ("pages L1,
+> A2, L2"), on the worksheet and the key, so a reader knows which sheets to lay side by side.)*
+> **2026-11-22: the three-norths teaching text is written (owner decision: use FM 3-25.26,
+> 20 July 2001).** That edition's own cover reads "DISTRIBUTION RESTRICTION: Approved for public
+> release; distribution is unlimited", confirmed on the archive.org copy
+> (`archive.org/download/MManuals/Fm3-25.26MapReadingAndLandNavigation.pdf`, SHA-256
+> `e86dadb5…16d9f1`). The worksheet page opens with a four-paragraph "Three norths" lesson in
+> this project's own words (true, grid and magnetic north; reading the declination diagram and
+> the G-M angle; grid, magnetic and back azimuths; the 100 km square code), each citing its
+> paragraph: 6-2, 6-6, 6-3 to 6-5, 4-4. The longest run of words it shares with the manual is
+> six ("between grid north and magnetic north"). The PDF is not committed.
+> **Still not built:** a worksheet for legs other than the stops in order (to landmarks, or
+> chosen by hand). **The teaching text stays blocked:** the current TC 3-25.26 (15 Nov 2013)
 > carries "Distribution authorized to U.S. government agencies and their contractors" per
 > every copy found, not a public-release statement, and its official armypubs listing could not
 > be reached to confirm otherwise. Only the superseded FM 3-25.26 (2001) is marked "approved for

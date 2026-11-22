@@ -785,6 +785,28 @@ function UsngGridLayer({ overlay, box }: { overlay: UsngGridOverlay; box: MapBox
       {/* Level 4: each 100 km square's identifier inside its own part of the map, the way a
           military map prints it, so a reference can be written in full from either side of a
           square boundary. */}
+      {/* A zone junction: the boundary meridian, heavier than the grid, each zone's number on
+          its own side. Each zone's grid stops at it (map-sources zonePart). */}
+      {overlay.zoneBoundary ? (
+        <>
+          <Line
+            x1={overlay.zoneBoundary.x1 * box.width}
+            y1={overlay.zoneBoundary.y1 * box.height}
+            x2={overlay.zoneBoundary.x2 * box.width}
+            y2={overlay.zoneBoundary.y2 * box.height}
+            stroke={INK}
+            strokeWidth={1.4}
+          />
+          <Text
+            x={overlay.zoneBoundary.x1 * box.width}
+            y={FONT * 2 + 6}
+            textAnchor="middle"
+            style={{ fontSize: 7, fontFamily: "Helvetica-Bold", fill: INK }}
+          >
+            {`${overlay.zoneBoundary.westZone} | ${overlay.zoneBoundary.eastZone} UTM ZONE`}
+          </Text>
+        </>
+      ) : null}
       {(overlay.mgrs?.squares ?? []).map((sq, i) => (
         <Text
           key={`mgrs-sq-${i}`}
@@ -1279,6 +1301,36 @@ export function formatDistance(m: number): string {
   return m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`;
 }
 
+/**
+ * The worksheet's short lesson on the three norths, in this project's own words, each paragraph
+ * citing the part of FM 3-25.26, *Map Reading and Land Navigation* (Department of the Army,
+ * 20 July 2001), that covers it. That edition is marked "Approved for public release;
+ * distribution is unlimited" (owner decision 2026-11-22; the current TC 3-25.26 is distribution-
+ * restricted and is not used). Paraphrase only: nothing here is copied from the manual.
+ */
+export const THREE_NORTHS_LESSON: readonly { text: string; cite: string }[] = [
+  {
+    text:
+      "Every direction needs a north to start from, and a map gives you three. True north runs up the meridians to the North Pole; the diagram marks it with a star. Grid north runs up the map's vertical grid lines (GN). Magnetic north is wherever your compass needle settles (the half arrow).",
+    cite: "FM 3-25.26 (2001), para. 6-2",
+  },
+  {
+    text:
+      "The declination diagram on each Expert (Tier 4) page puts the three in the right order but not at the right angles, so take the angles from the numbers printed beside it, never by measuring the drawing. The G-M angle is the gap between grid north and magnetic north, and it is the one you use with a map and compass.",
+    cite: "FM 3-25.26 (2001), para. 6-6",
+  },
+  {
+    text:
+      "An azimuth is an angle measured clockwise from north, from 0 to 360 degrees. Measured on the map from grid north with a protractor it is a grid azimuth; read from a compass it is a magnetic azimuth. The back azimuth, the way home, is 180 degrees away.",
+    cite: "FM 3-25.26 (2001), paras. 6-3 to 6-5",
+  },
+  {
+    text:
+      "On an Expert (Tier 4) page the bold code in each part of the map (like 14T PL) names the 100 km grid square you are in. A full grid reference is that code, then the distance east, then the distance north: read right, then up.",
+    cite: "FM 3-25.26 (2001), para. 4-4",
+  },
+];
+
 /** The azimuth worksheet's instructions, in this project's own words. */
 export const WORKSHEET_INSTRUCTIONS = [
   "For each leg, find both stops on their pages and join them with a straight line.",
@@ -1294,7 +1346,9 @@ const worksheetStyles = StyleSheet.create({
   row: { flexDirection: "row", borderBottomWidth: 0.5, borderBottomColor: BARK, paddingVertical: 6, alignItems: "flex-end" },
   head: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: INK, paddingBottom: 3, marginTop: 10 },
   leg: { width: 26, fontSize: 8, fontFamily: "Helvetica-Bold", color: FOREST },
-  stops: { width: 150, fontSize: 8, color: INK },
+  stopsBox: { width: 150 },
+  stops: { fontSize: 8, color: INK },
+  legPages: { fontSize: 6.5, color: BARK, marginTop: 1 },
   cell: { width: 82, fontSize: 8, color: INK },
   headCell: { fontSize: 7, fontFamily: "Helvetica-Bold", color: BARK },
   blank: { width: 70, borderBottomWidth: 0.5, borderBottomColor: INK, height: 10, marginRight: 12 },
@@ -1325,11 +1379,21 @@ function WorksheetPages({ title, legs, model }: { title: string; legs: Worksheet
     </View>
   );
   const stopsOf = (l: WorksheetLeg) => `${l.from} to ${l.to}`;
+  // Which sheets to lay side by side for the leg: a leg between stops on different pages has to
+  // be measured across them.
+  const pagesOf = (l: WorksheetLeg) =>
+    l.pages && l.pages.length > 0 ? `pages ${l.pages.join(", ")}` : l.pages ? "on no page of this atlas" : "";
   return (
     <>
       <Page size="LETTER" orientation="portrait" style={[styles.page, { padding: 0.75 * PT }]}>
         <View style={[styles.neatline, { padding: 18 }]}>
           <Header id="WORKSHEET" />
+          <Text style={worksheetStyles.heading}>Three norths</Text>
+          {THREE_NORTHS_LESSON.map((p, i) => (
+            <Text key={`lesson-${i}`} style={worksheetStyles.instruction}>
+              {p.text} <Text style={{ color: BARK }}>({p.cite})</Text>
+            </Text>
+          ))}
           <Text style={worksheetStyles.heading}>Azimuth worksheet</Text>
           {WORKSHEET_INSTRUCTIONS.map((line, i) => (
             <Text key={i} style={worksheetStyles.instruction}>{`${i + 1}. ${line}`}</Text>
@@ -1338,7 +1402,10 @@ function WorksheetPages({ title, legs, model }: { title: string; legs: Worksheet
           {legs.map((l, i) => (
             <View key={i} style={worksheetStyles.row} wrap={false}>
               <Text style={worksheetStyles.leg}>{i + 1}</Text>
-              <Text style={worksheetStyles.stops}>{stopsOf(l)}</Text>
+              <View style={worksheetStyles.stopsBox}>
+                <Text style={worksheetStyles.stops}>{stopsOf(l)}</Text>
+                {pagesOf(l) ? <Text style={worksheetStyles.legPages}>{pagesOf(l)}</Text> : null}
+              </View>
               <View style={worksheetStyles.blank} />
               <View style={worksheetStyles.blank} />
               <View style={worksheetStyles.blank} />
@@ -1354,7 +1421,10 @@ function WorksheetPages({ title, legs, model }: { title: string; legs: Worksheet
           {legs.map((l, i) => (
             <View key={i} style={worksheetStyles.row} wrap={false}>
               <Text style={worksheetStyles.leg}>{i + 1}</Text>
-              <Text style={worksheetStyles.stops}>{stopsOf(l)}</Text>
+              <View style={worksheetStyles.stopsBox}>
+                <Text style={worksheetStyles.stops}>{stopsOf(l)}</Text>
+                {pagesOf(l) ? <Text style={worksheetStyles.legPages}>{pagesOf(l)}</Text> : null}
+              </View>
               <Text style={worksheetStyles.cell}>{`${formatAzimuth(l.gridAzimuth)} (back ${formatAzimuth(l.backAzimuth)})`}</Text>
               <Text style={worksheetStyles.cell}>{l.magneticAzimuth === null ? "not available" : formatAzimuth(l.magneticAzimuth)}</Text>
               <Text style={worksheetStyles.cell}>{formatDistance(l.distanceMeters)}</Text>

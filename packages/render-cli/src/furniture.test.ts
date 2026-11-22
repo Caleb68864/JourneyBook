@@ -191,11 +191,40 @@ describe("Stage 6B Level 4 azimuth worksheet through renderAtlas", () => {
     expect(key).toContain("L1 Capitol to L2 Haymarket");
     expect(key).toContain("L2 Haymarket to L3 Pioneers");
     expect(key.some((t) => t.startsWith("L3 Pioneers to"))).toBe(false);
+    // Each leg names the pages it crosses, ending on the page of its finish. Haymarket is about a
+    // kilometre from the Capitol, so it is on page L1 too, and the second leg starts on both.
+    const lists = key.filter((t) => t.startsWith("pages "));
+    expect(lists).toEqual(["pages L1, L2", expect.stringMatching(/^pages (L1, )?L2, L3$/)]);
   });
 
   it("[CONTROL] off by default, and skipped with fewer than two locations", async () => {
     expect(measurePdfPages(await renderTo({ mode: "location", locations: STOPS, tableOfContents: false, overview: false }))).toHaveLength(3);
     expect(measurePdfPages(await renderTo({ worksheet: true }))).toHaveLength(1);
     expect(inputFromArgs(["--location", "-96.7,40.8", "--scale", "usgs-7-5-min", "--worksheet"])).toMatchObject({ worksheet: true });
+  });
+});
+
+describe("a page across a UTM zone boundary through renderAtlas", () => {
+  it("[BEHAVIORAL] tier 3 marks the zone junction; tier 4 names both zones' squares in the collar", async () => {
+    const render = async (tier: 3 | 4) => {
+      const dir = mkdtempSync(join(tmpdir(), "jb-junction-"));
+      try {
+        const out = join(dir, "a.pdf");
+        await renderAtlas({ mode: "location", center: { lng: -102, lat: 40.8 }, scalePresetId: "usgs-7-5-min", tier, declinationDate: "2026-07-02", outputPath: out });
+        return measurePdfPages(readFileSync(out))[0]!.texts.join("");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    };
+    expect(await render(3)).toContain("13 | 14 UTM ZONE");
+    const t4 = await render(4);
+    expect(t4).toMatch(/13T [A-Z]{2}/);
+    expect(t4).toMatch(/14T [A-Z]{2}/);
+    expect(t4).toMatch(/· MGRS/);
+  });
+
+  it("[CONTROL] a page inside one zone has no junction label", async () => {
+    const pdf = await renderTo({ tier: 3 });
+    expect(measurePdfPages(pdf)[0]!.texts.join("")).not.toContain("UTM ZONE");
   });
 });

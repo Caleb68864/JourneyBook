@@ -50,3 +50,26 @@ describe("worksheetLegs", () => {
     expect(worksheetLegs(stops.slice(0, 1), DATE)).toEqual([]);
   });
 });
+
+describe("the pages a leg crosses", () => {
+  /** A page as a box of UTM metres around (e, n), converted to a lng/lat bbox. */
+  const page = (id: string, e: number, n: number, half = 1000) => {
+    const sw = at(e - half, n - half);
+    const ne = at(e + half, n + half);
+    return { id, bbox: [sw.lng, sw.lat, ne.lng, ne.lat] as [number, number, number, number] };
+  };
+
+  it("[BEHAVIORAL] lists the pages under the line, in the order a walker meets them", () => {
+    // Pages in a row east of the start, one off to the north, the leg running due east.
+    const pages = [page("C1", 4000, 0), page("A1", 0, 0), page("B1", 2000, 0), page("A2", 2000, 4000)];
+    const [leg] = worksheetLegs([{ label: "L1", center: at(0, 0) }, { label: "L2", center: at(4500, 0) }], DATE, pages);
+    expect(leg!.pages).toEqual(["A1", "B1", "C1"]);
+  });
+
+  it("lists nothing when no pages are given, and an empty list for a leg off every page", () => {
+    const [plain] = worksheetLegs([{ label: "L1", center: at(0, 0) }, { label: "L2", center: at(500, 0) }], DATE);
+    expect(plain!.pages).toBeUndefined();
+    const [off] = worksheetLegs([{ label: "L1", center: at(50_000, 0) }, { label: "L2", center: at(51_000, 0) }], DATE, [page("A1", 0, 0)]);
+    expect(off!.pages).toEqual([]);
+  });
+});
