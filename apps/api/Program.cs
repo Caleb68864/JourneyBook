@@ -118,6 +118,7 @@ app.MapTileSourceEndpoints();
 app.MapGeneratedPdfEndpoints();
 app.MapRenderEndpoints();
 app.MapTileEndpoints();
+app.MapMapPackageEndpoints();
 
 app.Run();
 

@@ -133,7 +133,8 @@ describe("pruneTileCache", () => {
     cases: {
       id: string;
       why: string;
-      maxBytes: number;
+      maxBytes: number | null;
+      maxAgeHours?: number;
       files: { path: string; size: number; ageHours: number }[];
       kept: string[];
     }[];
@@ -159,7 +160,9 @@ describe("pruneTileCache", () => {
         await fs.utimes(file, when, when);
       }
 
-      await pruneTileCache(root, c.maxBytes, now);
+      await pruneTileCache(root, c.maxBytes, now, {
+        maxAgeMs: c.maxAgeHours !== undefined ? c.maxAgeHours * 3_600_000 : null,
+      });
 
       expect(await listFiles(root)).toEqual([...c.kept].sort());
     });

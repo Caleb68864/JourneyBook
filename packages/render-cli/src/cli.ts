@@ -55,7 +55,8 @@ Usage:
   journeybook render   <geometry> --scale <preset> --out <file.pdf> [options] [--basemap]
   journeybook render   <geometry> --scale <preset> --dry-run [options] [--basemap]
   journeybook calibration --out <file.pdf>   one-page ruler target to check a printer's scale
-  journeybook cache-prune --dir <dir> --max-mb <n>   delete a tile cache's oldest tiles down to n MB
+  journeybook cache-prune --dir <dir> [--max-mb <n>] [--max-age-days <d>]
+                                                    delete tiles older than d days, then the oldest down to n MB
   journeybook package --bbox W,S,E,N --min-zoom <a> --max-zoom <b> --out <file.pmtiles> [--dry-run]
                               raster PMTiles of USGS topo for offline use (accepts --tile-base-url,
                               --tile-source, --tile-cache-dir; --max-tiles <n>, default ${DEFAULT_PACKAGE_MAX_TILES})
@@ -394,10 +395,21 @@ export async function runCli(args: readonly string[]): Promise<number> {
     try {
       const flags = parseFlags(rest);
       const dir = valueOf(flags, "dir");
-      const maxMb = Number(valueOf(flags, "max-mb"));
+      const maxMbText = valueOf(flags, "max-mb");
+      const maxAgeText = valueOf(flags, "max-age-days");
       if (!dir) throw new Error("cache-prune needs --dir <tile cache directory>");
-      if (!Number.isFinite(maxMb) || maxMb < 0) throw new Error("cache-prune needs --max-mb <number ≥ 0>");
-      const result = await pruneTileCache(dir, maxMb * 1024 * 1024);
+      if (maxMbText === undefined && maxAgeText === undefined) {
+        throw new Error("cache-prune needs --max-mb <number ≥ 0>, --max-age-days <number > 0>, or both");
+      }
+      const maxMb = maxMbText === undefined ? null : Number(maxMbText);
+      if (maxMb !== null && (!Number.isFinite(maxMb) || maxMb < 0)) throw new Error("cache-prune needs --max-mb <number ≥ 0>");
+      const maxAgeDays = maxAgeText === undefined ? null : Number(maxAgeText);
+      if (maxAgeDays !== null && (!Number.isFinite(maxAgeDays) || maxAgeDays <= 0)) {
+        throw new Error("cache-prune needs --max-age-days <number > 0>");
+      }
+      const result = await pruneTileCache(dir, maxMb === null ? null : maxMb * 1024 * 1024, Date.now(), {
+        maxAgeMs: maxAgeDays === null ? null : maxAgeDays * 86_400_000,
+      });
       stdout.write(
         `Removed ${result.removedTiles} tile(s) and ${result.removedTempFiles} abandoned temp file(s); ` +
           `${(result.bytesRemaining / (1024 * 1024)).toFixed(1)} MB remain.\n`,

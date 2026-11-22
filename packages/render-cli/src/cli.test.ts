@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { stdout } from "node:process";
@@ -191,6 +191,34 @@ describe("cli cache-prune", () => {
       expect(await runCli(["cache-prune", "--dir", dir, "--max-mb", "0"])).toBe(0);
       expect(existsSync(join(dir, "usgs/16/1/1.png"))).toBe(false);
       expect(out.join("")).toContain("Removed 1 tile(s)");
+    } finally {
+      process.stderr.write = stderrWrite;
+      stdout.write = stdoutWrite;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("--max-age-days alone deletes tiles past the age and keeps younger ones", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jb-cli-"));
+    const stderrWrite = process.stderr.write.bind(process.stderr);
+    const stdoutWrite = stdout.write.bind(stdout);
+    process.stderr.write = (() => true) as typeof process.stderr.write;
+    stdout.write = (() => true) as typeof stdout.write;
+    try {
+      mkdirSync(join(dir, "usgs/16/1"), { recursive: true });
+      const old = join(dir, "usgs/16/1/1.png");
+      const young = join(dir, "usgs/16/1/2.png");
+      writeFileSync(old, Buffer.alloc(10));
+      writeFileSync(young, Buffer.alloc(10));
+      const fortyDaysAgo = new Date(Date.now() - 40 * 86_400_000);
+      utimesSync(old, fortyDaysAgo, fortyDaysAgo);
+
+      expect(await runCli(["cache-prune", "--dir", dir, "--max-age-days", "0"])).toBe(2);
+      expect(existsSync(old)).toBe(true);
+
+      expect(await runCli(["cache-prune", "--dir", dir, "--max-age-days", "30"])).toBe(0);
+      expect(existsSync(old)).toBe(false);
+      expect(existsSync(young)).toBe(true);
     } finally {
       process.stderr.write = stderrWrite;
       stdout.write = stdoutWrite;

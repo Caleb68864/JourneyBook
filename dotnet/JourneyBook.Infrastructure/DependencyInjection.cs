@@ -54,18 +54,26 @@ public static class DependencyInjection
         // GeneratedPdf:PruneIntervalHours to 0 to go back to manual-only.
         var pruneIntervalHours =
             double.TryParse(configuration["GeneratedPdf:PruneIntervalHours"], out var pih) ? pih : 6;
-        services.AddSingleton(new GeneratedPdfRetentionOptions(TimeSpan.FromHours(pruneIntervalHours)));
+        var orphanSweepHours =
+            double.TryParse(configuration["GeneratedPdf:OrphanSweepMinAgeHours"], out var osh) ? osh : 0;
+        services.AddSingleton(new GeneratedPdfRetentionOptions(
+            TimeSpan.FromHours(pruneIntervalHours),
+            orphanSweepHours > 0 ? TimeSpan.FromHours(orphanSweepHours) : TimeSpan.Zero));
+        services.AddScoped<GeneratedPdfOrphanSweeper>();
         services.AddHostedService<GeneratedPdfRetentionService>();
 
         // --- Tile proxy (Stage 3) -------------------------------------------
         var cacheDir = configuration["TileCache:CacheDir"] is { Length: > 0 } dir ? dir : "data/cache";
         services.AddSingleton(new TileCache(cacheDir));
+        services.AddScoped<MapPackageManifest>();
 
         var tileCacheMaxMb = configuration.GetValue("TileCache:MaxSizeMb", 0L);
         var tileCachePruneHours = configuration.GetValue("TileCache:PruneIntervalHours", 24d);
+        var tileCacheMaxAgeDays = configuration.GetValue("TileCache:MaxAgeDays", 0d);
         services.AddSingleton(new TileCachePruneOptions(
             tileCacheMaxMb * 1024 * 1024,
-            TimeSpan.FromHours(tileCachePruneHours)));
+            TimeSpan.FromHours(tileCachePruneHours),
+            tileCacheMaxAgeDays > 0 ? TimeSpan.FromDays(tileCacheMaxAgeDays) : TimeSpan.Zero));
         services.AddHostedService<TileCachePruneService>();
 
         var upstreamTimeout = int.TryParse(configuration["TileCache:UpstreamTimeoutSeconds"], out var t) ? t : 10;

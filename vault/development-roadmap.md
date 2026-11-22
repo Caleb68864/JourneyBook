@@ -1335,6 +1335,26 @@ found while closing the 2026-11-09 list, plus that list's two test-coverage gaps
   one) pass on both. Not covered: a render the API stopped waiting for (timeout) that the
   worker finishes later, and a worker still drawing across an API restart; both write after
   the cleanup. Files orphaned before this change stay.
+- [x] ~~**Orphaned PDFs nothing else reaches**~~ ✅ 2026-11-21. `GeneratedPdfOrphanSweeper`
+  runs with the retention sweep and deletes a generated-dir file only when all hold: top
+  level, named `atlas-{32 hex}.pdf`, older than `GeneratedPdf:OrphanSweepMinAgeHours`, no
+  record's `FilePath` names it, and no record has its id (a queued render). This covers the
+  two cases the earlier fix left: a render the API stopped waiting for that the worker
+  finished later, a worker outliving an API restart, plus files orphaned before records kept
+  their paths. **Decided by agent 2026-11-21 (owner may revisit): off by default** (0 hours),
+  because a delete cannot be undone and these are files on someone's disk; 24 h is the
+  suggested value (renders time out at 15 min). Api test against PostGIS: of seven files it
+  removes only the old unreferenced one. Mutation-checked: a no-op sweep, no age check, and no
+  queued-id check each fail it.
+- [x] ~~**The web suite fails now and then on "window is not defined"**~~ ✅ 2026-11-21
+  (found running the full suite). `waitForRender`'s sleep ignored its abort signal, so when
+  `GenerateButton` unmounted mid-render the abandoned wait slept out up to a whole poll
+  interval (1 s), then threw into `catch`/`finally`, which set state on the unmounted button.
+  When that landed after the test environment was torn down, React read `window.event` and
+  the run failed on an unhandled rejection. The sleep now wakes on abort, and the button
+  ignores a wait it aborted itself. A new `GenerateButton.progress.test.tsx` case removes
+  `window` after unmount (the teardown, made deterministic): it fails on the old code with 6
+  unhandled rejections, as does the new `render-polling.test.ts` abort case.
 - [x] ~~**What the golden fixture cannot see**~~ ✅ 2026-11-21 (the geometry half).
   `render-cli/src/contract-golden.test.ts` pins the whole `assembleContract` output (the
   render worker's entry point) to `data/fixtures/contract-cases.json` for six cases: one

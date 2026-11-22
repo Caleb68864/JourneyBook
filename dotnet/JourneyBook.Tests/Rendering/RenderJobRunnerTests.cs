@@ -1,3 +1,4 @@
+using JourneyBook.Infrastructure.Tiles;
 using Microsoft.Extensions.Configuration;
 using JourneyBook.Infrastructure.GeneratedPdfs;
 using System.Text.Json;
@@ -671,6 +672,33 @@ public class RenderJobRunnerTests
         Assert.Equal(143, cache.GetProperty("tiles").GetInt32());
         Assert.Equal(4, cache.GetProperty("panels").GetInt32());
         Assert.Equal(86400, cache.GetProperty("sourceCacheMaxAgeSeconds").GetInt32());
+        // No retention configured: both server limits are off, and say so.
+        Assert.Equal(JsonValueKind.Null, cache.GetProperty("serverCacheMaxAgeDays").ValueKind);
+        Assert.Equal(JsonValueKind.Null, cache.GetProperty("serverCacheMaxSizeMb").ValueKind);
+    }
+
+    /// <summary>
+    /// Stage 7's "expiration" in the render's cache metadata: the server cache's retention
+    /// when one is configured.
+    /// </summary>
+    [Fact]
+    public async Task The_cache_metadata_records_the_servers_tile_retention()
+    {
+        var pdfs = new RecordingPdfService();
+        var worker = new StubWorkerClient(
+            req => new RenderWorkerResult(
+                req.OutputFileName, 1, "USGS", null,
+                new RenderTileCoverage([-96.75, 40.78, -96.65, 40.86], 16, 16, 20, 1)));
+        var retention = new TileCachePruneOptions(512L * 1024 * 1024, TimeSpan.FromHours(24), TimeSpan.FromDays(30));
+
+        await new RenderJobRunner(pdfs, worker, new StubCancellations(), NullLogger<RenderJobRunner>.Instance, tileRetention: retention)
+            .RunAsync(SampleJob());
+
+        var completed = Assert.Single(pdfs.Updates.Where(u => u.Status == "Completed"));
+        using var doc = JsonDocument.Parse(completed.SourceMetadataSnapshot!);
+        var cache = doc.RootElement.GetProperty("tileCache");
+        Assert.Equal(30, cache.GetProperty("serverCacheMaxAgeDays").GetDouble());
+        Assert.Equal(512, cache.GetProperty("serverCacheMaxSizeMb").GetInt64());
     }
 
     [Fact]

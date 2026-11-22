@@ -141,17 +141,20 @@ export interface TileCachePruneResult {
 }
 
 /**
- * Bring the cache down to `maxBytes`, deleting the oldest-written tiles first, plus any
- * abandoned temp file. Touches only files in the `{source}/{z}/{x}/{y}[.{ext}]` layout, so a
+ * Delete every tile written `options.maxAgeMs` or longer ago (when given), then bring the
+ * cache down to `maxBytes` (when not null), deleting the oldest-written tiles first, plus any
+ * abandoned temp file. An age limit is how a tile "expires": nothing else does. Touches only files in the `{source}/{z}/{x}/{y}[.{ext}]` layout, so a
  * cache root pointed at the wrong directory deletes nothing else. Mirrors `TileCache.Prune`
  * in C#, since both can own one directory; `data/fixtures/tile-cache-prune.json` holds them
  * together. A tile deleted under a concurrent reader is a miss, and is fetched again.
  */
 export async function pruneTileCache(
   cacheDir: string,
-  maxBytes: number,
+  maxBytes: number | null,
   now: number = Date.now(),
+  options: { maxAgeMs?: number | null } = {},
 ): Promise<TileCachePruneResult> {
+  const maxAgeMs = options.maxAgeMs ?? null;
   const root = path.resolve(cacheDir);
   const tiles: { file: string; relative: string; size: number; mtimeMs: number }[] = [];
   let removedTempFiles = 0;
@@ -189,7 +192,11 @@ export async function pruneTileCache(
   let removedTiles = 0;
   const touched = new Set<string>();
   for (const tile of tiles) {
-    if (bytesRemaining <= maxBytes) break;
+    const expired = maxAgeMs !== null && now - tile.mtimeMs >= maxAgeMs;
+    const overCap = maxBytes !== null && bytesRemaining > maxBytes;
+    // Oldest first, so once a tile is neither expired nor needed for the cap, no later
+    // (younger) one is either.
+    if (!expired && !overCap) break;
     try {
       await fs.rm(tile.file, { force: true });
       bytesRemaining -= tile.size;

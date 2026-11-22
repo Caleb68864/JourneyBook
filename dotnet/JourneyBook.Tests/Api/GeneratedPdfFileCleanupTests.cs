@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using JourneyBook.Application.GeneratedPdfs;
 using JourneyBook.Application.Projects;
+using JourneyBook.Infrastructure.GeneratedPdfs;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -89,6 +90,63 @@ public class GeneratedPdfFileCleanupTests(GeneratedDirApiFactory factory) : ICla
         var row = await _client.GetFromJsonAsync<GeneratedPdfResponse>($"/api/generated-pdfs/{stranded}");
         Assert.Equal("Failed", row!.Status);
         Assert.Null(row.FilePath);
+    }
+
+    /// <summary>
+    /// The folder sweep: a PDF no record points at, older than the safe age, goes. Everything
+    /// that might still be wanted stays.
+    /// </summary>
+    [Fact]
+    public async Task The_orphan_sweep_removes_only_old_unreferenced_atlas_files()
+    {
+        Directory.CreateDirectory(factory.GeneratedDir);
+        var old = DateTime.UtcNow.AddDays(-3);
+        string Put(string name, DateTime written)
+        {
+            var path = Path.Combine(factory.GeneratedDir, name);
+            File.WriteAllText(path, "%PDF");
+            File.SetLastWriteTimeUtc(path, written);
+            return path;
+        }
+
+        var orphan = Put($"atlas-{Guid.NewGuid():N}.pdf", old);
+        var youngOrphan = Put($"atlas-{Guid.NewGuid():N}.pdf", DateTime.UtcNow);
+        var notOurs = Put("field-notes.pdf", old);
+        var nested = Path.Combine(factory.GeneratedDir, "keep");
+        Directory.CreateDirectory(nested);
+        var nestedFile = Path.Combine(nested, $"atlas-{Guid.NewGuid():N}.pdf");
+        File.WriteAllText(nestedFile, "%PDF");
+        File.SetLastWriteTimeUtc(nestedFile, old);
+
+        // A record that points at its file, and a queued record that has not recorded one yet.
+        var projectId = await ProjectAsync("Sweep host");
+        var (_, referenced) = await RecordWithFileAsync(projectId, "Completed");
+        File.SetLastWriteTimeUtc(referenced, old);
+        var post = await _client.PostAsJsonAsync($"/api/projects/{projectId}/generated-pdfs", new CreateGeneratedPdfRequest());
+        var queued = (await post.Content.ReadFromJsonAsync<GeneratedPdfResponse>())!;
+        var queuedFile = Put($"atlas-{queued.Id:N}.pdf", old);
+
+        int removed;
+        using (var scope = factory.Services.CreateScope())
+        {
+            removed = await scope.ServiceProvider.GetRequiredService<GeneratedPdfOrphanSweeper>()
+                .SweepAsync(TimeSpan.FromHours(24));
+        }
+
+        Assert.Equal(1, removed);
+        Assert.False(File.Exists(orphan), "an old PDF no record points at was kept");
+        Assert.True(File.Exists(youngOrphan), "a file younger than the safe age was deleted");
+        Assert.True(File.Exists(notOurs), "a file not named like an atlas was deleted");
+        Assert.True(File.Exists(nestedFile), "a file outside the top level was deleted");
+        Assert.True(File.Exists(referenced), "a file a record points at was deleted");
+        Assert.True(File.Exists(queuedFile), "a queued render's file was deleted");
+    }
+
+    [Fact]
+    public void The_orphan_sweep_is_off_unless_configured()
+    {
+        var options = factory.Services.GetRequiredService<JourneyBook.Infrastructure.GeneratedPdfs.GeneratedPdfRetentionOptions>();
+        Assert.False(options.SweepsOrphans);
     }
 }
 

@@ -113,14 +113,16 @@ public sealed class TileCache
     }
 
     /// <summary>
-    /// Bring the cache down to <paramref name="maxBytes"/>, deleting the oldest-written tiles
-    /// first, plus any abandoned temp file. Touches only files in the
+    /// Delete every tile written <paramref name="maxAge"/> or longer ago (when given), then bring
+    /// the cache down to <paramref name="maxBytes"/> (when given), deleting the oldest-written
+    /// tiles first, plus any abandoned temp file. Null means "no such limit"; both null removes
+    /// only abandoned temp files. An age limit is how a tile "expires": nothing else does. Touches only files in the
     /// <c>{source}/{z}/{x}/{y}[.{ext}]</c> layout, so a root pointed at the wrong directory
     /// deletes nothing else. Mirrors <c>pruneTileCache</c> in TypeScript, since both can own one
     /// directory; <c>data/fixtures/tile-cache-prune.json</c> holds them together. A tile deleted
     /// under a concurrent reader is a miss, and is fetched again.
     /// </summary>
-    public TileCachePruneResult Prune(long maxBytes, DateTime? utcNow = null)
+    public TileCachePruneResult Prune(long? maxBytes, DateTime? utcNow = null, TimeSpan? maxAge = null)
     {
         var now = utcNow ?? DateTime.UtcNow;
         var tiles = new List<(FileInfo File, string Relative)>();
@@ -149,8 +151,12 @@ public sealed class TileCache
 
         foreach (var (file, _) in oldestFirst)
         {
-            if (bytesRemaining <= maxBytes)
+            var expired = maxAge is { } age && now - file.LastWriteTimeUtc >= age;
+            var overCap = maxBytes is { } cap && bytesRemaining > cap;
+            if (!expired && !overCap)
             {
+                // Oldest first, so once a tile is neither expired nor needed for the cap,
+                // no later (younger) one is either.
                 break;
             }
 

@@ -139,7 +139,8 @@ describe("waitForRender", () => {
     await waitForRender("pdf-1", { fetchStatus, sleep, intervalMs: 2500 });
 
     expect(sleep).toHaveBeenCalledTimes(1);
-    expect(sleep).toHaveBeenCalledWith(2500);
+    // The interval; the second argument is the abort signal (undefined here).
+    expect(sleep).toHaveBeenCalledWith(2500, undefined);
   });
 });
 
@@ -408,5 +409,31 @@ describe("the phase vocabulary matches the engine's", () => {
     const silent = KNOWN_PHASES.filter((p) => phaseLabel(p) === null);
     expect(labelled.sort()).toEqual(["contract", "overview", "pdf"]);
     expect(silent.sort()).toEqual(["done", "panel"]);
+  });
+});
+
+describe("waitForRender abort", () => {
+  /**
+   * The default sleep ignored the signal: an aborted wait slept out the rest of its
+   * interval before noticing. That is up to a whole interval of a timer and a pending
+   * promise outliving the component that asked for it.
+   */
+  it("[BEHAVIORAL] an abort during the sleep ends the wait at once, not after the interval", async () => {
+    const controller = new AbortController();
+    const fetchStatus = vi.fn(async () => ({ id: "pdf-1", status: "Rendering" }) as GeneratedPdf);
+    const wait = waitForRender("pdf-1", { fetchStatus, signal: controller.signal, intervalMs: 5_000 });
+    const settled = wait.then(
+      () => "resolved",
+      (e: unknown) => (e instanceof Error ? e.message : String(e)),
+    );
+    await new Promise((r) => setTimeout(r, 20));
+    controller.abort();
+
+    const startedAt = Date.now();
+    const outcome = await Promise.race([settled, new Promise((r) => setTimeout(() => r("still sleeping"), 1_000))]);
+    expect(outcome).toBe("Render wait was cancelled.");
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
+    // Aborted before the next poll: no request after the first.
+    expect(fetchStatus).toHaveBeenCalledTimes(1);
   });
 });
