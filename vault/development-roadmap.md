@@ -1055,6 +1055,16 @@ Each fix has a test that failed before it. Write-ups in `docs/decisions.md` unde
   assertion that a timed-out test's late tile requests leaked into (`[12, 16]` vs `[12]`). With
   `--testTimeout=60000` all 123 pass. The basemap tests share one global fetch mock, so a
   timed-out test can corrupt the next one's counts.
+  *2026-11-16:* fixed for the render-cli basemap tests only (see "Decision 7 re-verified").
+  ✅ *2026-11-21 (branch `fix/tile-retry-after-and-upstream-warn`): the rest of it.* The
+  same 5 s default was failing elsewhere: with 48 busy loops on this 8-core machine (load
+  ~92), unmodified `pnpm -r test` failed **11** tests on timeouts (map-sources 5, render-cli 2
+  outside the basemap describe, render-worker 4), and at ambient load ~80 from other work
+  map-sources alone failed 2–3. Every one is real CPU (sharp composites, PDF layout, the
+  6,510-case zoom sweep), not a hang. The four packages that render (map-sources,
+  pdf-client, render-cli, render-worker) now run `vitest run --testTimeout=60000
+  --hookTimeout=60000`; under the same 48 burners all 671 pass (load ~98). atlas-core and
+  web are pure and fast and keep the default. A real hang still fails, at 60 s.
 
 Suites on this branch: TS atlas-core 102, pdf-client 71, map-sources 93 (one new), web 180,
 render-cli 123 (with a 60 s timeout, see above), render-worker 37. .NET without Docker: 239

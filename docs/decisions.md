@@ -1332,3 +1332,11 @@ Each entry follows this shape:
 - Surfaces: packages/map-sources/src/panel.ts, packages/map-sources/src/panel.test.ts, services/render-worker/src/render-route.ts, services/render-worker/src/render-route.test.ts
 - Watch: the 30 s cap is a judgement, not a measured number; a source that routinely asks for 60 s would now fail its tiles instead of waiting. The wait is not tied to the render's cancel signal (neither was the old backoff), so a cancel during a 30 s wait lands when it ends. The C# proxy's own fetchers were not changed; through the proxy, this only helps if the proxy passes the source's 429 and `Retry-After` on.
 - Commit: (pending)
+
+## 2026-11-21 — 60 s test timeout for the four packages that render
+- Symptom: under load the TS suites failed on vitest's 5 s default, a different handful each run. With 48 busy loops on the 8-core dev machine (load ~92), unmodified `pnpm -r test` failed 11 tests: map-sources 5 (panel crop registration, zoom ceiling, the 6,510-case zoom-step sweep, the every-longitude table check), render-cli 2 (`assemble.test.ts`, `render-progress.test.ts`, outside the basemap describe the 2026-11-16 fix covered) and render-worker 4. At the ambient load other sessions put on this machine (~80) map-sources alone failed 2 to 3 per run, on master too.
+- Fix: `test` in map-sources, pdf-client, render-cli and render-worker is `vitest run --testTimeout=60000 --hookTimeout=60000`. Flags in the script, not a vitest config file, so nothing new enters the `tsc` programs (`typecheck-covers-tests.sh`). atlas-core and web are pure and fast and keep 5 s.
+- Evidence: with the same 48 burners, all 671 pass (load ~98). Reproduce with a script that starts N `sh -c 'while :; do :; done'` loops, runs `pnpm -r --no-bail test`, then kills them. Pinning the suite to one or two cores with fewer burners did not reproduce it, so contention has to be machine-wide.
+- Surfaces: packages/map-sources/package.json, packages/pdf-client/package.json, packages/render-cli/package.json, services/render-worker/package.json
+- Watch: a test that really hangs now takes 60 s to fail, not 5. `BASEMAP_TEST_TIMEOUT_MS` in render-cli's `render.test.ts` is now the same as the package default; it is left in place because it documents why those cases are slow.
+- Commit: (pending)

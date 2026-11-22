@@ -13,7 +13,7 @@
     "build": "tsc -b",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
     "start": "node ./dist/cli.js",
-    "test": "vitest run"
+    "test": "vitest run --testTimeout=60000 --hookTimeout=60000"
   },
   "dependencies": {
     "@journeybook/atlas-core": "workspace:*",
