@@ -223,6 +223,41 @@ public class HttpRenderWorkerClientTests
         Assert.True(route.GetBoolean());
     }
 
+    /// <summary>
+    /// Crop marks and the locator inset go on the wire only when on, so a render without them
+    /// sends exactly the body it sent before they existed.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Crop_marks_and_locator_inset_are_sent_only_when_on(bool on)
+    {
+        var (client, handler) = Build();
+        var req = new RenderWorkerRequest(
+            ScalePresetId: "usgs-7-5-min",
+            Tier: 1,
+            Orientation: "Portrait",
+            Overlap: 0,
+            Margins: new RenderMarginsDto(0.5, 0.5, 0.5, 0.5),
+            Extent: new BBoxDto(-96.75, 40.78, -96.65, 40.85),
+            Locations: [],
+            OutputFileName: "atlas-furniture.pdf",
+            CropMarks: on,
+            LocatorInset: on);
+
+        await client.RenderAsync(req);
+
+        using var doc = JsonDocument.Parse(handler.CapturedBody!);
+        var root = doc.RootElement;
+        Assert.Equal(on, root.TryGetProperty("cropMarks", out var crop));
+        Assert.Equal(on, root.TryGetProperty("locatorInset", out var inset));
+        if (on)
+        {
+            Assert.True(crop.GetBoolean());
+            Assert.True(inset.GetBoolean());
+        }
+    }
+
     [Fact]
     public async Task Route_defaults_to_false_on_the_wire_when_unset()
     {

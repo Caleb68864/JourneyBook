@@ -183,7 +183,9 @@ public class RenderService(
             Basemap: request.Basemap,
             PanelWidthPx: request.PanelWidthPx,
             PanelFormat: request.PanelFormat,
-            PanelQuality: request.PanelQuality);
+            PanelQuality: request.PanelQuality,
+            CropMarks: request.CropMarks,
+            LocatorInset: request.LocatorInset);
 
         // 5. Register the cancel channel BEFORE queueing, so there is no window in
         //    which an accepted render cannot be cancelled. A job can wait behind

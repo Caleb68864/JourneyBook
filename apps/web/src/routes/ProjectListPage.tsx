@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { DEFAULT_SCALE_PRESET_ID } from "@journeybook/atlas-core";
 import { api, type Project } from "../api/client";
 import { buildProjectExport, parseProjectImport } from "../lib/project-transfer";
+import { MapPackagesPanel } from "../components/MapPackagesPanel";
 
 interface ProjectListPageProps {
   onOpen: (projectId: string) => void;
@@ -226,6 +227,8 @@ export function ProjectListPage({ onOpen }: ProjectListPageProps) {
             ))}
           </ul>
         )}
+
+        <MapPackagesPanel />
       </main>
     </div>
   );

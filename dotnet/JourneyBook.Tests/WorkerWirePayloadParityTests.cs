@@ -189,7 +189,9 @@ public class WorkerWirePayloadParityTests
         Basemap: true,
         PanelWidthPx: 1730,
         PanelFormat: "jpeg",
-        PanelQuality: 90);
+        PanelQuality: 90,
+        CropMarks: true,
+        LocatorInset: true);
 
     /// <summary>Captures POST bodies and answers the job protocol so the call completes.</summary>
     private sealed class CapturePostHandler(List<string> bodies) : HttpMessageHandler

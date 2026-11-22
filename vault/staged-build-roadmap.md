@@ -328,14 +328,34 @@ Done when:
 - A single page's map panel renders headlessly at the target DPI in the correct projection.
 - The chosen headless render path is documented with its failure modes; QuestPDF fallback trigger is defined.
 
-### Stage 1D: Headless PDF composition with page furniture — 🟡 mostly built (2026-06-24)
+### Stage 1D: Headless PDF composition with page furniture — ✅ built (2026-11-22; crop marks and locator inset are opt-in)
+
+> **2026-11-22: the last two items are built, both off by default. Decided by agent (owner may
+> revisit):** each was held back as "a layout decision, because it takes paper from the map
+> box". Neither does now. **Crop marks** are two 8 pt ticks per map-box corner, on the box's
+> edge lines and 2 pt outside it, in the space the CONTINUE furniture already reserves, so the
+> box and its printed scale are identical with them on. **The grid-locator inset** is the
+> whole atlas in miniature (one rectangle per page, this one filled, at most 72 pt, north up,
+> longitude shrunk by cos lat) drawn *over* the map's lower-right corner rather than beside
+> it, so the map box is unchanged and the cost is about a square inch of covered map, which
+> is why it is opt-in. A one-page atlas gets no inset. Reachable everywhere: `render
+> --crop-marks --locator-inset`, the worker's `cropMarks`/`locatorInset`, `RenderProjectRequest`
+> (`CropMarks`, `LocatorInset`, sent on the wire only when on), and two editor checkboxes
+> ("Crop Marks", "Page Locator"). Measured off the PDF (`crop-marks-locator.test.ts`): all
+> eight ticks where they belong and none inside the map, a rectangle per page in the inset,
+> and the map box equal with each on and off. The ticks are thin filled bars, not an SVG: an
+> SVG's viewport rectangle was larger than the map box and became the page's largest
+> rectangle, which is how `mapBoxOf` (and with it every print-fidelity check) finds the map.
 
 > **Audited 2026-11-16.** The first Done-when line is met and the second mostly: `render --bbox` and `render
 > --location` emit multi-page Letter PDFs (`render.test.ts`, `dry-run.test.ts` count
 > the pages off the file), and the credit line is printed on map pages
 > (`pdf-client/src/attribution.test.ts`, which reads the PDF's text). That it sits
-> inside the margin follows from the fixed furniture layout; no test measures where
-> it lands, so that half is unverified. Build items: title, page ID, measured
+> inside the margin follows from the fixed furniture layout; ~~no test measures where
+> it lands, so that half is unverified~~ *(2026-11-22: measured,
+> `pdf-client/src/attribution-placement.test.ts`: every credit string's position read off
+> the PDF lies inside the margins at default, landscape, wide-margin-plus-gutter and tier-1
+> setups, short and wrapping credits alike; moving the credit 40 pt down fails all 8)*. Build items: title, page ID, measured
 > scale bar, compass rose (tier ≥ 2), continuation labels, attribution footer, an
 > overview page and the 1-inch calibration tick plus print check page are **done**.
 > The landmark legend is drawn only when a page has landmarks, so a general "legend
@@ -632,7 +652,10 @@ Found while auditing, not fixed:
   maxTiles?}, admin-gated, 202: the worker's new `POST /package` job builds it through the
   api's tile proxy into `data/map-packages` (compose mounts it read-write into the worker,
   `PACKAGES_DIR`), and the api registers it when it lands; `GET /api/map-packages/jobs/{id}`
-  reports packaging, registering, registered, or failed with the reason)*, no UI; ~~no automatic row registration~~ *(2026-11-22:
+  reports packaging, registering, registered, or failed with the reason)*, ~~no UI~~
+  *(2026-11-22: "Offline map packages" on the project list reads the manifest, read-only:
+  coverage, zooms, tile count, size, and whether a tile source serves each; making and
+  registering stay admin-only, so the app, which holds no admin key, does not offer them)*; ~~no automatic row registration~~ *(2026-11-22:
   `POST /api/map-packages/register` {file, key?}, admin-gated, creates the `pmtiles` row from
   the archive: max zoom from its header, credit and origin from its metadata, refused unless
   the origin row exists and allows offline use)*; ~~compose still does not mount

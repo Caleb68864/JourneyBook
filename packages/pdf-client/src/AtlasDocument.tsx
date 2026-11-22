@@ -453,6 +453,138 @@ function ReferenceGrid({ box }: { box: MapBox }) {
   );
 }
 
+/** Crop-mark geometry, in points: each tick's length and its gap from the map box corner. */
+export const CROP_MARK = { length: 8, gap: 2, stroke: 0.5 } as const;
+
+/**
+ * Crop marks at the four corners of the printed map box (Stage 1D, off by default).
+ *
+ * Two ticks per corner, on the lines of the map box's edges, starting `gap` outside it, so a
+ * sheet can be trimmed to exactly its map and butted against its neighbour. They sit in the
+ * space the furniture already reserves round the panel (the edge-label column and row; the
+ * CONTINUE labels are centred, so the corners are empty) and never inside the map box, so
+ * turning them on cannot move the box or its printed scale.
+ *
+ * Drawn from inside the panel's own View, positioned past its 1 pt border, so they follow the
+ * box wherever the furniture puts it.
+ */
+function CropMarks({ box }: { box: MapBox }) {
+  const { length, gap, stroke } = CROP_MARK;
+  const half = stroke / 2;
+  // Positions relative to the map box's top-left (this View's content box). Each tick is a thin
+  // filled bar, centred on the edge line it extends. Bars, not an SVG: an SVG brings a viewport
+  // rectangle larger than the map box, and the map box is found on the page as its largest
+  // rectangle (`mapBoxOf`, which the print-fidelity checks measure scale against).
+  const right = box.width;
+  const bottom = box.height;
+  const bars: { left: number; top: number; width: number; height: number }[] = [
+    { left: -gap - length, top: -half, width: length, height: stroke },
+    { left: -half, top: -gap - length, width: stroke, height: length },
+    { left: right + gap, top: -half, width: length, height: stroke },
+    { left: right - half, top: -gap - length, width: stroke, height: length },
+    { left: -gap - length, top: bottom - half, width: length, height: stroke },
+    { left: -half, top: bottom + gap, width: stroke, height: length },
+    { left: right + gap, top: bottom - half, width: length, height: stroke },
+    { left: right - half, top: bottom + gap, width: stroke, height: length },
+  ];
+  return (
+    <>
+      {bars.map((bar, i) => (
+        <View key={i} style={{ position: "absolute", ...bar, backgroundColor: INK }} />
+      ))}
+    </>
+  );
+}
+
+/** One page's rectangle in the locator inset, in points from the inset's top-left. */
+export interface LocatorCell {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  current: boolean;
+}
+
+/**
+ * The grid-locator inset's layout: every page of the atlas as a rectangle, scaled to fit
+ * `maxWidth` × `maxHeight` points with the atlas's own proportions (degrees, with longitude
+ * shrunk by cos(latitude) so a square of ground looks square), north up. A sketch for finding
+ * your place, not a measured map. Null for a one-page atlas, which has nothing to locate.
+ */
+export function locatorInsetLayout(
+  pages: readonly Pick<AtlasPage, "id" | "bbox">[],
+  currentId: string,
+  maxWidth: number,
+  maxHeight: number,
+): { width: number; height: number; cells: LocatorCell[] } | null {
+  if (pages.length < 2) return null;
+  const west = Math.min(...pages.map((p) => p.bbox[0]));
+  const south = Math.min(...pages.map((p) => p.bbox[1]));
+  const east = Math.max(...pages.map((p) => p.bbox[2]));
+  const north = Math.max(...pages.map((p) => p.bbox[3]));
+  const k = Math.cos((((south + north) / 2) * Math.PI) / 180);
+  const spanX = (east - west) * k;
+  const spanY = north - south;
+  const scale = Math.min(maxWidth / spanX, maxHeight / spanY);
+  return {
+    width: spanX * scale,
+    height: spanY * scale,
+    cells: pages.map((p) => ({
+      id: p.id,
+      x: (p.bbox[0] - west) * k * scale,
+      y: (north - p.bbox[3]) * scale,
+      width: (p.bbox[2] - p.bbox[0]) * k * scale,
+      height: (p.bbox[3] - p.bbox[1]) * scale,
+      current: p.id === currentId,
+    })),
+  };
+}
+
+/** Largest size of the locator inset, in points: about an inch, in the map's lower-right corner. */
+export const LOCATOR_INSET_MAX = { width: 72, height: 72, inset: 6 } as const;
+
+/**
+ * The grid-locator inset (Stage 1D, off by default): the whole atlas in miniature, this page
+ * filled, in the lower-right corner OF the map. Drawn over the map rather than beside it, so the
+ * map box, and with it the printed scale, is the same with it on or off; the cost is the
+ * square inch of map it covers, which is why it is opt-in.
+ */
+function LocatorInset({ contract, page, box }: { contract: AtlasContract; page: AtlasPage; box: MapBox }) {
+  const layout = locatorInsetLayout(contract.pages, page.id, LOCATOR_INSET_MAX.width, LOCATOR_INSET_MAX.height);
+  if (!layout) return null;
+  const pad = 2;
+  const w = layout.width + 2 * pad;
+  const h = layout.height + 2 * pad;
+  return (
+    <View
+      style={{
+        position: "absolute",
+        left: box.width - w - LOCATOR_INSET_MAX.inset,
+        top: box.height - h - LOCATOR_INSET_MAX.inset,
+        width: w,
+        height: h,
+      }}
+    >
+      <Svg width={w} height={h} viewBox={`0 0 ${w} ${h}`}>
+        <Rect x={0} y={0} width={w} height={h} fill={PARCHMENT} stroke={BARK} strokeWidth={0.5} />
+        {layout.cells.map((c) => (
+          <Rect
+            key={c.id}
+            x={pad + c.x}
+            y={pad + c.y}
+            width={c.width}
+            height={c.height}
+            fill={c.current ? FOREST : PARCHMENT}
+            stroke={BARK}
+            strokeWidth={0.4}
+          />
+        ))}
+      </Svg>
+    </View>
+  );
+}
+
 /** Foot-of-page notes: any saved location note, then ruled blank lines for writing. */
 function NotesArea({ notes }: { notes?: string }) {
   return (
@@ -679,6 +811,8 @@ function AtlasPageView({
   notes,
   attribution,
   printDpi,
+  cropMarks,
+  locatorInset,
 }: {
   page: AtlasPage;
   contract: AtlasContract;
@@ -697,6 +831,10 @@ function AtlasPageView({
   attribution?: string;
   /** Resolution this page's panel was delivered at, as the renderer measured it. */
   printDpi?: number;
+  /** Crop marks at the map box corners. Default off. */
+  cropMarks?: boolean;
+  /** Grid-locator inset over the map's lower-right corner. Default off. */
+  locatorInset?: boolean;
 }) {
   const showTier2 = page.tier >= 2;
   const showTier3 = page.tier >= 3;
@@ -774,6 +912,8 @@ function AtlasPageView({
             {page.id.startsWith("L") ? (
               <LocationPin pin={page.pin} label={page.id} leftPct={50} topPct={50} size={34} />
             ) : null}
+            {locatorInset ? <LocatorInset contract={contract} page={page} box={box} /> : null}
+            {cropMarks ? <CropMarks box={box} /> : null}
           </View>
           <Text style={[styles.edgeLabel, { width: FURNITURE.edgeLabelColumn, alignSelf: "center" }]}>
             {continuation("EAST", page.neighbors.east)}
@@ -1090,6 +1230,8 @@ export function AtlasDocument({
   printDpi,
   explorerName,
   atlasDate,
+  cropMarks = false,
+  locatorInset = false,
 }: {
   contract: AtlasContract;
   title: string;
@@ -1130,6 +1272,10 @@ export function AtlasDocument({
   /** With `atlasDate`, prints a title page ahead of everything else when either is set. */
   explorerName?: string;
   atlasDate?: string;
+  /** Crop marks at each map page's map-box corners. Default false. */
+  cropMarks?: boolean;
+  /** Grid-locator inset on each map page (multi-page atlases). Default false. */
+  locatorInset?: boolean;
 }) {
   // Front matter (title page, overview, then TOC) precedes the content pages and shifts their
   // physical page numbers. Both are computed from the same offset so the TOC, the
@@ -1181,6 +1327,8 @@ export function AtlasDocument({
           notes={notes}
           attribution={attribution}
           printDpi={printDpi?.[page.id]}
+          cropMarks={cropMarks}
+          locatorInset={locatorInset}
         />
       ))}
     </Document>

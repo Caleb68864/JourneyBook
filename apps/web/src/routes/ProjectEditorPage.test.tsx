@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, act, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, act, waitFor, fireEvent } from "@testing-library/react";
 import type { Project } from "../api/client";
 import type { PageSetupProps, PageSetupValue } from "../components/PageSetup";
 import type { BasemapOptionsProps } from "../components/BasemapOptions";
@@ -169,5 +169,18 @@ describe("ProjectEditorPage wires the basemap options", () => {
       seen.basemap.at(-1)!.onChange({ basemap: true, panelFormat: null, panelQuality: null, panelZoomStep: -1 }),
     );
     expect(seen.generate.at(-1)!.options.panelWidthPx).toBe(Math.ceil(base / 2));
+  });
+});
+
+describe("ProjectEditorPage wires the Stage 1D furniture", () => {
+  it("[BEHAVIORAL] Crop Marks and Page Locator start off and reach what Generate posts", async () => {
+    await renderEditor();
+    expect(seen.generate.at(-1)!.options).toMatchObject({ cropMarks: false, locatorInset: false });
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /crop marks/i }));
+    expect(seen.generate.at(-1)!.options).toMatchObject({ cropMarks: true, locatorInset: false });
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /page locator/i }));
+    expect(seen.generate.at(-1)!.options).toMatchObject({ cropMarks: true, locatorInset: true });
   });
 });

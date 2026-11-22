@@ -38,7 +38,12 @@ public record RenderProjectRequest(
     bool Basemap = true,
     int? PanelWidthPx = null,
     string? PanelFormat = null,
-    int? PanelQuality = null);
+    int? PanelQuality = null,
+    // Stage 1D furniture, both off by default (camelCase `cropMarks`/`locatorInset` on the
+    // wire, sent only when on): crop marks at each map-box corner, and a whole-atlas locator
+    // inset over each map's lower-right corner. Neither moves the map box.
+    bool CropMarks = false,
+    bool LocatorInset = false);
 
 /// <summary>
 /// Render-accepted response (202): the record id, its status at the moment of
@@ -155,7 +160,12 @@ public record RenderWorkerRequest(
     bool Basemap = true,
     int? PanelWidthPx = null,
     string? PanelFormat = null,
-    int? PanelQuality = null);
+    int? PanelQuality = null,
+    // Stage 1D furniture, both off by default (camelCase `cropMarks`/`locatorInset` on the
+    // wire, sent only when on): crop marks at each map-box corner, and a whole-atlas locator
+    // inset over each map's lower-right corner. Neither moves the map box.
+    bool CropMarks = false,
+    bool LocatorInset = false);
 
 /// <summary>A single landmark forwarded to the render worker.</summary>
 public record RenderLandmarkDto(double Longitude, double Latitude, string Name, string Category, double Score);
