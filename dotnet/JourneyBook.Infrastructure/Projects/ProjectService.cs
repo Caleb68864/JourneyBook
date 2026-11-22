@@ -2,6 +2,7 @@ using JourneyBook.Application.Projects;
 using JourneyBook.Domain.Entities;
 using JourneyBook.Domain.ValueObjects;
 using JourneyBook.Domain;
+using JourneyBook.Infrastructure.GeneratedPdfs;
 using JourneyBook.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using NetTopologySuite;
@@ -10,7 +11,7 @@ using JourneyBook.Application.Common;
 
 namespace JourneyBook.Infrastructure.Projects;
 
-public class ProjectService(JourneyBookDbContext db) : IProjectService
+public class ProjectService(JourneyBookDbContext db, GeneratedPdfArtifacts artifacts) : IProjectService
 {
     public async Task<ProjectResponse> CreateAsync(CreateProjectRequest request, CancellationToken ct = default)
     {
@@ -78,8 +79,19 @@ public class ProjectService(JourneyBookDbContext db) : IProjectService
     {
         var project = await db.Projects.FirstOrDefaultAsync(p => p.Id == id, ct);
         if (project is null) return false;
+        // The project's generated-PDF rows go by database cascade, which knows nothing
+        // about the files they point at; those used to stay on disk for ever. Read the
+        // paths first, delete the files only once the rows are gone.
+        var files = await db.GeneratedPdfs
+            .Where(g => g.ProjectId == id && g.FilePath != null)
+            .Select(g => g.FilePath)
+            .ToListAsync(ct);
         db.Projects.Remove(project);
         await db.SaveChangesAsync(ct);
+        foreach (var file in files)
+        {
+            artifacts.TryDelete(file);
+        }
         return true;
     }
 

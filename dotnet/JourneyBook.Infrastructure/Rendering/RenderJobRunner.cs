@@ -126,7 +126,12 @@ public sealed class RenderJobRunner(
                     job.ProjectId, job.GeneratedPdfId);
             }
 
-            await WriteOutcomeAsync(job, status, message);
+            // A render that finished keeps its file on the Failed row. Null here used to
+            // orphan it: nothing pointed at the PDF, so retention deleted the row and left
+            // the file, and nothing else would ever find it. The download endpoint serves
+            // Completed rows only, so this exposes nothing; it lets retention and DELETE
+            // reclaim the file.
+            await WriteOutcomeAsync(job, status, message, finished?.OutputPath);
         }
         finally
         {
@@ -297,13 +302,13 @@ public sealed class RenderJobRunner(
     /// over. A final failure is logged with the outcome it was trying to record, so
     /// the reason is at least in the log even when it never reaches the row.
     /// </remarks>
-    private async Task WriteOutcomeAsync(RenderJob job, string status, string message)
+    private async Task WriteOutcomeAsync(RenderJob job, string status, string message, string? filePath = null)
     {
         for (var attempt = 0; ; attempt++)
         {
             try
             {
-                await WriteAsync(job, status, null, message);
+                await WriteAsync(job, status, filePath, message);
                 return;
             }
             catch (Exception writeEx) when (attempt < OutcomeRetryDelays.Length)

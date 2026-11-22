@@ -1010,7 +1010,15 @@ Each fix has a test that failed before it. Write-ups in `docs/decisions.md` unde
 
 - **The `Completed` write is still single-shot.** Retrying it needs care (provenance snapshot,
   file-path ownership), so its failure now lands as an informative Failed instead.
-- **Retention may delete the orphaned PDF.** A render recorded Failed after it finished has a
+- ~~**Retention may delete the orphaned PDF.**~~ ✅ 2026-11-21 (branch
+  `fix/tile-retry-after-and-upstream-warn`). Checked against the code: it was the opposite.
+  Retention deletes the file a row points at, so with `FilePath` null it deleted the row and
+  **left** the PDF on disk for ever. The Failed row of a finished render now keeps
+  `FilePath` (download still serves `Completed` only). Found alongside it, same shape:
+  `DELETE /api/generated-pdfs/{id}` removed the row and never the file, and deleting a
+  project cascaded its rows and left every file. Both now delete the files, after the rows
+  are gone (`GeneratedPdfArtifacts`, the one path-confined delete). 3 new tests fail on the
+  old code (1 runner unit, 2 Api). *As found:* A render recorded Failed after it finished has a
   file on disk that the Failed row does not point at (`FilePath` is null). Nothing reclaims or
   re-links it.
 - ~~**A 429's `Retry-After` is ignored.**~~ ✅ 2026-11-21 (branch

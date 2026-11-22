@@ -18,13 +18,13 @@ public class GeneratedPdfService : IGeneratedPdfService
 {
     private readonly JourneyBookDbContext _db;
     private readonly int _retentionDays;
-    private readonly string _generatedDir;
+    private readonly GeneratedPdfArtifacts _artifacts;
 
     public GeneratedPdfService(JourneyBookDbContext db, IConfiguration configuration)
     {
         _db = db;
         _retentionDays = int.TryParse(configuration["GeneratedPdf:RetentionDays"], out var days) ? days : 30;
-        _generatedDir = configuration["GeneratedPdf:GeneratedDir"] is { Length: > 0 } dir ? dir : "data/generated";
+        _artifacts = new GeneratedPdfArtifacts(configuration);
     }
 
     public async Task<GeneratedPdfResponse?> CreateAsync(Guid projectId, CreateGeneratedPdfRequest request, CancellationToken ct = default)
@@ -132,6 +132,10 @@ public class GeneratedPdfService : IGeneratedPdfService
         if (pdf is null) return false;
         _db.GeneratedPdfs.Remove(pdf);
         await _db.SaveChangesAsync(ct);
+        // After the row is gone, not before: a failed save must not leave a record
+        // pointing at a file that no longer exists. This used to remove the row only,
+        // so a deleted PDF stayed on the shared volume with nothing left to reclaim it.
+        _artifacts.TryDelete(pdf.FilePath);
         return true;
     }
 
@@ -144,7 +148,7 @@ public class GeneratedPdfService : IGeneratedPdfService
 
         foreach (var pdf in expired)
         {
-            TryDeleteArtifact(pdf.FilePath);
+            _artifacts.TryDelete(pdf.FilePath);
         }
 
         _db.GeneratedPdfs.RemoveRange(expired);
@@ -178,35 +182,6 @@ public class GeneratedPdfService : IGeneratedPdfService
     }
 
     // --- helpers ----------------------------------------------------------
-
-    /// <summary>
-    /// Best-effort, path-confined delete of an on-disk artifact. The candidate
-    /// path is resolved under <see cref="_generatedDir"/>; only files that
-    /// actually resolve within that root are deleted, so a <c>../</c> traversal
-    /// (or an absolute path) is skipped rather than deleted. A missing file or
-    /// any IO error is swallowed — prune never throws on artifact cleanup.
-    /// </summary>
-    private void TryDeleteArtifact(string? filePath)
-    {
-        if (string.IsNullOrWhiteSpace(filePath)) return;
-
-        try
-        {
-            var root = Path.GetFullPath(_generatedDir);
-            // Anchor on a trailing separator so a sibling dir (e.g. "…/generated-evil")
-            // cannot satisfy StartsWith("…/generated").
-            var rootPrefix = root.EndsWith(Path.DirectorySeparatorChar) ? root : root + Path.DirectorySeparatorChar;
-            var resolved = Path.GetFullPath(Path.Combine(root, filePath));
-            if (resolved.StartsWith(rootPrefix, StringComparison.Ordinal))
-            {
-                File.Delete(resolved);
-            }
-        }
-        catch
-        {
-            // Best-effort: a missing file or traversal-confinement failure is ignored.
-        }
-    }
 
     private static PdfStatus ParseStatus(string value) =>
         Enum.TryParse<PdfStatus>(value, ignoreCase: true, out var status) && Enum.IsDefined(status)

@@ -279,6 +279,37 @@ public class RenderJobRunnerTests
     }
 
     /// <summary>
+    /// The Failed row of a render that finished still points at its file. It used to carry
+    /// a null FilePath, which orphaned the PDF: retention deletes the file a row points at,
+    /// so it deleted the row and left the file, and nothing else would ever find it.
+    /// </summary>
+    [Fact]
+    public async Task A_finished_render_recorded_as_Failed_keeps_its_file_so_retention_can_reclaim_it()
+    {
+        var pdfs = new RecordingPdfService { FailOnUpdate = 1 };
+        var worker = new StubWorkerClient(req => new RenderWorkerResult(req.OutputFileName, 7, null, null));
+
+        await RunnerFor(pdfs, worker).RunAsync(SampleJob());
+
+        var failed = pdfs.Updates[^1];
+        Assert.Equal("Failed", failed.Status);
+        Assert.Equal(SampleJob().WorkerRequest.OutputFileName, failed.FilePath);
+    }
+
+    /// <summary>The control: a render that never produced a file records none.</summary>
+    [Fact]
+    public async Task A_render_that_failed_in_the_worker_records_no_file()
+    {
+        var pdfs = new RecordingPdfService();
+        var worker = new StubWorkerClient(_ => throw new InvalidOperationException("worker exploded"));
+
+        await RunnerFor(pdfs, worker).RunAsync(SampleJob());
+
+        Assert.Equal("Failed", pdfs.Updates[^1].Status);
+        Assert.Null(pdfs.Updates[^1].FilePath);
+    }
+
+    /// <summary>
     /// The outcome write is the only thing that moves a row off Rendering. One blip
     /// there used to throw out of RunAsync and leave the row at Rendering until the
     /// next restart, with the client polling a render that was already over.
