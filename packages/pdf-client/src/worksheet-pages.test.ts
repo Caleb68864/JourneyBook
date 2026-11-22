@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { LETTER_PORTRAIT, SCALE_PRESETS, buildLocationPage, type WorksheetLeg } from "@journeybook/atlas-core";
-import { WORKSHEET_INSTRUCTIONS, formatAzimuth, formatDistance, renderAtlasPdfToBuffer } from "./index.js";
+import { THREE_NORTHS_LESSON, WORKSHEET_INSTRUCTIONS, formatAzimuth, formatDistance, renderAtlasPdfToBuffer } from "./index.js";
 import { measurePdfPages } from "./pdf-measure.js";
 
 /** The azimuth worksheet and answer key pages, read back off the PDF. */
@@ -49,5 +49,25 @@ describe("azimuth worksheet pages", () => {
   it("says magnetic = grid − G-M the right way round for east and west", () => {
     const text = WORKSHEET_INSTRUCTIONS.join(" ");
     expect(text).toMatch(/Subtract it if it is east; add it if it is west/);
+  });
+
+  /**
+   * The three-norths lesson (owner decision 2026-11-22): own words, each paragraph citing
+   * FM 3-25.26 (2001), the edition marked "Approved for public release; distribution is
+   * unlimited". The current TC 3-25.26 is distribution-restricted and must not be cited.
+   */
+  it("[BEHAVIORAL] prints the three-norths lesson on the worksheet page, every paragraph cited to FM 3-25.26 (2001)", async () => {
+    const pages = measurePdfPages(await renderAtlasPdfToBuffer({ contract, tableOfContents: false, worksheet: { legs: LEGS } }));
+    // A citation may wrap across lines; join and collapse the spacing.
+    const sheet = pages[1]!.texts.join(" ").replace(/\s+/g, " ");
+    expect(sheet).toContain("Three norths");
+    expect(THREE_NORTHS_LESSON).toHaveLength(4);
+    for (const p of THREE_NORTHS_LESSON) {
+      expect(p.cite).toMatch(/^FM 3-25\.26 \(2001\), paras?\. \d-\d/);
+      expect(sheet).toContain(p.cite);
+    }
+    expect(JSON.stringify(THREE_NORTHS_LESSON)).not.toMatch(/TC 3-25\.26/);
+    // The answer key does not repeat the lesson.
+    expect(pages[2]!.texts.join(" ")).not.toContain("Three norths");
   });
 });

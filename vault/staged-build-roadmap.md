@@ -596,8 +596,17 @@ Goal: implement the [Map Tiers (Learning Curve)](#map-tiers-learning-curve-featu
 > page: grid azimuth from the start's UTM grid north and its back azimuth, magnetic = grid −
 > G-M at the start on the declination date ("not available" outside WMM2025), and ground
 > distance. Leg maths held to legs built in UTM metres (`atlas-core/src/worksheet.test.ts`).
-> **Still not built:** the three-norths/G-M teaching text (blocked, see above); a worksheet
-> for legs other than the stops in order (to landmarks, or chosen by hand). **The teaching text stays blocked:** the current TC 3-25.26 (15 Nov 2013)
+> **2026-11-22: the three-norths teaching text is written (owner decision: use FM 3-25.26,
+> 20 July 2001).** That edition's own cover reads "DISTRIBUTION RESTRICTION: Approved for public
+> release; distribution is unlimited", confirmed on the archive.org copy
+> (`archive.org/download/MManuals/Fm3-25.26MapReadingAndLandNavigation.pdf`, SHA-256
+> `e86dadb5…16d9f1`). The worksheet page opens with a four-paragraph "Three norths" lesson in
+> this project's own words (true, grid and magnetic north; reading the declination diagram and
+> the G-M angle; grid, magnetic and back azimuths; the 100 km square code), each citing its
+> paragraph: 6-2, 6-6, 6-3 to 6-5, 4-4. The longest run of words it shares with the manual is
+> six ("between grid north and magnetic north"). The PDF is not committed.
+> **Still not built:** a worksheet for legs other than the stops in order (to landmarks, or
+> chosen by hand). **The teaching text stays blocked:** the current TC 3-25.26 (15 Nov 2013)
 > carries "Distribution authorized to U.S. government agencies and their contractors" per
 > every copy found, not a public-release statement, and its official armypubs listing could not
 > be reached to confirm otherwise. Only the superseded FM 3-25.26 (2001) is marked "approved for

@@ -133,6 +133,7 @@ export {
   formatAzimuth,
   formatDistance,
   WORKSHEET_INSTRUCTIONS,
+  THREE_NORTHS_LESSON,
   type PageNorths,
   type RouteOverlay,
   type LocatorCell,

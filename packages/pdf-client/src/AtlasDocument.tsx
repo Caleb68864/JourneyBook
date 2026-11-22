@@ -1279,6 +1279,36 @@ export function formatDistance(m: number): string {
   return m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`;
 }
 
+/**
+ * The worksheet's short lesson on the three norths, in this project's own words, each paragraph
+ * citing the part of FM 3-25.26, *Map Reading and Land Navigation* (Department of the Army,
+ * 20 July 2001), that covers it. That edition is marked "Approved for public release;
+ * distribution is unlimited" (owner decision 2026-11-22; the current TC 3-25.26 is distribution-
+ * restricted and is not used). Paraphrase only: nothing here is copied from the manual.
+ */
+export const THREE_NORTHS_LESSON: readonly { text: string; cite: string }[] = [
+  {
+    text:
+      "Every direction needs a north to start from, and a map gives you three. True north runs up the meridians to the North Pole; the diagram marks it with a star. Grid north runs up the map's vertical grid lines (GN). Magnetic north is wherever your compass needle settles (the half arrow).",
+    cite: "FM 3-25.26 (2001), para. 6-2",
+  },
+  {
+    text:
+      "The declination diagram on each Expert (Tier 4) page puts the three in the right order but not at the right angles, so take the angles from the numbers printed beside it, never by measuring the drawing. The G-M angle is the gap between grid north and magnetic north, and it is the one you use with a map and compass.",
+    cite: "FM 3-25.26 (2001), para. 6-6",
+  },
+  {
+    text:
+      "An azimuth is an angle measured clockwise from north, from 0 to 360 degrees. Measured on the map from grid north with a protractor it is a grid azimuth; read from a compass it is a magnetic azimuth. The back azimuth, the way home, is 180 degrees away.",
+    cite: "FM 3-25.26 (2001), paras. 6-3 to 6-5",
+  },
+  {
+    text:
+      "On an Expert (Tier 4) page the bold code in each part of the map (like 14T PL) names the 100 km grid square you are in. A full grid reference is that code, then the distance east, then the distance north: read right, then up.",
+    cite: "FM 3-25.26 (2001), para. 4-4",
+  },
+];
+
 /** The azimuth worksheet's instructions, in this project's own words. */
 export const WORKSHEET_INSTRUCTIONS = [
   "For each leg, find both stops on their pages and join them with a straight line.",
@@ -1330,6 +1360,12 @@ function WorksheetPages({ title, legs, model }: { title: string; legs: Worksheet
       <Page size="LETTER" orientation="portrait" style={[styles.page, { padding: 0.75 * PT }]}>
         <View style={[styles.neatline, { padding: 18 }]}>
           <Header id="WORKSHEET" />
+          <Text style={worksheetStyles.heading}>Three norths</Text>
+          {THREE_NORTHS_LESSON.map((p, i) => (
+            <Text key={`lesson-${i}`} style={worksheetStyles.instruction}>
+              {p.text} <Text style={{ color: BARK }}>({p.cite})</Text>
+            </Text>
+          ))}
           <Text style={worksheetStyles.heading}>Azimuth worksheet</Text>
           {WORKSHEET_INSTRUCTIONS.map((line, i) => (
             <Text key={i} style={worksheetStyles.instruction}>{`${i + 1}. ${line}`}</Text>
