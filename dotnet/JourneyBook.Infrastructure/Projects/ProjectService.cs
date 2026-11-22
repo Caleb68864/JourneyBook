@@ -64,6 +64,8 @@ public class ProjectService(JourneyBookDbContext db, GeneratedPdfArtifacts artif
         project.Name = request.Name;
         project.ExplorerName = TitlePageText(request.ExplorerName, "Explorer name", ProjectLimits.ExplorerNameMaxLength);
         project.AtlasDate = TitlePageText(request.AtlasDate, "Date", ProjectLimits.AtlasDateMaxLength);
+        if (request.WorksheetLegs is { } legs)
+            project.WorksheetLegs = await ValidLegsAsync(project.Id, legs, ct);
         project.UpdatedAt = DateTimeOffset.UtcNow;
         project.PageGrid ??= new AtlasPageGrid { ScalePresetId = request.ScalePresetId };
         project.PageGrid.ScalePresetId = request.ScalePresetId;
@@ -144,6 +146,22 @@ public class ProjectService(JourneyBookDbContext db, GeneratedPdfArtifacts artif
 
         db.Projects.Add(copy);
         await db.SaveChangesAsync(ct);
+
+        // Saved legs follow their places onto the copy: each source location id maps to the
+        // copied location with the same L-number (ids are new). Landmarks are not copied, so a
+        // landmark end is kept by name and resolves if the copy imports landmarks again.
+        if (source.WorksheetLegs.Count > 0)
+        {
+            var byNumber = copy.Locations.ToDictionary(l => l.LocationNumber, l => l.Id);
+            var idMap = source.Locations.ToDictionary(l => $"loc:{l.Id}", l => byNumber.TryGetValue(l.LocationNumber, out var n) ? $"loc:{n}" : null);
+            string? Map(string end) => end.StartsWith("loc:", StringComparison.Ordinal) ? idMap.GetValueOrDefault(end) : end;
+            copy.WorksheetLegs = source.WorksheetLegs
+                .Select(l => (From: Map(l.From), To: Map(l.To)))
+                .Where(l => l.From is not null && l.To is not null)
+                .Select(l => new WorksheetLegRef(l.From!, l.To!))
+                .ToList();
+            await db.SaveChangesAsync(ct);
+        }
         return ToResponse(copy);
     }
 
@@ -242,6 +260,33 @@ public class ProjectService(JourneyBookDbContext db, GeneratedPdfArtifacts artif
             p.CreatedAt,
             p.UpdatedAt,
             p.ExplorerName,
-            p.AtlasDate);
+            p.AtlasDate,
+            p.WorksheetLegs.Select(l => new WorksheetLegDto(l.From, l.To)).ToList());
+    }
+
+    /// <summary>
+    /// The legs to save, or a <see cref="ProjectValidationException"/> (400). Each end must be
+    /// "loc:&lt;id&gt;" for a location of this project, or "lm:&lt;name&gt;"; at most 50 legs.
+    /// </summary>
+    private async Task<List<WorksheetLegRef>> ValidLegsAsync(Guid projectId, IReadOnlyList<WorksheetLegDto> legs, CancellationToken ct)
+    {
+        if (legs.Count > ProjectLimits.MaxWorksheetLegs)
+            throw new ProjectValidationException($"At most {ProjectLimits.MaxWorksheetLegs} worksheet legs (got {legs.Count}).");
+        var locationIds = (await db.ImportantLocations.Where(l => l.ProjectId == projectId).Select(l => l.Id).ToListAsync(ct)).ToHashSet();
+        string Check(string? end)
+        {
+            var e = (end ?? "").Trim();
+            if (e.Length == 0 || e.Length > ProjectLimits.WorksheetLegRefMaxLength)
+                throw new ProjectValidationException("A worksheet leg end is empty or too long.");
+            if (e.StartsWith("loc:", StringComparison.Ordinal))
+            {
+                if (!Guid.TryParse(e[4..], out var id) || !locationIds.Contains(id))
+                    throw new ProjectValidationException($"Worksheet leg end \"{e}\" is not a location of this project.");
+                return e;
+            }
+            if (e.StartsWith("lm:", StringComparison.Ordinal) && e.Length > 3) return e;
+            throw new ProjectValidationException($"Worksheet leg end \"{e}\" must be loc:<location id> or lm:<landmark name>.");
+        }
+        return legs.Select(l => new WorksheetLegRef(Check(l.From), Check(l.To))).ToList();
     }
 }

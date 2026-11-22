@@ -23,6 +23,7 @@ const PROJECT: Project = {
   extent: [-98, 41, -97, 42],
   createdAt: "2026-09-09T00:00:00Z",
   updatedAt: "2026-09-09T00:00:00Z",
+  worksheetLegs: [],
 };
 
 /** Echo the request back as an API project so normalizeProject has something real. */

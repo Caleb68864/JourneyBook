@@ -41,6 +41,11 @@ export interface Project {
   extent: BBox | null;
   createdAt: string;
   updatedAt: string;
+  /**
+   * Saved hand-picked worksheet legs, kept by place: each end "loc:<location id>" or
+   * "lm:<landmark name>" (C# `WorksheetLegDto`). Empty when none.
+   */
+  worksheetLegs: { from: string; to: string }[];
 }
 
 export interface Location {
@@ -215,6 +220,7 @@ interface ApiProject {
   extent: ApiBBox | null;
   createdAt: string;
   updatedAt: string;
+  worksheetLegs?: { from: string; to: string }[] | null;
 }
 
 /** Page setup the API falls back to when a project has no stored grid yet. */
@@ -247,6 +253,7 @@ function normalizeProject(p: ApiProject): Project {
     extent: toBBox(p.extent),
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
+    worksheetLegs: p.worksheetLegs ?? [],
   };
 }
 
@@ -333,7 +340,7 @@ export const api = {
      * edit therefore goes through here, resending the project's current values
      * for the fields it is not changing.
      */
-    patch: async (p: Project, changes: Partial<Pick<Project, "name" | "scalePresetId" | "orientation" | "overlap" | "margins" | "explorerName" | "atlasDate">>): Promise<Project> =>
+    patch: async (p: Project, changes: Partial<Pick<Project, "name" | "scalePresetId" | "orientation" | "overlap" | "margins" | "explorerName" | "atlasDate" | "worksheetLegs">>): Promise<Project> =>
       normalizeProject(
         await request<ApiProject>("PUT", `/projects/${p.id}`, {
           name: changes.name ?? p.name,
@@ -344,6 +351,7 @@ export const api = {
           // Not `??`: null here means the user cleared the field.
           explorerName: changes.explorerName !== undefined ? changes.explorerName : p.explorerName,
           atlasDate: changes.atlasDate !== undefined ? changes.atlasDate : p.atlasDate,
+          worksheetLegs: changes.worksheetLegs ?? p.worksheetLegs,
         }),
       ),
     rename: (p: Project, name: string): Promise<Project> => api.projects.patch(p, { name }),

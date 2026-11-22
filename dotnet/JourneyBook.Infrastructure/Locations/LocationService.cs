@@ -156,6 +156,15 @@ public class LocationService(JourneyBookDbContext db) : ILocationService
         var location = await db.ImportantLocations.FirstOrDefaultAsync(l => l.Id == id, ct);
         if (location is null) return false;
         db.ImportantLocations.Remove(location);
+        // A saved worksheet leg that starts or ends here has nothing to point at any more; drop
+        // it with the location rather than leave a dangling reference in the project.
+        var project = await db.Projects.FirstOrDefaultAsync(p => p.Id == location.ProjectId, ct);
+        if (project is not null)
+        {
+            var gone = $"loc:{location.Id}";
+            var kept = project.WorksheetLegs.Where(l => l.From != gone && l.To != gone).ToList();
+            if (kept.Count != project.WorksheetLegs.Count) project.WorksheetLegs = kept;
+        }
         await db.SaveChangesAsync(ct);
         return true;
     }

@@ -25,6 +25,11 @@ export interface ProjectExport {
     extent: BBox | null;
     explorerName?: string | null;
     atlasDate?: string | null;
+    /**
+     * Saved worksheet legs by POSITION ("L2", or "lm:<name>"): location ids are new on import,
+     * so the file carries the L-number, which import maps back onto the new locations.
+     */
+    worksheetLegs?: { from: string; to: string }[];
   };
   locations: ExportedLocation[];
 }
@@ -54,6 +59,7 @@ export function buildProjectExport(project: Project, locations: Location[]): Pro
       extent: project.extent,
       explorerName: project.explorerName,
       atlasDate: project.atlasDate,
+      worksheetLegs: legsByPosition(project.worksheetLegs ?? [], locations),
     },
     locations: locations.map((l) => ({
       name: l.name,
@@ -77,6 +83,8 @@ export interface ParsedProjectImport {
   pageSetup: { orientation?: string; overlap?: number; margins?: Margins } | null;
   /** Title-page text, present only when the file carried it. */
   titlePage: { explorerName: string | null; atlasDate: string | null } | null;
+  /** Saved worksheet legs by position (L-number) or landmark; [] when the file has none. */
+  worksheetLegs: { from: string; to: string }[];
   locations: ExportedLocation[];
 }
 
@@ -137,6 +145,41 @@ export function parseProjectImport(raw: unknown): ParsedProjectImport {
             ...(margins !== undefined ? { margins } : {}),
           },
     titlePage: explorerName === null && atlasDate === null ? null : { explorerName, atlasDate },
+    worksheetLegs: Array.isArray(p.worksheetLegs)
+      ? (p.worksheetLegs as unknown[]).filter(
+          (l): l is { from: string; to: string } =>
+            typeof l === "object" && l !== null && typeof (l as { from?: unknown }).from === "string" && typeof (l as { to?: unknown }).to === "string",
+        )
+      : [],
     locations: Array.isArray(data.locations) ? (data.locations as ExportedLocation[]) : [],
   };
+}
+
+/** "loc:<id>" → "L<n>" for export; legs whose location is gone are left out. */
+export function legsByPosition(legs: { from: string; to: string }[], locations: { id: string }[]): { from: string; to: string }[] {
+  const pos = (ref: string) => {
+    if (!ref.startsWith("loc:")) return ref;
+    const i = locations.findIndex((l) => `loc:${l.id}` === ref);
+    return i < 0 ? null : `L${i + 1}`;
+  };
+  return legs.flatMap((l) => {
+    const [from, to] = [pos(l.from), pos(l.to)];
+    return from && to ? [{ from, to }] : [];
+  });
+}
+
+/** "L<n>" → "loc:<id>" of the n-th imported location; legs that name no imported place are left out. */
+export function legsByPlace(legs: { from: string; to: string }[], createdIds: string[]): { from: string; to: string }[] {
+  const place = (ref: string) => {
+    const m = /^L(\d+)$/.exec(ref);
+    if (m) {
+      const id = createdIds[Number(m[1]) - 1];
+      return id ? `loc:${id}` : null;
+    }
+    return ref.startsWith("lm:") ? ref : null;
+  };
+  return legs.flatMap((l) => {
+    const [from, to] = [place(l.from), place(l.to)];
+    return from && to ? [{ from, to }] : [];
+  });
 }
