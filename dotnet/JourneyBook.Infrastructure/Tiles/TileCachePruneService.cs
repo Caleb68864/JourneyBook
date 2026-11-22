@@ -4,16 +4,18 @@ using Microsoft.Extensions.Logging;
 namespace JourneyBook.Infrastructure.Tiles;
 
 /// <summary>
-/// The tile cache's size limit and how often it is applied. A limit of zero or less
-/// disables pruning, which is the default: how long tiles should be kept is an open
-/// question in <c>vault/staged-build-roadmap.md</c>, and a deleted tile costs a re-fetch.
+/// The tile cache's limits and how often they are applied: a size cap
+/// (<c>TileCache:MaxSizeMb</c>) and an age limit (<c>TileCache:MaxAgeDays</c>). Zero or less
+/// means that limit is off, and both are off by default (Stage 7, decided by agent
+/// 2026-11-21: a deleted tile costs a re-fetch from USGS, so nothing is deleted until an
+/// operator picks a number). Either one on enables the sweep.
 /// </summary>
-public sealed record TileCachePruneOptions(long MaxBytes, TimeSpan Interval)
+public sealed record TileCachePruneOptions(long MaxBytes, TimeSpan Interval, TimeSpan MaxAge = default)
 {
-    public bool Enabled => MaxBytes > 0 && Interval > TimeSpan.Zero;
+    public bool Enabled => (MaxBytes > 0 || MaxAge > TimeSpan.Zero) && Interval > TimeSpan.Zero;
 }
 
-/// <summary>Applies <c>TileCache:MaxSizeMb</c> at startup and then once per interval.</summary>
+/// <summary>Applies the tile cache's size cap and age limit at startup and then once per interval.</summary>
 public sealed class TileCachePruneService(
     TileCache cache,
     TileCachePruneOptions options,
@@ -23,7 +25,7 @@ public sealed class TileCachePruneService(
     {
         if (!options.Enabled)
         {
-            logger.LogInformation("Tile cache pruning is disabled (TileCache:MaxSizeMb is not set).");
+            logger.LogInformation("Tile cache pruning is disabled (neither TileCache:MaxSizeMb nor TileCache:MaxAgeDays is set).");
             return;
         }
 
@@ -46,7 +48,9 @@ public sealed class TileCachePruneService(
     {
         try
         {
-            var result = cache.Prune(options.MaxBytes);
+            var result = cache.Prune(
+                options.MaxBytes > 0 ? options.MaxBytes : null,
+                maxAge: options.MaxAge > TimeSpan.Zero ? options.MaxAge : null);
             if (result.RemovedTiles > 0 || result.RemovedTempFiles > 0)
             {
                 logger.LogInformation(

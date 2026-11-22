@@ -22,7 +22,7 @@ public sealed class TileCachePruneTests : IDisposable
 
     private sealed record FixtureFile(string Path, int Size, double AgeHours);
 
-    private sealed record FixtureCase(string Id, long MaxBytes, FixtureFile[] Files, string[] Kept);
+    private sealed record FixtureCase(string Id, long? MaxBytes, FixtureFile[] Files, string[] Kept, double? MaxAgeHours = null);
 
     private sealed record Fixture(FixtureCase[] Cases);
 
@@ -76,7 +76,8 @@ public sealed class TileCachePruneTests : IDisposable
             Write(f.Path, f.Size, now.AddHours(-f.AgeHours));
         }
 
-        new TileCache(_root).Prune(c.MaxBytes, now);
+        new TileCache(_root).Prune(
+            c.MaxBytes, now, c.MaxAgeHours is { } hours ? TimeSpan.FromHours(hours) : null);
 
         Assert.Equal(c.Kept.Order(StringComparer.Ordinal), ListFiles());
     }
@@ -121,6 +122,29 @@ public sealed class TileCachePruneTests : IDisposable
         await service.StopAsync(CancellationToken.None);
 
         Assert.Empty(ListFiles());
+    }
+
+    [Fact]
+    public async Task The_service_applies_an_age_limit_with_no_size_cap()
+    {
+        Write("usgs/16/1/1.png", 10, DateTime.UtcNow.AddDays(-40));
+        Write("usgs/16/1/2.png", 10, DateTime.UtcNow);
+
+        using var service = new TileCachePruneService(
+            new TileCache(_root),
+            new TileCachePruneOptions(0, TimeSpan.FromHours(1), TimeSpan.FromDays(30)),
+            NullLogger<TileCachePruneService>.Instance);
+        await service.StartAsync(CancellationToken.None);
+
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (ListFiles().Length > 1 && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(10);
+        }
+
+        await service.StopAsync(CancellationToken.None);
+
+        Assert.Equal(["usgs/16/1/2.png"], ListFiles());
     }
 
     [Theory]

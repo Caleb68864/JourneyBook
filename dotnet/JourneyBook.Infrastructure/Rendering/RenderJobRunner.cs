@@ -3,6 +3,7 @@ using JourneyBook.Application.GeneratedPdfs;
 using JourneyBook.Application.Rendering;
 using Microsoft.Extensions.Logging;
 using JourneyBook.Infrastructure.GeneratedPdfs;
+using JourneyBook.Infrastructure.Tiles;
 
 namespace JourneyBook.Infrastructure.Rendering;
 
@@ -37,7 +38,8 @@ public sealed class RenderJobRunner(
     IRenderWorkerClient workerClient,
     IRenderCancellationRegistry cancellations,
     ILogger<RenderJobRunner> logger,
-    GeneratedPdfArtifacts? artifacts = null) : IRenderJobRunner
+    GeneratedPdfArtifacts? artifacts = null,
+    TileCachePruneOptions? tileRetention = null) : IRenderJobRunner
 {
     /// <summary>Longest error text persisted; matches the column's max length.</summary>
     private const int MaxErrorLength = 2000;
@@ -266,7 +268,7 @@ public sealed class RenderJobRunner(
     /// fail a render that had already succeeded.
     /// </para>
     /// </remarks>
-    private static string ProvenanceOf(RenderJob job, RenderWorkerResult result) =>
+    private string ProvenanceOf(RenderJob job, RenderWorkerResult result) =>
         JsonSerializer.Serialize(new
         {
             attribution = result.Attribution,
@@ -305,13 +307,13 @@ public sealed class RenderJobRunner(
     /// (<c>TileCachePolicy.MaxAgeSeconds</c>), recorded as the source's terms and named
     /// for what it is. Since 2026-11-16 the tile proxy sends it as the browser
     /// <c>Cache-Control: max-age</c> (falling back to the global
-    /// <c>TileCache:BrowserMaxAgeSeconds</c> when the row sets 0). It is still NOT a server
-    /// expiry: the server's disk cache keeps a tile until a size prune removes it
-    /// (<c>TileCache:MaxSizeMb</c>, off by default). How long tiles should be kept is
-    /// still the owner's decision, so no expiry date is invented here.
+    /// <c>TileCache:BrowserMaxAgeSeconds</c> when the row sets 0). It is NOT the server's
+    /// retention, which is recorded beside it: <c>serverCacheMaxAgeDays</c> and
+    /// <c>serverCacheMaxSizeMb</c> (<c>TileCache:MaxAgeDays</c>/<c>MaxSizeMb</c>, both off by
+    /// default and then null).
     /// </para>
     /// </remarks>
-    private static object? TileCacheOf(RenderJob job, RenderWorkerResult result)
+    private object? TileCacheOf(RenderJob job, RenderWorkerResult result)
     {
         if (result.TileCoverage is not { } coverage) return null;
         var source = job.TileSource;
@@ -329,6 +331,12 @@ public sealed class RenderJobRunner(
             tiles = coverage.Tiles,
             panels = coverage.Panels,
             sourceCacheMaxAgeSeconds = source?.CacheMaxAgeSeconds,
+            // The server cache's retention at render time (Stage 7, decided by agent
+            // 2026-11-21): how long a tile is kept on disk, and the size cap. Null when that
+            // limit is off, which is the default. Not an expiry DATE: a render mixes tiles
+            // fetched now with cache hits fetched earlier, so no one date is true of them.
+            serverCacheMaxAgeDays = tileRetention is { MaxAge: var age } && age > TimeSpan.Zero ? age.TotalDays : (double?)null,
+            serverCacheMaxSizeMb = tileRetention is { MaxBytes: var cap } && cap > 0 ? cap / (1024 * 1024) : (long?)null,
         };
     }
 

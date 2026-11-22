@@ -63,9 +63,11 @@ public static class DependencyInjection
 
         var tileCacheMaxMb = configuration.GetValue("TileCache:MaxSizeMb", 0L);
         var tileCachePruneHours = configuration.GetValue("TileCache:PruneIntervalHours", 24d);
+        var tileCacheMaxAgeDays = configuration.GetValue("TileCache:MaxAgeDays", 0d);
         services.AddSingleton(new TileCachePruneOptions(
             tileCacheMaxMb * 1024 * 1024,
-            TimeSpan.FromHours(tileCachePruneHours)));
+            TimeSpan.FromHours(tileCachePruneHours),
+            tileCacheMaxAgeDays > 0 ? TimeSpan.FromDays(tileCacheMaxAgeDays) : TimeSpan.Zero));
         services.AddHostedService<TileCachePruneService>();
 
         var upstreamTimeout = int.TryParse(configuration["TileCache:UpstreamTimeoutSeconds"], out var t) ? t : 10;

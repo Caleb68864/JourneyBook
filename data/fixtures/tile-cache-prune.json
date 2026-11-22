@@ -4,7 +4,8 @@
     "pruneTileCache in packages/map-sources/src/tilecache.ts and TileCache.Prune in",
     "dotnet/JourneyBook.Infrastructure/Tiles/TileCache.cs. Both can own the same directory.",
     "`files` are relative to the cache root with their size in bytes and age in hours;",
-    "`kept` is what must remain. `tmpMaxAgeHours` is 1 on both sides."
+    "`kept` is what must remain. `tmpMaxAgeHours` is 1 on both sides.",
+    "`maxBytes` null means no size cap; `maxAgeHours` (optional) deletes tiles at least that old first."
   ],
   "cases": [
     {
@@ -12,45 +13,182 @@
       "why": "A cache within its limit is not touched.",
       "maxBytes": 300,
       "files": [
-        { "path": "usgs/16/1/1.png", "size": 100, "ageHours": 5 },
-        { "path": "usgs/16/1/2.jpg", "size": 100, "ageHours": 4 }
+        {
+          "path": "usgs/16/1/1.png",
+          "size": 100,
+          "ageHours": 5
+        },
+        {
+          "path": "usgs/16/1/2.jpg",
+          "size": 100,
+          "ageHours": 4
+        }
       ],
-      "kept": ["usgs/16/1/1.png", "usgs/16/1/2.jpg"]
+      "kept": [
+        "usgs/16/1/1.png",
+        "usgs/16/1/2.jpg"
+      ]
     },
     {
       "id": "oldest-first-across-sources",
       "why": "Age alone decides, across sources and zooms, and it stops as soon as the cache fits.",
       "maxBytes": 200,
       "files": [
-        { "path": "usgs/16/1/1.png", "size": 100, "ageHours": 9 },
-        { "path": "osm/12/7/7.png", "size": 100, "ageHours": 8 },
-        { "path": "usgs/16/1/3.pbf", "size": 100, "ageHours": 2 },
-        { "path": "usgs/15/9/4", "size": 100, "ageHours": 1 }
+        {
+          "path": "usgs/16/1/1.png",
+          "size": 100,
+          "ageHours": 9
+        },
+        {
+          "path": "osm/12/7/7.png",
+          "size": 100,
+          "ageHours": 8
+        },
+        {
+          "path": "usgs/16/1/3.pbf",
+          "size": 100,
+          "ageHours": 2
+        },
+        {
+          "path": "usgs/15/9/4",
+          "size": 100,
+          "ageHours": 1
+        }
       ],
-      "kept": ["usgs/16/1/3.pbf", "usgs/15/9/4"]
+      "kept": [
+        "usgs/16/1/3.pbf",
+        "usgs/15/9/4"
+      ]
     },
     {
       "id": "stale-temp-files-go-fresh-ones-stay",
       "why": "A temp file an hour old was abandoned by a crash; a newer one may be a write in progress. Neither counts as a tile.",
       "maxBytes": 1000,
       "files": [
-        { "path": "usgs/16/1/1.png", "size": 100, "ageHours": 9 },
-        { "path": "usgs/16/1/2.png.tmp-abc", "size": 100, "ageHours": 2 },
-        { "path": "usgs/16/1/3.png.tmp-def", "size": 5000, "ageHours": 0 }
+        {
+          "path": "usgs/16/1/1.png",
+          "size": 100,
+          "ageHours": 9
+        },
+        {
+          "path": "usgs/16/1/2.png.tmp-abc",
+          "size": 100,
+          "ageHours": 2
+        },
+        {
+          "path": "usgs/16/1/3.png.tmp-def",
+          "size": 5000,
+          "ageHours": 0
+        }
       ],
-      "kept": ["usgs/16/1/1.png", "usgs/16/1/3.png.tmp-def"]
+      "kept": [
+        "usgs/16/1/1.png",
+        "usgs/16/1/3.png.tmp-def"
+      ]
     },
     {
       "id": "only-the-cache-layout",
       "why": "A cache root pointed at the wrong directory must not delete what is not a tile, however old.",
       "maxBytes": 0,
       "files": [
-        { "path": "atlas.pdf", "size": 100, "ageHours": 99 },
-        { "path": "usgs/README.md", "size": 100, "ageHours": 99 },
-        { "path": "usgs/16/1/notes.txt", "size": 100, "ageHours": 99 },
-        { "path": "usgs/16/1/1.png", "size": 100, "ageHours": 1 }
+        {
+          "path": "atlas.pdf",
+          "size": 100,
+          "ageHours": 99
+        },
+        {
+          "path": "usgs/README.md",
+          "size": 100,
+          "ageHours": 99
+        },
+        {
+          "path": "usgs/16/1/notes.txt",
+          "size": 100,
+          "ageHours": 99
+        },
+        {
+          "path": "usgs/16/1/1.png",
+          "size": 100,
+          "ageHours": 1
+        }
       ],
-      "kept": ["atlas.pdf", "usgs/README.md", "usgs/16/1/notes.txt"]
+      "kept": [
+        "atlas.pdf",
+        "usgs/README.md",
+        "usgs/16/1/notes.txt"
+      ]
+    },
+    {
+      "id": "age-limit-only",
+      "why": "With no size cap, an age limit deletes exactly the tiles at or past it, however small the cache.",
+      "maxBytes": null,
+      "maxAgeHours": 24,
+      "files": [
+        {
+          "path": "usgs/16/1/1.png",
+          "size": 10,
+          "ageHours": 30
+        },
+        {
+          "path": "usgs/16/1/2.png",
+          "size": 10,
+          "ageHours": 24.5
+        },
+        {
+          "path": "usgs/16/1/3.png",
+          "size": 10,
+          "ageHours": 10
+        }
+      ],
+      "kept": [
+        "usgs/16/1/3.png"
+      ]
+    },
+    {
+      "id": "age-then-size",
+      "why": "The age limit goes first; the size cap then removes the oldest of what is left.",
+      "maxBytes": 100,
+      "maxAgeHours": 24,
+      "files": [
+        {
+          "path": "usgs/16/1/1.png",
+          "size": 100,
+          "ageHours": 30
+        },
+        {
+          "path": "osm/12/7/7.png",
+          "size": 100,
+          "ageHours": 10
+        },
+        {
+          "path": "usgs/16/1/3.png",
+          "size": 100,
+          "ageHours": 5
+        }
+      ],
+      "kept": [
+        "usgs/16/1/3.png"
+      ]
+    },
+    {
+      "id": "no-limits-only-temp-files",
+      "why": "Neither limit set: no tile is touched, an abandoned temp file still goes.",
+      "maxBytes": null,
+      "files": [
+        {
+          "path": "usgs/16/1/1.png",
+          "size": 100,
+          "ageHours": 9000
+        },
+        {
+          "path": "usgs/16/1/2.png.tmp-abc",
+          "size": 5,
+          "ageHours": 2
+        }
+      ],
+      "kept": [
+        "usgs/16/1/1.png"
+      ]
     }
   ]
 }
