@@ -223,7 +223,22 @@ export interface UsngGridOverlay {
     text: string;
     edge: "top" | "bottom" | "left" | "right";
   }[];
-  collar: { zoneDesignator: string; hundredKmSquare: string };
+  collar: {
+    zoneDesignator: string;
+    hundredKmSquare: string;
+    /**
+     * Level 4 only: every 100 km square the page touches, as "14T NF" (the centre's first).
+     * A page that crosses a square boundary is in two squares; naming only the centre's is wrong
+     * for the other part.
+     */
+    squares?: string[];
+  };
+  /**
+   * Level 4 only: full MGRS labelling. Each 100 km square on the page gets its identifier placed
+   * inside its own part of the panel (x/y normalized like the lines). The first easting and
+   * northing lines' labels then carry full UTM values ("678000mE"), not two digits.
+   */
+  mgrs?: { squares: { id: string; x: number; y: number }[] };
 }
 
 /**

@@ -1019,7 +1019,8 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
   for (const page of contract.pages) {
     if (page.tier >= 3) {
       try {
-        const overlay = buildUsngGrid(page.bbox, PANEL_PX, PANEL_PX);
+        // Level 4 labels the grid in full MGRS (100 km square identifiers, full first-line values).
+        const overlay = buildUsngGrid(page.bbox, PANEL_PX, PANEL_PX, { mgrs: page.tier >= 4 });
         if (!grids) grids = {};
         grids[page.id] = overlay;
       } catch (err) {

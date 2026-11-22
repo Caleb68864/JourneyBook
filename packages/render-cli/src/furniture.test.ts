@@ -88,3 +88,89 @@ describe("Stage 6B Level 4 declination through renderAtlas", () => {
     ).toMatchObject({ declinationDate: "2026-07-02" });
   });
 });
+
+describe("Stage 6B Level 4 full MGRS labels through renderAtlas", () => {
+  /** A page centred on the 100 km easting line 700000 in zone 14 (central Nebraska, 41°N). */
+  const BOUNDARY = { lng: -96.62, lat: 40.82 };
+
+  async function page(tier: 3 | 4) {
+    const dir = mkdtempSync(join(tmpdir(), "jb-mgrs-"));
+    try {
+      const out = join(dir, "a.pdf");
+      await renderAtlas({
+        mode: "location",
+        center: BOUNDARY,
+        scalePresetId: "usgs-7-5-min",
+        tier,
+        declinationDate: "2026-07-02",
+        outputPath: out,
+      });
+      return measurePdfPages(readFileSync(out))[0]!;
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  /**
+   * The PDF shows a string in pieces where the font kerns ("14" then "T PL"), so join the pieces
+   * that sit on one baseline next to each other back into the words a reader sees.
+   */
+  function words(m: Awaited<ReturnType<typeof page>>): string[] {
+    const rows = new Map<number, (typeof m.textItems)[number][]>();
+    for (const t of m.textItems) {
+      const key = Math.round(t.y * 10) / 10;
+      rows.set(key, [...(rows.get(key) ?? []), t]);
+    }
+    const out: string[] = [];
+    for (const row of rows.values()) {
+      row.sort((a, b) => a.x - b.x);
+      let current = "";
+      let end = -Infinity;
+      for (const t of row) {
+        if (t.x - end > t.size * 1.5 && current) {
+          out.push(current);
+          current = "";
+        }
+        current += t.text;
+        end = t.x + t.text.length * t.size * 0.6;
+      }
+      if (current) out.push(current);
+    }
+    return out;
+  }
+
+  it("[BEHAVIORAL] tier 4 names every 100 km square on the page and labels the first lines in full", async () => {
+    const m = await page(4);
+    const seen = words(m);
+    const squareIds = seen.filter((t) => /^\d{1,2}[C-X] [A-Z]{2}$/.test(t));
+    expect(new Set(squareIds).size, `square ids: ${squareIds.join(", ")}`).toBe(2);
+    expect(seen.some((t) => /^\d{6}mE$/.test(t))).toBe(true);
+    expect(seen.some((t) => /^\d{7}mN$/.test(t))).toBe(true);
+    const collar = seen.find((t) => t.endsWith("· MGRS"));
+    expect(collar, "no MGRS collar").toBeDefined();
+    for (const id of new Set(squareIds)) expect(collar).toContain(id);
+
+    // The collar shares the footer with the declination caption and the page number. Widths are
+    // estimated at 0.5 em, Helvetica's measured average for these strings (0.49); the collar is
+    // shown in pieces where the font kerns, so it starts at its row's first piece right of the
+    // caption.
+    const items = m.textItems;
+    const right = (t: (typeof items)[number]) => t.x + t.text.length * t.size * 0.5;
+    const caption = items.filter((t) => t.text.startsWith("MN ") || t.text.startsWith("G-M ") || t.text.startsWith("Declination"));
+    const captionX = Math.min(...caption.map((c) => c.x));
+    const collarTail = items.find((t) => t.text.endsWith("· MGRS"))!;
+    const collarRow = items.filter((t) => Math.abs(t.y - collarTail.y) < 0.2 && t.x > captionX);
+    const collarStart = Math.min(...collarRow.map((t) => t.x));
+    const pageNumber = items.find((t) => t.size === 11 && /^\d+$/.test(t.text))!;
+    expect(right(collarTail)).toBeLessThan(pageNumber.x);
+    for (const c of caption) expect(right(c)).toBeLessThan(collarStart);
+  });
+
+  it("[CONTROL] tier 3 keeps the USNG collar and two-digit labels", async () => {
+    const m = await page(3);
+    const seen = words(m);
+    expect(seen.some((t) => t.endsWith("· USNG"))).toBe(true);
+    expect(seen.some((t) => t.endsWith("· MGRS"))).toBe(false);
+    expect(seen.some((t) => /\d+m[EN]$/.test(t))).toBe(false);
+  });
+});

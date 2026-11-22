@@ -582,8 +582,13 @@ Goal: implement the [Map Tiers (Learning Curve)](#map-tiers-learning-curve-featu
 > centre on the render date (`declinationDate`, `--declination-date` for a reproducible
 > render). Outside 2025.0–2030.0 the footer says "Declination not shown" instead of
 > extrapolating. The tier picker offers Tier 4 again, described as exactly that.
-> **Still not built:** full MGRS labelling, azimuth worksheets, and the three-norths/G-M
-> teaching text. **The teaching text stays blocked:** the current TC 3-25.26 (15 Nov 2013)
+> **2026-11-22: full MGRS labelling built.** On tier 4 the grid's first easting and northing
+> lines carry full UTM values ("699000mE", "4520000mN"), every 100 km square on the page is
+> named inside its own part of the map ("14T PL", "14T QL"), and the collar lists them all ·
+> MGRS. The `mgrs` library it uses is held to an independent implementation of the standard
+> square lettering and to the repo's proj4 UTM (to 1 m) at 16 points worldwide
+> (`map-sources/src/mgrs-labels.test.ts`). Northern hemisphere only, as the Level 3 grid is.
+> **Still not built:** azimuth worksheets, and the three-norths/G-M teaching text. **The teaching text stays blocked:** the current TC 3-25.26 (15 Nov 2013)
 > carries "Distribution authorized to U.S. government agencies and their contractors" per
 > every copy found, not a public-release statement, and its official armypubs listing could not
 > be reached to confirm otherwise. Only the superseded FM 3-25.26 (2001) is marked "approved for

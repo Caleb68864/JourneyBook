@@ -781,6 +781,20 @@ function UsngGridLayer({ overlay, box }: { overlay: UsngGridOverlay; box: MapBox
           </Text>
         );
       })}
+      {/* Level 4: each 100 km square's identifier inside its own part of the map, the way a
+          military map prints it, so a reference can be written in full from either side of a
+          square boundary. */}
+      {(overlay.mgrs?.squares ?? []).map((sq, i) => (
+        <Text
+          key={`mgrs-sq-${i}`}
+          x={sq.x * box.width + 3}
+          y={sq.y * box.height - 3}
+          textAnchor="start"
+          style={{ fontSize: 8, fontFamily: "Helvetica-Bold", fill: INK }}
+        >
+          {sq.id}
+        </Text>
+      ))}
     </OverlaySvg>
   );
 }
@@ -790,8 +804,10 @@ function UsngCollar({ collar }: { collar: UsngGridOverlay["collar"] }) {
   if (!collar.zoneDesignator && !collar.hundredKmSquare) return null;
   return (
     <View style={{ alignItems: "center" }}>
-      <Text style={[styles.small, { fontFamily: "Helvetica-Bold" }]}>
-        {collar.zoneDesignator} {collar.hundredKmSquare} · USNG
+      <Text style={[styles.small, { fontFamily: "Helvetica-Bold" }, CLAMP_ONE_LINE]}>
+        {collar.squares && collar.squares.length > 0
+          ? `${collar.squares.join(" / ")} · MGRS`
+          : `${collar.zoneDesignator} ${collar.hundredKmSquare} · USNG`}
       </Text>
     </View>
   );
