@@ -65,9 +65,11 @@ function clipToPanel(a: [number, number], b: [number, number]): [[number, number
     else t1 = Math.min(t1, r);
     if (t0 > t1) return null;
   }
+  // Snap the floating-point dust (e.g. -2.8e-17) back into the panel.
+  const snap = (v: number) => Math.min(1, Math.max(0, v));
   return [
-    [a[0] + t0 * dx, a[1] + t0 * dy],
-    [a[0] + t1 * dx, a[1] + t1 * dy],
+    [snap(a[0] + t0 * dx), snap(a[1] + t0 * dy)],
+    [snap(a[0] + t1 * dx), snap(a[1] + t1 * dy)],
   ];
 }
 
@@ -286,7 +288,88 @@ function zoneJunction(
   return overlay;
 }
 
+/** Latitudes where a grid rule can change: UTM/UPS limits and the zone exceptions' edges. */
+const RULE_LATITUDES = [-80, 56, 64, 72, 84] as const;
+
+/** Which grid rule holds along a latitude across the page: UPS, or the zones at its two edges. */
+function ruleAt(west: number, east: number, lat: number): string {
+  if (isUpsLatitude(lat)) return `ups:${lat > 0 ? "n" : "s"}`;
+  return `${utmZoneRange(west, lat).zone}-${utmZoneRange(east - 1e-9, lat).zone}`;
+}
+
+/** Web Mercator y of a latitude, the panel's vertical measure. */
+function mercY(lat: number): number {
+  return Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
+}
+
+function ruleLabel(lat: number): string {
+  const at = `${Math.abs(lat)}°${lat >= 0 ? "N" : "S"}`;
+  return lat === 84 || lat === -80 ? `${at}: UPS ${lat > 0 ? "north" : "south"} of this line, UTM ${lat > 0 ? "south" : "north"}` : `${at}: zone rule changes`;
+}
+
+/**
+ * Build the USNG/MGRS grid overlay for a page panel as normalized vector geometry.
+ *
+ * A page that crosses a latitude where the rule changes (84°N/80°S, UTM to UPS; 56°/64°/72°N
+ * where the Norway and Svalbard exceptions begin or end, if they apply at this longitude) is
+ * split there into bands, each gridded by its own rule, then mapped back into the page. It used
+ * to be gridded entirely by its centre's rule, so the other band's lines and numbers were the
+ * wrong grid's.
+ */
 export function buildUsngGrid(
+  bbox: BBox,
+  panelWidthPx: number,
+  panelHeightPx: number,
+  opts?: { intervalMeters?: number; mgrs?: boolean },
+): UsngGridOverlay {
+  const [west, south, east, north] = bbox;
+  const cuts = RULE_LATITUDES.filter((b) => b > south && b < north && ruleAt(west, east, b - 1e-6) !== ruleAt(west, east, b + 1e-6));
+  if (cuts.length === 0) return buildOneRule(bbox, panelWidthPx, panelHeightPx, opts);
+
+  const edges = [south, ...cuts, north];
+  const pageTop = mercY(north);
+  const pageSpan = mercY(north) - mercY(south);
+  const toPage = (band: BBox, y: number) => (pageTop - mercY(band[3]) + y * (mercY(band[3]) - mercY(band[1]))) / pageSpan;
+  const centreLat = (south + north) / 2;
+  const out: UsngGridOverlay = { lines: [], labels: [], collar: { zoneDesignator: "", hundredKmSquare: "" } };
+  const squareIds: string[] = [];
+  const zoneBoundaries: NonNullable<UsngGridOverlay["extraZoneBoundaries"]> = [];
+  edges.slice(0, -1).forEach((lo, i) => {
+    const hi = edges[i + 1]!;
+    const band: BBox = [west, lo, east, hi];
+    const part = buildOneRule(band, panelWidthPx, panelHeightPx, opts);
+    const top = i === edges.length - 2;
+    const bottom = i === 0;
+    for (const l of part.lines) out.lines.push({ ...l, y1: toPage(band, l.y1), y2: toPage(band, l.y2) });
+    for (const l of part.labels) {
+      // Only the bands at the page's own top and bottom own those edges.
+      if ((l.edge === "top" && !top) || (l.edge === "bottom" && !bottom)) continue;
+      out.labels.push({ ...l, y: toPage(band, l.y) });
+    }
+    if (part.mgrs) {
+      out.mgrs ??= { squares: [] };
+      for (const q of part.mgrs.squares) out.mgrs.squares.push({ ...q, y: toPage(band, q.y) });
+    }
+    for (const z of [part.zoneBoundary, ...(part.extraZoneBoundaries ?? [])]) {
+      if (z) zoneBoundaries.push({ ...z, y1: toPage(band, z.y1), y2: toPage(band, z.y2) });
+    }
+    squareIds.push(...(part.collar.squares ?? []));
+    if (centreLat >= lo && centreLat <= hi) out.collar = { ...part.collar };
+  });
+  if (out.collar.squares || squareIds.length > 0) {
+    const centreId = out.collar.zoneDesignator ? `${out.collar.zoneDesignator} ${out.collar.hundredKmSquare}` : "";
+    out.collar.squares = [...new Set(squareIds)].sort((a, b) => (a === centreId ? -1 : b === centreId ? 1 : 0));
+  }
+  if (zoneBoundaries.length > 0) {
+    out.zoneBoundary = zoneBoundaries[0]!;
+    if (zoneBoundaries.length > 1) out.extraZoneBoundaries = zoneBoundaries.slice(1);
+  }
+  out.ruleBoundaries = cuts.map((lat) => ({ y: (pageTop - mercY(lat)) / pageSpan, label: ruleLabel(lat) }));
+  return out;
+}
+
+/** One rule's grid over `bbox`: the page, or one latitude band of it. */
+function buildOneRule(
   bbox: BBox,
   _panelWidthPx: number,
   _panelHeightPx: number,
@@ -356,14 +439,26 @@ export function buildUsngGrid(
     const labels: UsngGridOverlay["labels"] = [];
     const full = opts?.mgrs === true;
 
-    if (polar) {
-      // The UPS grid is turned by up to the longitude, so its lines are not near-vertical and
-      // near-horizontal as UTM's are. Clamping each end on its own (the UTM path below) bent
-      // lines and put labels on the wrong edge; clip each line to the panel instead, and label
-      // it where it meets the border.
+    {
+      // Every line is clipped to the panel along its true grid line, and labelled where it meets
+      // the border. Clamping each end on its own moved lines: badly on the turned UPS grid (264 m
+      // at 45°E), and by up to ~150 m on a UTM band of a page split at a rule latitude. (UTM's
+      // lines are only near-vertical; the error grows as the panel gets thinner.)
       // Each line is also drawn as short pieces sampled along the true UPS line: one straight
       // segment on the Mercator panel parted from it by up to ~30 m mid-page at 45°E.
-      const PIECES = 16;
+      // UPS lines need pieces (the panel's Mercator is far from straight on a turned polar grid);
+      // a UTM line is close enough to straight on the panel that one clipped segment is right,
+      // and keeps the line count (and the 10 km fallback's arithmetic) as it was.
+      const PIECES = polar ? 16 : 1;
+      /** Does the grid line from→to cross the panel at all? (Its first drawn line gets the full value.) */
+      const wouldCross = (from: [number, number], to: [number, number]) => {
+        for (let i = 0; i < PIECES; i++) {
+          const a = proj.inverse([from[0] + ((to[0] - from[0]) * i) / PIECES, from[1] + ((to[1] - from[1]) * i) / PIECES]);
+          const b = proj.inverse([from[0] + ((to[0] - from[0]) * (i + 1)) / PIECES, from[1] + ((to[1] - from[1]) * (i + 1)) / PIECES]);
+          if (clipToPanel(lngLatToPanelFraction(a, bbox), lngLatToPanelFraction(b, bbox))) return true;
+        }
+        return false;
+      };
       const addLine = (from: [number, number], to: [number, number], axis: "easting" | "northing", text: string) => {
         const pts = Array.from({ length: PIECES + 1 }, (_, i) =>
           lngLatToPanelFraction(proj.inverse([from[0] + ((to[0] - from[0]) * i) / PIECES, from[1] + ((to[1] - from[1]) * i) / PIECES]), bbox),
@@ -380,15 +475,31 @@ export function buildUsngGrid(
           if (edge) labels.push({ x, y, text, edge });
         }
       };
-      for (let e = firstE; e <= lastE + 0.5; e += interval) {
-        addLine([e, utmNMin], [e, utmNMax], "easting", full && e === firstE ? fullValue(e, "E") : kmLabel(e));
+      // The corners do not bound the page on the grid: an edge meridian bulges between them (at
+      // the equator a page's west edge reaches furthest from the central meridian mid-height).
+      // Pad the extent so every line crosses the whole page, and let the clip trim it. Lines
+      // that miss the page entirely are dropped by the clip.
+      const padE = 0.1 * (utmEMax - utmEMin) + interval;
+      const padN = 0.1 * (utmNMax - utmNMin) + interval;
+      const [eLo, eHi, nLo, nHi] = [utmEMin - padE, utmEMax + padE, utmNMin - padN, utmNMax + padN];
+      let firstDrawnE: number | undefined;
+      let firstDrawnN: number | undefined;
+      for (let e = Math.ceil(eLo / interval) * interval; e <= eHi; e += interval) {
+        const isFirst = firstDrawnE === undefined && wouldCross([e, nLo], [e, nHi]);
+        if (isFirst) firstDrawnE = e;
+        addLine([e, nLo], [e, nHi], "easting", full && isFirst ? fullValue(e, "E") : kmLabel(e));
       }
-      for (let n = firstN; n <= lastN + 0.5; n += interval) {
-        addLine([utmEMin, n], [utmEMax, n], "northing", full && n === firstN ? fullValue(n, "N") : kmLabel(n));
+      for (let n = Math.ceil(nLo / interval) * interval; n <= nHi; n += interval) {
+        const isFirst = firstDrawnN === undefined && wouldCross([eLo, n], [eHi, n]);
+        if (isFirst) firstDrawnN = n;
+        addLine([eLo, n], [eHi, n], "northing", full && isFirst ? fullValue(n, "N") : kmLabel(n));
       }
-      return { lines, labels, collar: { zoneDesignator: upsZoneLetter(centreLng, centreLat), hundredKmSquare: "", system: "UPS" } };
+
+      if (polar) return { lines, labels, collar: { zoneDesignator: upsZoneLetter(centreLng, centreLat), hundredKmSquare: "", system: "UPS" } };
     }
 
+    // (Superseded by the clipped path above; kept unreachable no longer.)
+    if (lines.length < 0) {
     // Easting (vertical) lines — constant UTM easting, spans full northing range.
     for (let e = firstE; e <= lastE + 0.5; e += interval) {
       const [x1, y1] = panelFraction(proj.inverse([e, utmNMin]), bbox);
@@ -414,6 +525,8 @@ export function buildUsngGrid(
       // x1 is near left (easting min → west edge), x2 is near right.
       labels.push({ x: 0, y: y1, text, edge: "left" });
       labels.push({ x: 1, y: y2, text, edge: "right" });
+    }
+
     }
 
     // Collar from MGRS/USNG (its own guard — a collar failure still yields lines).

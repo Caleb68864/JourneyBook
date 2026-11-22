@@ -206,6 +206,7 @@ describe("PageSetup reaches the PUT body", () => {
     extent: [-98, 41, -97, 42],
     createdAt: "2026-09-09T00:00:00Z",
     updatedAt: "2026-09-09T00:00:00Z",
+    worksheetLegs: [],
   };
 
   afterEach(() => vi.unstubAllGlobals());

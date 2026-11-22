@@ -247,6 +247,14 @@ export interface UsngGridOverlay {
    * and their numbers are always the right zone's.
    */
   zoneBoundary?: { x1: number; y1: number; x2: number; y2: number; westZone: number; eastZone: number };
+  /** Further zone boundaries, on a page split by latitude into bands with different junctions. */
+  extraZoneBoundaries?: { x1: number; y1: number; x2: number; y2: number; westZone: number; eastZone: number }[];
+  /**
+   * Latitudes inside the page where the grid's rule changes (UTM to UPS at 84°N/80°S; the
+   * Norway and Svalbard zone exceptions at 56°, 64°, 72°N): each band is gridded by its own
+   * rule, and the line is drawn across the panel with a short label.
+   */
+  ruleBoundaries?: { y: number; label: string }[];
 }
 
 /**

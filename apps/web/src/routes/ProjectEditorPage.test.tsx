@@ -59,6 +59,7 @@ const PROJECT: Project = {
   extent: [-98, 41, -97.9, 41.1],
   createdAt: "2026-09-09T00:00:00Z",
   updatedAt: "2026-09-09T00:00:00Z",
+  worksheetLegs: [],
 };
 
 const { api } = await import("../api/client");
@@ -249,5 +250,32 @@ describe("ProjectEditorPage wires the worksheet's legs", () => {
     expect(box.disabled).toBe(true);
     expect(screen.getByText(/Needs Tier 4/)).toBeTruthy();
     expect(seen.generate.at(-1)!.options).toMatchObject({ worksheet: false });
+  });
+
+  it("[BEHAVIORAL] loads the legs saved with the project, and saves a new one with it", async () => {
+    // The landmark leg is hidden (Include Landmarks is off), and must survive the save.
+    vi.spyOn(api.projects, "get").mockResolvedValue({ ...PROJECT, worksheetLegs: [{ from: "loc:b", to: "loc:a" }, { from: "loc:a", to: "lm:Water Tower" }] });
+    vi.spyOn(api.locations, "list").mockResolvedValue([
+      { id: "a", projectId: "p1", name: "Capitol", lng: -96.7, lat: 40.81, label: "L1" },
+      { id: "b", projectId: "p1", name: "Haymarket", lng: -96.71, lat: 40.82, label: "L2" },
+    ] as never);
+    vi.spyOn(api.landmarks, "list").mockResolvedValue([]);
+    const patch = vi.spyOn(api.projects, "patch").mockImplementation(async (p, changes) => ({ ...p, ...changes }));
+    await renderEditor();
+    fireEvent.change(screen.getByLabelText("Map Tier"), { target: { value: "4" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: /azimuth worksheet/i }));
+
+    // The saved leg is there after a reload, and goes to the engine by current position.
+    expect(await screen.findByText(/L2 Haymarket to L1 Capitol/)).toBeTruthy();
+    expect(seen.generate.at(-1)!.options).toMatchObject({ worksheetLegs: [{ from: "L2", to: "L1" }] });
+
+    fireEvent.change(screen.getByLabelText("Leg start"), { target: { value: "loc:a" } });
+    fireEvent.change(screen.getByLabelText("Leg finish"), { target: { value: "loc:b" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add leg" }));
+    await waitFor(() =>
+      expect(patch).toHaveBeenCalledWith(expect.anything(), {
+        worksheetLegs: [{ from: "loc:b", to: "loc:a" }, { from: "loc:a", to: "loc:b" }, { from: "loc:a", to: "lm:Water Tower" }],
+      }),
+    );
   });
 });

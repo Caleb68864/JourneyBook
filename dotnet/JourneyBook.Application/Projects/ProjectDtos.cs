@@ -22,7 +22,13 @@ public record UpdateProjectRequest(
     double Overlap,
     MarginsDto Margins,
     string? ExplorerName = null,
-    string? AtlasDate = null);
+    string? AtlasDate = null,
+    // Saved worksheet legs ("loc:<id>" / "lm:<name>" ends). Null leaves them as they are, so a
+    // client that does not know the field cannot wipe them; an empty list clears them.
+    IReadOnlyList<WorksheetLegDto>? WorksheetLegs = null);
+
+/// <summary>A saved worksheet leg: each end "loc:&lt;location id&gt;" or "lm:&lt;landmark name&gt;".</summary>
+public record WorksheetLegDto(string From, string To);
 
 public record ProjectResponse(
     Guid Id,
@@ -35,4 +41,5 @@ public record ProjectResponse(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
     string? ExplorerName = null,
-    string? AtlasDate = null);
+    string? AtlasDate = null,
+    IReadOnlyList<WorksheetLegDto>? WorksheetLegs = null);

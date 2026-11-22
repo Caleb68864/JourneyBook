@@ -148,6 +148,8 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
         if (cancelled) return;
         setProject(proj);
         setLocations(locs);
+        // The legs saved with the project (by place, so they survive renumbering).
+        setWorksheetLegs(proj.worksheetLegs);
         void refreshPdfHistory();
         if (proj.extent) {
           const [w, s, e, n] = proj.extent;
@@ -203,6 +205,23 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
    * the write fails — a setup the server did not accept must not sit in the form
    * looking saved while the renderer uses the old one.
    */
+  /** Change the hand-picked legs and save them with the project; a failed save puts them back. */
+  async function saveWorksheetLegs(shown: { from: string; to: string }[]) {
+    const before = worksheetLegs;
+    // The editor only shows legs whose ends are on offer now; a saved leg to a landmark while
+    // Include Landmarks is off is hidden, not deleted, so keep it when saving the shown ones.
+    const hidden = worksheetLegs.filter((l) => !validLegs.includes(l));
+    const next = [...shown, ...hidden];
+    setWorksheetLegs(next);
+    if (!project) return;
+    try {
+      setProject(await api.projects.patch(project, { worksheetLegs: next }));
+    } catch (err) {
+      setWorksheetLegs(before);
+      setError(err instanceof Error ? err.message : "Failed to save the worksheet legs.");
+    }
+  }
+
   async function handlePageSetupChange(next: PageSetupValue | TitlePageValue) {
     if (!project) return;
     const previous = project;
@@ -870,7 +889,7 @@ export function ProjectEditorPage({ projectId, onBack }: ProjectEditorPageProps)
                       ) : null}
                     </span>
                   </label>
-                  <WorksheetLegsEditor ends={legEnds} value={validLegs} onChange={setWorksheetLegs} />
+                  <WorksheetLegsEditor ends={legEnds} value={validLegs} onChange={(next) => void saveWorksheetLegs(next)} />
                 </div>
               ) : null}
               <div className="mb-3">

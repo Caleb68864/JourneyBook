@@ -293,3 +293,53 @@ describe("review fixes to the grid", () => {
     expect(grid.collar.squares![0]).toBe(`${grid.collar.zoneDesignator} ${grid.collar.hundredKmSquare}`);
   });
 });
+
+describe("a page across a latitude where the grid rule changes", () => {
+  function latAt(bbox: BBox, y: number) {
+    const merc = (lat: number) => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
+    const m = merc(bbox[3]) - y * (merc(bbox[3]) - merc(bbox[1]));
+    return (2 * Math.atan(Math.exp(m)) - Math.PI / 2) * (180 / Math.PI);
+  }
+  const point = (bbox: BBox, x: number, y: number) => ({ lng: bbox[0] + x * (bbox[2] - bbox[0]), lat: latAt(bbox, y) });
+  /** Is every easting line on one side of `yCut` on a whole-km line of `proj`? */
+  function eastingsOn(grid: ReturnType<typeof buildUsngGrid>, bbox: BBox, side: "above" | "below", yCut: number, proj: { forward(p: { lng: number; lat: number }): [number, number] }) {
+    const lines = grid.lines.filter((l) => l.axis === "easting" && (side === "above" ? Math.max(l.y1, l.y2) <= yCut + 1e-9 : Math.min(l.y1, l.y2) >= yCut - 1e-9));
+    expect(lines.length, `easting lines ${side} the rule line`).toBeGreaterThan(0);
+    for (const l of lines) {
+      for (const t of [0, 0.5, 1]) {
+        const e = proj.forward(point(bbox, l.x1 + t * (l.x2 - l.x1), l.y1 + t * (l.y2 - l.y1)))[0];
+        expect(Math.abs(e - Math.round(e / 1000) * 1000), `${side}: ${e.toFixed(0)}`).toBeLessThan(5);
+      }
+    }
+  }
+
+  it("[BEHAVIORAL] at 84°N: UPS above the line, UTM below, each band on its own grid", () => {
+    const bbox: BBox = [10, 83.985, 10.3, 84.015];
+    const grid = buildUsngGrid(bbox, 1000, 1000, { mgrs: true });
+    expect(grid.ruleBoundaries).toHaveLength(1);
+    const yCut = grid.ruleBoundaries![0]!.y;
+    expect(latAt(bbox, yCut)).toBeCloseTo(84, 6);
+    expect(grid.ruleBoundaries![0]!.label).toMatch(/^84°N: UPS north/);
+    eastingsOn(grid, bbox, "above", yCut, createUpsProjector(true));
+    // Below 84°N at 10°E is Svalbard's widened zone 33 (9–21°E), not zone 32.
+    eastingsOn(grid, bbox, "below", yCut, createUtmProjector(33));
+    // No label left in the middle of the page at the band edge.
+    expect(grid.labels.every((l) => l.edge !== "top" || l.y < 1e-6)).toBe(true);
+    expect(grid.labels.every((l) => l.edge !== "bottom" || l.y > 1 - 1e-6)).toBe(true);
+  });
+
+  it("[BEHAVIORAL] at 56°N at Norway's longitude: zone 32 above, zone 31 below, both in the collar", () => {
+    const bbox: BBox = [3.97, 55.985, 4.03, 56.015];
+    const grid = buildUsngGrid(bbox, 1000, 1000, { mgrs: true });
+    expect(grid.ruleBoundaries).toHaveLength(1);
+    const yCut = grid.ruleBoundaries![0]!.y;
+    eastingsOn(grid, bbox, "above", yCut, createUtmProjector(32));
+    eastingsOn(grid, bbox, "below", yCut, createUtmProjector(31));
+    expect(grid.collar.squares!.some((q) => q.startsWith("31U"))).toBe(true);
+    expect(grid.collar.squares!.some((q) => q.startsWith("32V"))).toBe(true);
+  });
+
+  it("[CONTROL] no split where the rule is the same either side (56°N far from Norway)", () => {
+    expect(buildUsngGrid([-96.73, 55.985, -96.67, 56.015], 1000, 1000).ruleBoundaries).toBeUndefined();
+  });
+});

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { Location, Project } from "../api/client";
-import { buildProjectExport, parseProjectImport } from "./project-transfer";
+import { buildProjectExport, legsByPlace, legsByPosition, parseProjectImport } from "./project-transfer";
 
 const PROJECT: Project = {
   id: "p1",
@@ -14,6 +14,7 @@ const PROJECT: Project = {
   extent: [-98, 41, -97, 42],
   createdAt: "2026-09-09T00:00:00Z",
   updatedAt: "2026-09-09T00:00:00Z",
+  worksheetLegs: [],
 };
 
 const LOCATION: Location = {
@@ -154,5 +155,26 @@ describe("title page in a project export", () => {
 
   it("[CONTROL] treats a file without them as saying nothing", () => {
     expect(parseProjectImport({ project: { name: "Old" } }).titlePage).toBeNull();
+  });
+});
+
+describe("worksheet legs in an export", () => {
+  it("[BEHAVIORAL] travel by position and come back onto the imported locations", () => {
+    const legs = [{ from: "loc:b", to: "loc:a" }, { from: "loc:a", to: "lm:Water Tower" }, { from: "loc:gone", to: "loc:a" }];
+    const byPosition = legsByPosition(legs, [{ id: "a" }, { id: "b" }]);
+    expect(byPosition).toEqual([{ from: "L2", to: "L1" }, { from: "L1", to: "lm:Water Tower" }]);
+    expect(legsByPlace(byPosition, ["new-a", "new-b"])).toEqual([
+      { from: "loc:new-b", to: "loc:new-a" },
+      { from: "loc:new-a", to: "lm:Water Tower" },
+    ]);
+    // A position past the imported locations is dropped, not sent.
+    expect(legsByPlace([{ from: "L3", to: "L1" }], ["new-a"])).toEqual([]);
+  });
+
+  it("are written by the export and read by the import", () => {
+    const exported = buildProjectExport({ ...PROJECT, worksheetLegs: [{ from: "loc:l1", to: "lm:Tower" }] } as never, [{ id: "l1" }] as never);
+    expect(exported.project.worksheetLegs).toEqual([{ from: "L1", to: "lm:Tower" }]);
+    expect(parseProjectImport(JSON.parse(JSON.stringify(exported))).worksheetLegs).toEqual([{ from: "L1", to: "lm:Tower" }]);
+    expect(parseProjectImport({ project: {} }).worksheetLegs).toEqual([]);
   });
 });

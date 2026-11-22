@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { DEFAULT_SCALE_PRESET_ID } from "@journeybook/atlas-core";
 import { api, type Project } from "../api/client";
-import { buildProjectExport, parseProjectImport } from "../lib/project-transfer";
+import { buildProjectExport, legsByPlace, parseProjectImport } from "../lib/project-transfer";
 import { MapPackagesPanel } from "../components/MapPackagesPanel";
 
 interface ProjectListPageProps {
@@ -99,8 +99,10 @@ export function ProjectListPage({ onOpen }: ProjectListPageProps) {
       if (parsed.pageSetup) proj = await api.projects.patch(proj, parsed.pageSetup);
       if (parsed.titlePage) proj = await api.projects.patch(proj, parsed.titlePage);
       if (parsed.extent) proj = await api.projects.setExtent(proj.id, parsed.extent);
+      const createdIds: string[] = [];
       for (const l of parsed.locations) {
         const created = await api.locations.create(proj.id, l.name, l.lng, l.lat, l.notes ?? undefined, l.scalePresetId ?? undefined);
+        createdIds.push(created.id);
         // create() takes no pin or ladder, so restore those with a follow-up PUT.
         // PUT replaces the whole record, so resend everything create() already set
         // (notes especially) or it comes back null.
@@ -117,6 +119,9 @@ export function ProjectListPage({ onOpen }: ProjectListPageProps) {
           });
         }
       }
+      // The file's legs name locations by position; map them onto the ids just created.
+      const legs = legsByPlace(parsed.worksheetLegs, createdIds);
+      if (legs.length > 0) proj = await api.projects.patch(proj, { worksheetLegs: legs });
       setProjects((ps) => [proj, ...ps]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to import — is it a JourneyBook export?");

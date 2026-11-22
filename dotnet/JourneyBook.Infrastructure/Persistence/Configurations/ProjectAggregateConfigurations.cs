@@ -13,6 +13,19 @@ public class ProjectConfiguration : IEntityTypeConfiguration<Project>
         builder.Property(p => p.AtlasDate).HasMaxLength(ProjectLimits.AtlasDateMaxLength);
         builder.Property(p => p.CreatedAt).IsRequired();
         builder.Property(p => p.UpdatedAt).IsRequired();
+        // Saved worksheet legs as one jsonb array of {From, To}. Explicit conversion and
+        // comparer, so EF notices a changed list and nothing depends on provider POCO mapping.
+        builder.Property(p => p.WorksheetLegs)
+            .HasColumnType("jsonb")
+            .HasConversion(
+                v => System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null),
+                v => System.Text.Json.JsonSerializer.Deserialize<List<WorksheetLegRef>>(v, (System.Text.Json.JsonSerializerOptions?)null) ?? new List<WorksheetLegRef>(),
+                new Microsoft.EntityFrameworkCore.ChangeTracking.ValueComparer<List<WorksheetLegRef>>(
+                    (a, b) => (a ?? new List<WorksheetLegRef>()).SequenceEqual(b ?? new List<WorksheetLegRef>()),
+                    v => v.Aggregate(0, (h, l) => HashCode.Combine(h, l.GetHashCode())),
+                    v => v.ToList()))
+            .HasDefaultValueSql("'[]'::jsonb")
+            .IsRequired();
 
         builder.HasOne(p => p.Extent)
             .WithOne(e => e.Project!)

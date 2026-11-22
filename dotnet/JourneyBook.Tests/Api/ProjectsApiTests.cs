@@ -139,4 +139,84 @@ public class ProjectsApiTests(PostgisApiFactory factory) : IClassFixture<Postgis
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
+
+    // ── Saved worksheet legs ──────────────────────────────────────────────────
+
+    private async Task<(ProjectResponse Project, Guid A, Guid B)> ProjectWithTwoStopsAsync(string name)
+    {
+        var post = await _client.PostAsJsonAsync("/api/projects", new CreateProjectRequest(name, "usgs-7-5-min"));
+        var project = (await post.Content.ReadFromJsonAsync<ProjectResponse>())!;
+        var ids = new List<Guid>();
+        foreach (var (n, lng) in new[] { ("A", -96.70), ("B", -96.71) })
+        {
+            var loc = await _client.PostAsJsonAsync($"/api/projects/{project.Id}/locations", new CreateLocationRequest(n, lng, 40.81));
+            ids.Add((await loc.Content.ReadFromJsonAsync<LocationResponse>())!.Id);
+        }
+        return (project, ids[0], ids[1]);
+    }
+
+    private UpdateProjectRequest Put(ProjectResponse p, IReadOnlyList<WorksheetLegDto>? legs) =>
+        new(p.Name, "usgs-7-5-min", "Portrait", 0, p.Margins, WorksheetLegs: legs);
+
+    [Fact]
+    public async Task Worksheet_legs_are_saved_with_the_project_and_null_leaves_them_alone()
+    {
+        var (project, a, b) = await ProjectWithTwoStopsAsync("Saved Legs");
+        var legs = new[] { new WorksheetLegDto($"loc:{b}", $"loc:{a}"), new WorksheetLegDto($"loc:{a}", "lm:Water Tower") };
+
+        var put = await _client.PutAsJsonAsync($"/api/projects/{project.Id}", Put(project, legs));
+        Assert.Equal(HttpStatusCode.OK, put.StatusCode);
+        var got = await _client.GetFromJsonAsync<ProjectResponse>($"/api/projects/{project.Id}");
+        Assert.Equal(legs, got!.WorksheetLegs);
+
+        // A client that does not send the field (an older one, or a rename) keeps them.
+        var rename = await _client.PutAsJsonAsync($"/api/projects/{project.Id}", Put(project, null) with { Name = "Renamed" });
+        Assert.Equal(HttpStatusCode.OK, rename.StatusCode);
+        Assert.Equal(legs, (await rename.Content.ReadFromJsonAsync<ProjectResponse>())!.WorksheetLegs);
+
+        // An empty list clears them.
+        var clear = await _client.PutAsJsonAsync($"/api/projects/{project.Id}", Put(project, []));
+        Assert.Empty((await clear.Content.ReadFromJsonAsync<ProjectResponse>())!.WorksheetLegs!);
+    }
+
+    [Fact]
+    public async Task Worksheet_legs_must_name_this_projects_places()
+    {
+        var (project, a, _) = await ProjectWithTwoStopsAsync("Bad Legs");
+        var (other, foreign, _) = await ProjectWithTwoStopsAsync("Someone Else");
+        foreach (var bad in new[]
+        {
+            new WorksheetLegDto($"loc:{a}", $"loc:{foreign}"), // another project's location
+            new WorksheetLegDto($"loc:{a}", "L2"),              // positional: rebinds when one is deleted
+            new WorksheetLegDto($"loc:{a}", "lm:"),
+            new WorksheetLegDto("", $"loc:{a}"),
+        })
+        {
+            var res = await _client.PutAsJsonAsync($"/api/projects/{project.Id}", Put(project, [bad]));
+            Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+        }
+        var tooMany = Enumerable.Range(0, 51).Select(_ => new WorksheetLegDto($"loc:{a}", "lm:X")).ToList();
+        Assert.Equal(HttpStatusCode.BadRequest, (await _client.PutAsJsonAsync($"/api/projects/{project.Id}", Put(project, tooMany))).StatusCode);
+        Assert.NotEqual(Guid.Empty, other.Id);
+    }
+
+    [Fact]
+    public async Task Deleting_a_location_drops_its_saved_legs_and_duplicating_carries_them_to_the_copy()
+    {
+        var (project, a, b) = await ProjectWithTwoStopsAsync("Legs Follow Places");
+        var legs = new[] { new WorksheetLegDto($"loc:{a}", $"loc:{b}"), new WorksheetLegDto($"loc:{b}", "lm:Water Tower") };
+        Assert.Equal(HttpStatusCode.OK, (await _client.PutAsJsonAsync($"/api/projects/{project.Id}", Put(project, legs))).StatusCode);
+
+        // Duplicate: the legs point at the copy's own locations, by L-number.
+        var dup = await _client.PostAsync($"/api/projects/{project.Id}/duplicate", null);
+        var copy = (await dup.Content.ReadFromJsonAsync<ProjectResponse>())!;
+        var copyLocs = (await _client.GetFromJsonAsync<List<LocationResponse>>($"/api/projects/{copy.Id}/locations"))!;
+        var (ca, cb) = (copyLocs.Single(l => l.Name == "A").Id, copyLocs.Single(l => l.Name == "B").Id);
+        Assert.Equal([new WorksheetLegDto($"loc:{ca}", $"loc:{cb}"), new WorksheetLegDto($"loc:{cb}", "lm:Water Tower")], copy.WorksheetLegs);
+
+        // Delete A: only the leg that does not touch it survives.
+        Assert.Equal(HttpStatusCode.NoContent, (await _client.DeleteAsync($"/api/locations/{a}")).StatusCode);
+        var after = await _client.GetFromJsonAsync<ProjectResponse>($"/api/projects/{project.Id}");
+        Assert.Equal([new WorksheetLegDto($"loc:{b}", "lm:Water Tower")], after!.WorksheetLegs);
+    }
 }

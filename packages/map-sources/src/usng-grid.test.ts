@@ -74,27 +74,44 @@ describe("buildUsngGrid — georeference accuracy", () => {
   const nMin = Math.min(...corners.map(([, n]) => n));
   const nMax = Math.max(...corners.map(([, n]) => n));
 
+  /** Bisect for the value v in [lo, hi] where f(v) crosses `target` (f monotonic). */
+  function bisect(f: (v: number) => number, target: number, lo: number, hi: number): number {
+    const rising = f(hi) > f(lo);
+    for (let i = 0; i < 60; i++) {
+      const mid = (lo + hi) / 2;
+      if (f(mid) < target === rising) lo = mid;
+      else hi = mid;
+    }
+    return (lo + hi) / 2;
+  }
+
   it("easting gridlines are placed via the shared Web-Mercator panel mapping (not a linear re-impl)", () => {
     const overlay = buildUsngGrid(LINCOLN_NE, PANEL_W, PANEL_H);
     const firstE = Math.ceil(eMin / 1000) * 1000;
-    // Expected endpoints of the first easting line, via the shared functions.
-    const [exTop] = lngLatToPanelFraction(proj.inverse([firstE, nMax]), LINCOLN_NE);
-    const eLine = overlay.lines.find((l) => l.axis === "easting");
-    expect(eLine).toBeDefined();
-    // x2 corresponds to the northing-max (top) endpoint in the generator.
-    expect(Math.abs(eLine!.x2 - Math.min(1, Math.max(0, exTop)))).toBeLessThan(1e-6);
+    // Where the first easting line really meets the top edge: the northing at which it reaches
+    // the page's north latitude, through the shared projector and panel mapping. The generator
+    // clips each line to the panel (it used to clamp each end, which moved tilted lines).
+    const nTop = bisect((n) => proj.inverse([firstE, n]).lat, north, nMin - 5000, nMax + 5000);
+    const [xTop] = lngLatToPanelFraction(proj.inverse([firstE, nTop]), LINCOLN_NE);
+    const eLine = overlay.lines.find((l) => l.axis === "easting" && Math.abs(Math.min(l.y1, l.y2)) < 1e-9 && Math.abs((l.y1 < l.y2 ? l.x1 : l.x2) - xTop) < 0.01);
+    expect(eLine, "no easting line meets the top edge where the shared mapping says").toBeDefined();
+    const top = eLine!.y1 < eLine!.y2 ? eLine!.x1 : eLine!.x2;
+    // Within 2e-4 of the panel (0.2 px at 1,000 px): the line is drawn as one straight segment on
+    // the Mercator panel. A linear re-implementation of the mapping is off by far more.
+    expect(Math.abs(top - xTop)).toBeLessThan(2e-4);
   });
 
   it("northing gridlines register at their shared-mapping panel-v (catches linear drift)", () => {
     const overlay = buildUsngGrid(LINCOLN_NE, PANEL_W, PANEL_H);
     const firstN = Math.ceil(nMin / 1000) * 1000;
     expect(firstN).toBeLessThanOrEqual(nMax);
-    // Expected v of the first northing line's west endpoint, via the shared map.
-    const [, vExpected] = lngLatToPanelFraction(proj.inverse([eMin, firstN]), LINCOLN_NE);
-    const nLine = overlay.lines.find((l) => l.axis === "northing");
-    expect(nLine).toBeDefined();
-    // y1 is the west (easting-min) endpoint in the generator.
-    expect(Math.abs(nLine!.y1 - Math.min(1, Math.max(0, vExpected)))).toBeLessThan(1e-6);
+    // Where the first northing line really meets the left edge (the page's west longitude).
+    const eLeft = bisect((e) => proj.inverse([e, firstN]).lng, west, eMin - 5000, eMin + 20_000);
+    const [, vLeft] = lngLatToPanelFraction(proj.inverse([eLeft, firstN]), LINCOLN_NE);
+    const nLine = overlay.lines.find((l) => l.axis === "northing" && Math.abs(Math.min(l.x1, l.x2)) < 1e-9 && Math.abs((l.x1 < l.x2 ? l.y1 : l.y2) - vLeft) < 0.01);
+    expect(nLine, "no northing line meets the left edge where the shared mapping says").toBeDefined();
+    const left = nLine!.x1 < nLine!.x2 ? nLine!.y1 : nLine!.y2;
+    expect(Math.abs(left - vLeft)).toBeLessThan(2e-4);
   });
 
   it("a known point's km easting gridline lands within 0.01 of the point's panel fraction", () => {
