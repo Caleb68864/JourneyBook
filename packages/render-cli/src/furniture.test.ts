@@ -225,6 +225,22 @@ describe("a page across a UTM zone boundary through renderAtlas", () => {
     expect(t4).toMatch(/· MGRS/);
   });
 
+  it("[BEHAVIORAL] a zone boundary in one band only is labelled on its own segment, not at the page top", async () => {
+    // Astride 56°N at 6°E: the 31 | 32 boundary is in the band south of the line only (north of
+    // it Norway's zone 32 spans 3–12°E). Its label belongs below the rule line, by the boundary;
+    // printed at the top of the page it sat in the band where no boundary is drawn.
+    const pdf = await renderTo({ center: { lng: 6, lat: 56.005 }, tier: 3 });
+    const items = measurePdfPages(pdf)[0]!.textItems;
+    // (Text items are split at kerning points, so find a piece only these labels contain.)
+    const yOf = (piece: string) => {
+      const hits = items.filter((t) => t.text.includes(piece));
+      expect(hits, `one text piece with "${piece}"`).toHaveLength(1);
+      return hits[0]!.y;
+    };
+    // Measured y runs down the page: the zone label must sit below the rule line's label.
+    expect(yOf("UTM ZONE")).toBeGreaterThan(yOf("rule changes"));
+  });
+
   it("[CONTROL] a page inside one zone has no junction label", async () => {
     const pdf = await renderTo({ tier: 3 });
     expect(measurePdfPages(pdf)[0]!.texts.join("")).not.toContain("UTM ZONE");

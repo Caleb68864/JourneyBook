@@ -814,29 +814,27 @@ function UsngGridLayer({ overlay, box }: { overlay: UsngGridOverlay; box: MapBox
           </Text>
         </Fragment>
       ))}
-      {(overlay.extraZoneBoundaries ?? []).map((z, i) => (
-        <Line key={`zb-${i}`} x1={z.x1 * box.width} y1={z.y1 * box.height} x2={z.x2 * box.width} y2={z.y2 * box.height} stroke={INK} strokeWidth={1.4} />
-      ))}
-      {overlay.zoneBoundary ? (
-        <>
-          <Line
-            x1={overlay.zoneBoundary.x1 * box.width}
-            y1={overlay.zoneBoundary.y1 * box.height}
-            x2={overlay.zoneBoundary.x2 * box.width}
-            y2={overlay.zoneBoundary.y2 * box.height}
-            stroke={INK}
-            strokeWidth={1.4}
-          />
-          <Text
-            x={overlay.zoneBoundary.x1 * box.width}
-            y={FONT * 2 + 6}
-            textAnchor="middle"
-            style={{ fontSize: 7, fontFamily: "Helvetica-Bold", fill: INK }}
-          >
-            {`${overlay.zoneBoundary.westZone} | ${overlay.zoneBoundary.eastZone} UTM ZONE`}
-          </Text>
-        </>
-      ) : null}
+      {/* Every band's zone boundary is labelled with its two zone numbers, just inside the
+          top of its own segment: on a page split at a rule latitude a boundary may start mid-page,
+          and an unlabelled one there reads as an unexplained heavy line. */}
+      {[...(overlay.zoneBoundary ? [overlay.zoneBoundary] : []), ...(overlay.extraZoneBoundaries ?? [])].map((z, i) => {
+        const [tx, ty, bx, by] = z.y1 <= z.y2 ? [z.x1, z.y1, z.x2, z.y2] : [z.x2, z.y2, z.x1, z.y1];
+        const labelY = ty * box.height + FONT * 2 + 6;
+        const t = by > ty ? Math.min(1, (labelY / box.height - ty) / (by - ty)) : 0;
+        return (
+          <Fragment key={`zb-${i}`}>
+            <Line x1={z.x1 * box.width} y1={z.y1 * box.height} x2={z.x2 * box.width} y2={z.y2 * box.height} stroke={INK} strokeWidth={1.4} />
+            <Text
+              x={(tx + t * (bx - tx)) * box.width}
+              y={labelY}
+              textAnchor="middle"
+              style={{ fontSize: 7, fontFamily: "Helvetica-Bold", fill: INK }}
+            >
+              {`${z.westZone} | ${z.eastZone} UTM ZONE`}
+            </Text>
+          </Fragment>
+        );
+      })}
       {(overlay.mgrs?.squares ?? []).map((sq, i) => (
         <Text
           key={`mgrs-sq-${i}`}

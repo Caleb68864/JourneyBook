@@ -602,7 +602,9 @@ Goal: implement the [Map Tiers (Learning Curve)](#map-tiers-learning-curve-featu
 > they apply) is split there into bands, each gridded by its own rule, with the line drawn and
 > labelled. All grid lines are now clipped to the panel along the true grid line, not clamped
 > end by end, which also fixes tilted UTM lines (zone 32 at 4°E, up to ~17 m) and lines that
-> started inside the page where an edge meridian bulges between the corners.)*
+> started inside the page where an edge meridian bulges between the corners. Every zone
+> boundary is labelled with its two zone numbers on its own segment (2026-11-22), so one that
+> lies only in the band below a rule line is no longer labelled at the top of the page.)*
 > *(2026-11-22: a page that spans two UTM zones is drawn as a zone junction: each zone's grid
 > only on its own side of the boundary meridian, numbered in its own zone (first eastings in
 > full on both sides, northing labels on each zone's outer edge), both zones' 100 km squares
