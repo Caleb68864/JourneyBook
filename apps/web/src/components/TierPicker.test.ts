@@ -2,22 +2,23 @@ import { describe, it, expect } from "vitest";
 import { TIER_OPTIONS } from "./TierPicker";
 
 /**
- * The picker must only offer tiers the renderer actually draws. `AtlasDocument`
- * gates every piece of extra furniture on `tier >= 3`, so a Tier 4 page prints
- * byte-for-byte like a Tier 3 one — offering "full MGRS & azimuth" sold a
- * feature the PDF does not deliver. The roadmap records Level 4 as deferred;
- * this test keeps the UI honest about that until a renderer implements it.
+ * The picker must only offer tiers the renderer actually draws, and say only what each one draws.
+ * Tier 4 was withheld while it printed byte-for-byte like Tier 3; since 2026-11-22 it draws the
+ * declination diagram (pdf-client `declination-diagram.test.ts`), and nothing more, so its copy
+ * may name declination and the grid-magnetic angle but not MGRS labelling or azimuth worksheets.
  */
 describe("TierPicker options", () => {
-  it("offers only the tiers the renderer implements", () => {
-    expect(TIER_OPTIONS.map((o) => o.value)).toEqual([1, 2, 3]);
+  it("offers the tiers the renderer implements", () => {
+    expect(TIER_OPTIONS.map((o) => o.value)).toEqual([1, 2, 3, 4]);
   });
 
-  it("does not advertise unimplemented Level 4 furniture", () => {
+  it("describes Tier 4 as what it draws, and advertises nothing still unbuilt", () => {
+    const tier4 = TIER_OPTIONS.find((o) => o.value === 4)!;
+    expect(tier4.description.toLowerCase()).toContain("declination");
     const copy = TIER_OPTIONS.map((o) => `${o.label} ${o.description}`).join(" ").toLowerCase();
     expect(copy).not.toContain("mgrs");
     expect(copy).not.toContain("azimuth");
-    expect(copy).not.toContain("tier 4");
+    expect(copy).not.toContain("worksheet");
   });
 
   it("describes every offered tier", () => {

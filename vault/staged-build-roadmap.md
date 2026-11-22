@@ -572,7 +572,22 @@ Goal: implement the [Map Tiers (Learning Curve)](#map-tiers-learning-curve-featu
 > `data/wmm/SOURCE.md`). It reproduces all 100 of NOAA's published test values
 > (`data/wmm/WMM2025_TestValues.txt`, from the same archive): D and I to 0.01°, X/Y/Z/H/F to
 > 0.1 nT, dD/dt to 0.0001°/yr. It refuses dates outside 2025.0–2030.0 and the poles. Changing
-> one coefficient by 1 nT fails the test. Next: the page furniture that prints it.
+> one coefficient by 1 nT fails the test.
+>
+> **2026-11-22: the tier-4 declination diagram is printed.** A tier-4 page's footer draws true,
+> grid (its UTM zone) and magnetic north from one point, in their true order but not to scale
+> (and says so), with "MN x° E · GN y° E (UTM z) of true N" and "G-M w° E · WMM2025 2026.5 ·
+> MN moves 0.1° W/yr" beside it. Grid convergence is measured through proj4 and held to the
+> transverse Mercator series within 0.00005° (`north.test.ts`). The figures are for the page
+> centre on the render date (`declinationDate`, `--declination-date` for a reproducible
+> render). Outside 2025.0–2030.0 the footer says "Declination not shown" instead of
+> extrapolating. The tier picker offers Tier 4 again, described as exactly that.
+> **Still not built:** full MGRS labelling, azimuth worksheets, and the three-norths/G-M
+> teaching text. **The teaching text stays blocked:** the current TC 3-25.26 (15 Nov 2013)
+> carries "Distribution authorized to U.S. government agencies and their contractors" per
+> every copy found, not a public-release statement, and its official armypubs listing could not
+> be reached to confirm otherwise. Only the superseded FM 3-25.26 (2001) is marked "approved for
+> public release; distribution is unlimited". Using that instead is the owner's call.
 > `AtlasDocument.tsx` gates its extra furniture on `page.tier >= 3`, so tier 4 prints
 > as tier 3. `atlas-core/src/model.ts` says so on `MapTier`. `TierPicker.tsx` offers
 > only tiers 1–3, and the engine still accepts `--tier 4` (`render.ts` validates

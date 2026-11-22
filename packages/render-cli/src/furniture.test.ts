@@ -54,3 +54,34 @@ describe("Stage 1D furniture through renderAtlas", () => {
     expect(plain["locatorInset"]).toBeUndefined();
   });
 });
+
+describe("Stage 6B Level 4 declination through renderAtlas", () => {
+  const texts = async (extra: Record<string, unknown>) => {
+    const pdf = await renderTo(extra);
+    return measurePdfPages(pdf)[0]!.texts;
+  };
+
+  it("[BEHAVIORAL] a tier-4 render prints its page's three norths for the declination date", async () => {
+    const printed = await texts({ tier: 4, declinationDate: "2026-07-02" });
+    expect(printed.some((t) => /^MN \d+\.\d° [EW] · GN \d+\.\d° [EW] \(UTM 14\) of true N$/.test(t))).toBe(true);
+    expect(printed.some((t) => /^G-M \d+\.\d° [EW] · WMM2025 2026\.5 · /.test(t))).toBe(true);
+  });
+
+  it("[CONTROL] tier 3 prints no declination", async () => {
+    const printed = await texts({ tier: 3, declinationDate: "2026-07-02" });
+    expect(printed.some((t) => t.startsWith("MN ") || t.startsWith("G-M "))).toBe(false);
+  });
+
+  it("a date the model does not cover is printed as such, not extrapolated", async () => {
+    const printed = await texts({ tier: 4, declinationDate: "2031-01-01" });
+    expect(printed.some((t) => t.startsWith("Declination not shown: WMM2025 is valid for 2025.0 to 2030.0"))).toBe(true);
+    expect(printed.some((t) => t.startsWith("G-M "))).toBe(false);
+  });
+
+  it("refuses a malformed date, and the CLI flag reaches the engine", async () => {
+    await expect(renderTo({ tier: 4, declinationDate: "2026-7-2" })).rejects.toThrow(/must be YYYY-MM-DD/);
+    expect(
+      inputFromArgs(["--location", "-96.7,40.8", "--scale", "usgs-7-5-min", "--declination-date", "2026-07-02"]),
+    ).toMatchObject({ declinationDate: "2026-07-02" });
+  });
+});
