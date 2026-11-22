@@ -52,4 +52,72 @@ public class MapPackagesApiTests(PmTilesApiFactory factory) : IClassFixture<PmTi
         // The factory's own fixture archive is there too, served by no row in this test.
         Assert.Contains(list, p => p.File == PmTilesApiFactory.FixtureFile);
     }
+
+    /// <summary>
+    /// Registering a package used to mean copying it in and hand-typing a POST to
+    /// /api/tile-sources (kind, file name, max zoom, credit, offline flag). It is now one call,
+    /// filled from the archive, and the new row serves tiles.
+    /// </summary>
+    [Fact]
+    public async Task Registers_a_package_from_its_own_header_and_metadata_and_serves_it()
+    {
+        var manifest = JourneyBook.Tests.RasterPackageFixtureTests.LoadManifest();
+        Directory.CreateDirectory(Path.Combine(factory.PmTilesDir, "reg"));
+        File.Copy(Path.Combine(JourneyBook.Tests.RasterPackageFixtureTests.FixtureDir(), "package.pmtiles"),
+            Path.Combine(factory.PmTilesDir, "reg", "Lincoln Trip.pmtiles"), overwrite: true);
+        var admin = factory.CreateAdminClient();
+
+        var res = await admin.PostAsJsonAsync("/api/map-packages/register", new { file = "reg/Lincoln Trip.pmtiles" });
+
+        Assert.Equal(HttpStatusCode.Created, res.StatusCode);
+        var row = (await res.Content.ReadFromJsonAsync<TileSourceResponse>())!;
+        Assert.Equal("package-reg-lincoln-trip", row.Key);
+        Assert.Equal("pmtiles", row.Kind);
+        Assert.Equal("reg/Lincoln Trip.pmtiles", row.SourceUrl);
+        Assert.Equal(manifest.MaxZoom, row.MaxZoom);
+        Assert.Equal("USGS The National Map", row.Attribution);
+        Assert.True(row.Cache.OfflineAllowed);
+
+        var t = manifest.Tiles[0];
+        Assert.Equal(HttpStatusCode.OK, (await admin.GetAsync($"/api/tiles/{row.Key}/{t.Z}/{t.X}/{t.Y}")).StatusCode);
+
+        // Registering it again is a conflict on the key, not a second row.
+        var again = await admin.PostAsJsonAsync("/api/map-packages/register", new { file = "reg/Lincoln Trip.pmtiles" });
+        Assert.Equal(HttpStatusCode.Conflict, again.StatusCode);
+    }
+
+    [Fact]
+    public async Task Refuses_what_it_cannot_vouch_for()
+    {
+        var admin = factory.CreateAdminClient();
+        var fixture = Path.Combine(JourneyBook.Tests.RasterPackageFixtureTests.FixtureDir(), "package.pmtiles");
+
+        // No admin key: a registry write like any other.
+        Assert.Equal(HttpStatusCode.Unauthorized,
+            (await factory.CreateClient().PostAsJsonAsync("/api/map-packages/register", new { file = PmTilesApiFactory.FixtureFile })).StatusCode);
+        // Outside the packages folder, and missing.
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await admin.PostAsJsonAsync("/api/map-packages/register", new { file = "../escape.pmtiles" })).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound,
+            (await admin.PostAsJsonAsync("/api/map-packages/register", new { file = "nope.pmtiles" })).StatusCode);
+        // An archive that does not say where it came from (the minimal fixture has no metadata).
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await admin.PostAsJsonAsync("/api/map-packages/register", new { file = PmTilesApiFactory.FixtureFile })).StatusCode);
+
+        // Made from a source whose terms do not allow offline use: same bytes, metadata source patched.
+        var bytes = await File.ReadAllBytesAsync(fixture);
+        var from = System.Text.Encoding.ASCII.GetBytes("\"source\":\"usgs-topo\"");
+        var to = System.Text.Encoding.ASCII.GetBytes("\"source\":\"closed-ts\"");
+        var at = bytes.AsSpan().IndexOf(from);
+        Assert.True(at > 0, "fixture metadata not found");
+        to.CopyTo(bytes, at);
+        await File.WriteAllBytesAsync(Path.Combine(factory.PmTilesDir, "closed.pmtiles"), bytes);
+        var closed = await admin.PostAsJsonAsync("/api/tile-sources", new CreateTileSourceRequest(
+            Key: "closed-ts", Provider: "Closed", SourceUrl: "https://tiles.example.com/{z}/{x}/{y}.png",
+            Attribution: "Closed Maps", MaxZoom: 16, Cache: new TileCachePolicyDto(3600, false), Kind: "xyz-server"));
+        Assert.Equal(HttpStatusCode.Created, closed.StatusCode);
+        var refused = await admin.PostAsJsonAsync("/api/map-packages/register", new { file = "closed.pmtiles" });
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Contains("do not allow offline use", await refused.Content.ReadAsStringAsync());
+    }
 }

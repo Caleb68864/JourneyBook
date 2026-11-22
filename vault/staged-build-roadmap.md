@@ -628,7 +628,10 @@ Found while auditing, not fixed:
   range, through the package's own `loadTile` path, and reports tiles × mean bytes per zoom,
   with the samples' low/high spread and how many failed; branch
   `work/2026-11-22-stage7-packaging`)*; no API
-  endpoint or UI; no automatic row registration; ~~compose still does not mount
+  endpoint or UI; ~~no automatic row registration~~ *(2026-11-22:
+  `POST /api/map-packages/register` {file, key?}, admin-gated, creates the `pmtiles` row from
+  the archive: max zoom from its header, credit and origin from its metadata, refused unless
+  the origin row exists and allows offline use)*; ~~compose still does not mount
   `data/map-packages`~~ (mounted 2026-11-16, `feat/stage-7-compose-offline`); not tried against live USGS, which may mix png and jpeg (the package
   refuses a mix rather than re-encode). No manifest table yet (option 4).
 

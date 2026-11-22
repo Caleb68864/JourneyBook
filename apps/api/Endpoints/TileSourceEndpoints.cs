@@ -14,17 +14,7 @@ public static class TileSourceEndpoints
         // would then fetch and return the body of — a full SSRF with response
         // reflection. See AdminApiKeyGate for why this is a shared key rather than
         // real auth, and note that it fails closed when no key is configured.
-        var writes = tileSources.MapGroup("").AddEndpointFilter(async (context, next) =>
-        {
-            var gate = context.HttpContext.RequestServices.GetRequiredService<AdminApiKeyGate>();
-            var presented = context.HttpContext.Request.Headers[AdminApiKeyGate.HeaderName].ToString();
-            if (!gate.IsAuthorized(presented))
-            {
-                return Results.Json(new { error = gate.DenialReason },
-                    statusCode: StatusCodes.Status401Unauthorized);
-            }
-            return await next(context);
-        });
+        var writes = tileSources.MapGroup("").AddEndpointFilter(AdminApiKeyGate.Filter);
 
         writes.MapPost("/", async (CreateTileSourceRequest request, ITileSourceService service) =>
         {

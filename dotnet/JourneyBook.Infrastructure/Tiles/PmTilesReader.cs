@@ -44,6 +44,18 @@ public sealed class PmTilesReader
             TileContents: (long)BinaryPrimitives.ReadUInt64LittleEndian(header.AsSpan(88, 8)));
     }
 
+    /// <summary>The archive's JSON metadata (header bytes 24..39 locate it), decompressed; null when empty.</summary>
+    public async Task<System.Text.Json.JsonDocument?> ReadMetadataAsync(Stream archive, CancellationToken ct)
+    {
+        var header = await ReadRangeAsync(archive, 0, HeaderLength, ct);
+        ValidateMagic(header);
+        var offset = (long)BinaryPrimitives.ReadUInt64LittleEndian(header.AsSpan(24, 8));
+        var length = (long)BinaryPrimitives.ReadUInt64LittleEndian(header.AsSpan(32, 8));
+        if (length == 0) return null;
+        var bytes = Decompress(await ReadRangeAsync(archive, offset, length, ct), header[97]);
+        return System.Text.Json.JsonDocument.Parse(bytes);
+    }
+
     public async Task<byte[]?> ReadTileAsync(Stream archive, int z, int x, int y, CancellationToken ct)
     {
         var header = await ReadRangeAsync(archive, 0, HeaderLength, ct);
