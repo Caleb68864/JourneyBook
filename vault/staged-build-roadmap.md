@@ -565,6 +565,14 @@ Goal: implement the [Map Tiers (Learning Curve)](#map-tiers-learning-curve-featu
 
 > **Level 4 audited 2026-11-16: not started.** No declination, G-M angle, azimuth or
 > worksheet code exists (`git grep -i declination` finds only comments).
+>
+> **2026-11-22: declination built (unblocked by the owner).** `atlas-core/src/declination.ts`
+> implements the World Magnetic Model 2025 from NOAA/NCEI's official coefficient file
+> (`data/wmm/WMM2025.COF`, public domain; source URL, archive SHA-256 and dates in
+> `data/wmm/SOURCE.md`). It reproduces all 100 of NOAA's published test values
+> (`data/wmm/WMM2025_TestValues.txt`, from the same archive): D and I to 0.01°, X/Y/Z/H/F to
+> 0.1 nT, dD/dt to 0.0001°/yr. It refuses dates outside 2025.0–2030.0 and the poles. Changing
+> one coefficient by 1 nT fails the test. Next: the page furniture that prints it.
 > `AtlasDocument.tsx` gates its extra furniture on `page.tier >= 3`, so tier 4 prints
 > as tier 3. `atlas-core/src/model.ts` says so on `MapTier`. `TierPicker.tsx` offers
 > only tiers 1–3, and the engine still accepts `--tier 4` (`render.ts` validates
