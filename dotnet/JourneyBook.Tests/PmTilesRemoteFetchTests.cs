@@ -68,6 +68,42 @@ public class PmTilesRemoteFetchTests
         }
     }
 
+    /// <summary>
+    /// A large archive on a host that ignores Range is refused from the headers alone: fetching it
+    /// whole on every read would move gigabytes per tile (and past 2 GB the buffer throws).
+    /// </summary>
+    [Fact]
+    public async Task A_large_archive_on_a_host_that_ignores_range_is_refused_before_its_body_is_read()
+    {
+        var bodyRead = false;
+        var fetcher = FetcherFor(_ =>
+        {
+            var content = new ByteArrayContent(Archive);
+            content.Headers.ContentLength = HttpRangeStream.MaxWholeFileBytes + 1;
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ReadWatchingContent(content, () => bodyRead = true) };
+        });
+        var t = RasterPackageFixtureTests.LoadManifest().Tiles[0];
+
+        Assert.Null(await fetcher.FetchAsync(Row(), t.Z, t.X, t.Y, CancellationToken.None));
+        Assert.False(bodyRead, "the whole oversized body was buffered before being refused");
+    }
+
+    /// <summary>Content that records whether anything read its body.</summary>
+    private sealed class ReadWatchingContent(HttpContent inner, Action onRead) : HttpContent
+    {
+        protected override async Task SerializeToStreamAsync(Stream stream, System.Net.TransportContext? context)
+        {
+            onRead();
+            await inner.CopyToAsync(stream);
+        }
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = inner.Headers.ContentLength ?? 0;
+            return inner.Headers.ContentLength is not null;
+        }
+    }
+
     [Fact]
     public async Task A_throttled_range_request_is_passed_on_with_its_retry_after()
     {

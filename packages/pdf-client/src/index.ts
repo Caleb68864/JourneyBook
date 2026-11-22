@@ -65,6 +65,8 @@ export interface RenderPdfOptions {
   cropMarks?: boolean;
   /** Grid-locator inset (whole atlas, this page filled) over each map's lower-right corner. Default false. */
   locatorInset?: boolean;
+  /** map pageId -> three norths for tier-4 pages, drawn as the declination diagram. */
+  norths?: Record<string, PageNorths>;
 }
 
 function documentElement(options: RenderPdfOptions) {
@@ -86,6 +88,7 @@ function documentElement(options: RenderPdfOptions) {
     atlasDate: options.atlasDate,
     cropMarks: options.cropMarks ?? false,
     locatorInset: options.locatorInset ?? false,
+    norths: options.norths,
   });
 }
 
@@ -113,12 +116,17 @@ export async function renderCalibrationPdfToFile(outputPath: string): Promise<st
   return outputPath;
 }
 
+import type { PageNorths } from "./AtlasDocument.js";
+
 export {
   AtlasDocument,
   printResolutionCaption,
   locatorInsetLayout,
   CROP_MARK,
   LOCATOR_INSET_MAX,
+  diagramAngles,
+  northsCaption,
+  type PageNorths,
   type RouteOverlay,
   type LocatorCell,
 } from "./AtlasDocument.js";

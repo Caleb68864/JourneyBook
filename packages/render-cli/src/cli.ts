@@ -85,6 +85,9 @@ Options:
   --crop-marks / --locator-inset
                               add corner crop marks round each map / a whole-atlas
                               locator in each map's lower-right corner (both off by default)
+  --declination-date YYYY-MM-DD
+                              the day tier-4 declination diagrams are for (default: today;
+                              WMM2025 covers 2025.0 to 2030.0)
   --basemap                   fetch a USGS (public-domain) topo panel per page (network)
   --panel-px <n>              target panel width in pixels; overrides the per-scale default
                               for EVERY page (defaults: ${DEFAULT_PANEL_WIDTH_PX}px for
@@ -341,6 +344,7 @@ export function inputFromArgs(args: readonly string[]): Omit<RenderAtlasInput, "
     notes: !flags.has("no-notes"),
     ...(flags.has("crop-marks") ? { cropMarks: true } : {}),
     ...(flags.has("locator-inset") ? { locatorInset: true } : {}),
+    ...(valueOf(flags, "declination-date") ? { declinationDate: valueOf(flags, "declination-date") } : {}),
   };
 }
 

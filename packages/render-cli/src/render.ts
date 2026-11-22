@@ -27,8 +27,9 @@ import {
   type ScalePreset,
   type UsngGridOverlay,
   mapBoxInches,
+  threeNorths,
 } from "@journeybook/atlas-core";
-import { renderAtlasPdfToFile, type RouteOverlay } from "@journeybook/pdf-client";
+import { renderAtlasPdfToFile, type PageNorths, type RouteOverlay } from "@journeybook/pdf-client";
 import {
   renderMapPanel,
   buildUsngGrid,
@@ -136,6 +137,12 @@ export interface RenderAtlasInput {
   cropMarks?: boolean;
   /** Grid-locator inset (the whole atlas, this page filled) over each map's lower-right corner. Default false. */
   locatorInset?: boolean;
+  /**
+   * The day tier-4 declination diagrams are computed for, `YYYY-MM-DD`. Default: the day the
+   * render runs. Magnetic north moves (a tenth of a degree a year in much of the US), so the
+   * printed figures name their year; this makes a render reproducible.
+   */
+  declinationDate?: string;
   /**
    * Default zoom ladder applied to every location that has no `zoomLevels` of
    * its own: one page per scale preset id, ids `L#a`, `L#b`, …. A location's own
@@ -374,6 +381,18 @@ function isValidLngLat(c: LngLat | undefined): c is LngLat {
 function validateInput(input: RenderAtlasInput): void {
   if (!Number.isInteger(input.tier) || input.tier < 1 || input.tier > 4) {
     throw new Error(`Invalid tier ${String(input.tier)}: must be an integer 1–4.`);
+  }
+  if (input.declinationDate !== undefined) {
+    // Shape AND a real day: "2026-13-01" matches the pattern, makes an invalid Date, and
+    // printed "NaN is outside it" on every tier-4 page.
+    const d = new Date(`${input.declinationDate}T00:00:00Z`);
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(input.declinationDate) ||
+      Number.isNaN(d.getTime()) ||
+      d.toISOString().slice(0, 10) !== input.declinationDate
+    ) {
+      throw new Error(`Invalid declinationDate "${input.declinationDate}": must be a real YYYY-MM-DD date.`);
+    }
   }
   if (input.overlap !== undefined) {
     if (!Number.isFinite(input.overlap) || input.overlap < 0 || input.overlap >= 1) {
@@ -1010,6 +1029,24 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
     }
   }
 
+  // Three norths for tier-4 pages (Stage 6B Level 4's declination diagram), at each page's
+  // centre on the declination date. A date the model does not cover is printed as such rather
+  // than extrapolated.
+  let norths: Record<string, PageNorths> | undefined;
+  const northsDate = input.declinationDate ? new Date(`${input.declinationDate}T00:00:00Z`) : new Date();
+  for (const page of contract.pages) {
+    if (page.tier < 4) continue;
+    const [w, s, e, n] = page.bbox;
+    norths ??= {};
+    try {
+      norths[page.id] = threeNorths({ lng: (w + e) / 2, lat: (s + n) / 2 }, northsDate);
+    } catch (err) {
+      norths[page.id] = {
+        unavailable: `Declination not shown: ${err instanceof Error ? err.message.replace(/, so no declination is given\.$/, "") : String(err)}`,
+      };
+    }
+  }
+
   // Build route overlays for corridor (R#) pages: clip the global polyline to
   // each page's bbox and normalize to (0..1) coordinates for RouteLayer.
   let routes: Record<string, RouteOverlay> | undefined;
@@ -1116,6 +1153,7 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
     notes: input.notes ?? true,
     cropMarks: input.cropMarks ?? false,
     locatorInset: input.locatorInset ?? false,
+    ...(norths ? { norths } : {}),
   });
 
   report("done");

@@ -16,6 +16,21 @@ public sealed record PmTilesHeader(byte TileType, int MinZoom, int MaxZoom, doub
 public sealed class PmTilesReader
 {
     private const int HeaderLength = 127;
+
+    /// <summary>Largest metadata block read (16 MiB); real package metadata is a few hundred bytes.</summary>
+    private const long MaxMetadataBytes = 16 * 1024 * 1024;
+
+    private static long? SafeLength(Stream s)
+    {
+        try
+        {
+            return s.Length;
+        }
+        catch (NotSupportedException)
+        {
+            return null; // a range stream does not know its length
+        }
+    }
     private static readonly byte[] Magic = "PMTiles"u8.ToArray();
 
     /// <summary>Header <c>tile_type</c> byte: 1=mvt, 2=png, 3=jpeg, 4=webp, 5=avif.</summary>
@@ -52,6 +67,12 @@ public sealed class PmTilesReader
         var offset = (long)BinaryPrimitives.ReadUInt64LittleEndian(header.AsSpan(24, 8));
         var length = (long)BinaryPrimitives.ReadUInt64LittleEndian(header.AsSpan(32, 8));
         if (length == 0) return null;
+        // A corrupt header can claim any length; allocating it threw OverflowException (a 500),
+        // not "unreadable package". Metadata is a small JSON object.
+        if (length < 0 || length > MaxMetadataBytes || offset < 0 || (archive.CanSeek && SafeLength(archive) is long size && offset + length > size))
+        {
+            throw new InvalidDataException($"PMTiles metadata length {length} at {offset} is not plausible.");
+        }
         var bytes = Decompress(await ReadRangeAsync(archive, offset, length, ct), header[97]);
         return System.Text.Json.JsonDocument.Parse(bytes);
     }

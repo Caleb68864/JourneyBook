@@ -292,6 +292,11 @@ public class WorkerWirePayloadParityTests
                 "and no CLI-reachable value the API has ever held — the engine's own default is the " +
                 "only value that has ever been used. A wire field for a number nobody can set would be " +
                 "the half-wired control this test exists to find.",
+            ["declinationDate"] =
+                "The day tier-4 declination is computed for. The engine defaults it to the day the " +
+                "render runs, which is what an API render means; the field exists so a CLI render " +
+                "(and a test) can be reproduced. Sending today's date from C# would say the same " +
+                "thing with the API's clock instead of the worker's.",
         };
 
     [Fact]

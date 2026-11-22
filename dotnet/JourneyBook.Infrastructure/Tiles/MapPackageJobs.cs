@@ -96,7 +96,11 @@ public sealed record MapPackageJobStatus(
     string? Error = null);
 
 /// <summary>How often the API asks the worker about a package in progress. Seam for tests.</summary>
-public sealed record MapPackageJobOptions(TimeSpan PollInterval, TimeSpan GiveUpAfter);
+/// <param name="FinishedRetention">How long a finished job stays readable (like the worker's own hour).</param>
+public sealed record MapPackageJobOptions(TimeSpan PollInterval, TimeSpan GiveUpAfter, TimeSpan FinishedRetention = default)
+{
+    public TimeSpan Retention => FinishedRetention > TimeSpan.Zero ? FinishedRetention : TimeSpan.FromHours(1);
+}
 
 /// <summary>
 /// Packages the API has started, and the work of finishing them: wait for the worker, then
@@ -110,8 +114,29 @@ public sealed class MapPackageJobs(
     ILogger<MapPackageJobs> logger)
 {
     private readonly ConcurrentDictionary<string, MapPackageJobStatus> _jobs = new();
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _finishedAt = new();
 
-    public MapPackageJobStatus? Get(string id) => _jobs.TryGetValue(id, out var s) ? s : null;
+    public MapPackageJobStatus? Get(string id)
+    {
+        Sweep();
+        return _jobs.TryGetValue(id, out var s) ? s : null;
+    }
+
+    /// <summary>Forget jobs finished longer ago than the retention; the dictionary used to grow for the life of the process.</summary>
+    private void Sweep()
+    {
+        var cutoff = DateTimeOffset.UtcNow - options.Retention;
+        foreach (var (id, at) in _finishedAt)
+        {
+            if (at <= cutoff && _finishedAt.TryRemove(id, out _)) _jobs.TryRemove(id, out _);
+        }
+    }
+
+    private void Finish(MapPackageJobStatus status)
+    {
+        _jobs[status.Id] = status;
+        _finishedAt[status.Id] = DateTimeOffset.UtcNow;
+    }
 
     /// <summary>Ask the worker for a package and track it to registration. Worker refusals throw.</summary>
     public async Task<MapPackageJobStatus> StartAsync(PackageWorkerRequest request, string? key, CancellationToken ct = default)
@@ -135,19 +160,35 @@ public sealed class MapPackageJobs(
             while (true)
             {
                 await Task.Delay(options.PollInterval);
-                PackageWorkerJob? job;
-                using (var scope = scopes.CreateScope())
+                if (DateTimeOffset.UtcNow > deadline)
                 {
+                    Finish(status with { State = "failed", Error = "Stopped waiting for the package; it may still finish, and then appears in the manifest unregistered." });
+                    return;
+                }
+
+                PackageWorkerJob? job;
+                try
+                {
+                    using var scope = scopes.CreateScope();
                     job = await scope.ServiceProvider.GetRequiredService<IPackageWorkerClient>().GetAsync(status.Id);
                 }
+                catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+                {
+                    // A blip (the worker busy, a slow answer, a dropped connection) during a run
+                    // that can take hours. It used to end the job as failed, so a package the
+                    // worker went on to write was never registered. Keep asking until the deadline.
+                    logger.LogWarning(ex, "Polling package job {JobId} failed; will ask again.", status.Id);
+                    continue;
+                }
+
                 if (job is null)
                 {
-                    _jobs[status.Id] = status with { State = "failed", Error = "The render worker no longer knows this package job (it may have restarted)." };
+                    Finish(status with { State = "failed", Error = "The render worker no longer knows this package job (it may have restarted)." });
                     return;
                 }
                 if (job.State == "failed")
                 {
-                    _jobs[status.Id] = status with { State = "failed", Error = job.Error ?? "The package failed." };
+                    Finish(status with { State = "failed", Error = job.Error ?? "The package failed." });
                     return;
                 }
                 if (job.State == "completed")
@@ -158,17 +199,12 @@ public sealed class MapPackageJobs(
                     try
                     {
                         var row = await scope.ServiceProvider.GetRequiredService<MapPackageManifest>().RegisterAsync(job.OutputName, status.Key);
-                        _jobs[status.Id] = made with { State = "registered", TileSourceKey = row.Key };
+                        Finish(made with { State = "registered", TileSourceKey = row.Key });
                     }
                     catch (MapPackageRegistrationException ex)
                     {
-                        _jobs[status.Id] = made with { State = "failed", Error = $"The package was written but could not be registered: {ex.Message}" };
+                        Finish(made with { State = "failed", Error = $"The package was written but could not be registered: {ex.Message}" });
                     }
-                    return;
-                }
-                if (DateTimeOffset.UtcNow > deadline)
-                {
-                    _jobs[status.Id] = status with { State = "failed", Error = "Stopped waiting for the package; it may still finish, and then appears in the manifest unregistered." };
                     return;
                 }
             }
@@ -177,7 +213,7 @@ public sealed class MapPackageJobs(
         {
             // Background work: nothing above us would observe this.
             logger.LogError(ex, "Following package job {JobId} failed", status.Id);
-            _jobs[status.Id] = status with { State = "failed", Error = ex.Message };
+            Finish(status with { State = "failed", Error = ex.Message });
         }
     }
 }

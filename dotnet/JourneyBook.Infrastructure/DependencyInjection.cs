@@ -131,8 +131,10 @@ public static class DependencyInjection
         });
         var packagePollMs = configuration.GetValue("MapPackages:PollIntervalMs", 2000);
         var packageGiveUpHours = configuration.GetValue("MapPackages:GiveUpAfterHours", 6d);
+        var packageRetentionMinutes = configuration.GetValue("MapPackages:FinishedRetentionMinutes", 60d);
         services.AddSingleton(new MapPackageJobOptions(
-            TimeSpan.FromMilliseconds(packagePollMs), TimeSpan.FromHours(packageGiveUpHours)));
+            TimeSpan.FromMilliseconds(packagePollMs), TimeSpan.FromHours(packageGiveUpHours),
+            TimeSpan.FromMinutes(packageRetentionMinutes)));
         services.AddSingleton<MapPackageJobs>();
 
         // Asynchronous rendering: the request enqueues, a hosted loop performs.

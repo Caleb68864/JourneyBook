@@ -1382,6 +1382,33 @@ found while closing the 2026-11-09 list, plus that list's two test-coverage gaps
   evenly across the panel. The test pins it below 0.6% so a change is noticed. Still not
   covered: latitudes other than ~41°N in the printed output, and A4/other paper.
 
+## Bug hunt — 2026-11-22
+
+Across the code the 2026-11-21/22 branches touched. Branch `work/2026-11-22-stage6b-level4`.
+
+- [x] ~~**The worker's package write could overwrite a package that appeared mid-job.**~~ ✅
+  `rename` became `link` + unlink, so "never over an existing file" holds atomically, not
+  just at request time. The test that creates the file mid-job fails on the old route.
+- [x] ~~**One failed poll failed a package job for good, so it was never registered.**~~ ✅
+  Transport errors while polling are retried until the deadline. Also from an independent
+  review: `POST /api/map-packages` answered 500 when the worker was down (now 502); a corrupt
+  header's metadata length was allocated (OverflowException, a 500; now "unreadable", 400);
+  finished API-side jobs were never evicted (now after `MapPackages:FinishedRetentionMinutes`,
+  60). Each has a test that fails on the old code.
+- [x] ~~**The worker's `/package` had no limit on concurrent jobs, and `./x` was not `x`.**~~ ✅
+  One package in flight by default (429 beyond it), names compared after resolving, and
+  `maxTiles` capped at 100,000 in the schema. The test fails on the old route (202, not 409).
+- [x] ~~**A render finishing after `GenerateButton` unmounted still opened the PDF tab.**~~ ✅
+  The earlier fix guarded only the failure path; the success path now returns when the wait
+  was aborted. The test (poll held, unmount, released as Completed) fails on the old code.
+- [x] ~~**`declinationDate: "2026-13-01"` printed "NaN is outside it" on tier-4 pages.**~~ ✅
+  The date must round-trip as a real day; the old code rendered it.
+- [x] ~~**A large remote archive on a host that ignores Range was downloaded whole on every read.**~~ ✅
+  Refused from the headers when over 16 MiB or of unknown size (small archives still work).
+  The old stream buffered the oversized body before anything could refuse it.
+
+Not fixed from the review: none; all eight findings were verified and fixed on this branch.
+
 ## Phase 1: Print Geometry
 Build the Docker-hosted React/Vite/shadcn/Tailwind web app skeleton, define the outdoor field-guide visual system, accept bounding boxes, create page grid, generate overview and detail pages, and validate Letter-size PDF output from the preferred client-side React PDF path.
 

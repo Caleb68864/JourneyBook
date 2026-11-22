@@ -24,7 +24,9 @@ import {
   type PageMargins,
   type PlacedLandmark,
   type ScalePreset,
+  type ThreeNorths,
   type UsngGridOverlay,
+  formatEastWest,
 } from "@journeybook/atlas-core";
 import { brand, PIN_SHAPES, resolvePinShape, resolvePinColor } from "@journeybook/ui";
 import type { PinStyle } from "@journeybook/atlas-core";
@@ -286,6 +288,72 @@ function CompassRose() {
         <Polygon points="13,24 10,13 13,15 16,13" fill={BARK} />
         <Circle cx={13} cy={13} r={1.4} fill={INK} />
       </Svg>
+    </View>
+  );
+}
+
+/** What a tier-4 page knows about its norths: the figures, or why there are none. */
+export type PageNorths = ThreeNorths | { unavailable: string };
+
+/**
+ * Display angles for the declination diagram, in degrees from the vertical (true north).
+ * Declination diagrams are conventionally drawn not to scale (the angles are often a degree or
+ * two), so only the ORDER is kept: each of grid and magnetic north sits on its true side of true
+ * north, and the one nearer true north is drawn nearer it. The exact figures are printed beside.
+ */
+export function diagramAngles(gridConvergence: number, declination: number): { grid: number; magnetic: number } {
+  const side = (v: number) => (v >= 0 ? 1 : -1);
+  if (side(gridConvergence) !== side(declination)) {
+    return { grid: side(gridConvergence) * 14, magnetic: side(declination) * 14 };
+  }
+  return Math.abs(gridConvergence) <= Math.abs(declination)
+    ? { grid: side(gridConvergence) * 10, magnetic: side(declination) * 24 }
+    : { grid: side(gridConvergence) * 24, magnetic: side(declination) * 10 };
+}
+
+/** The caption lines printed beside the declination diagram. */
+export function northsCaption(n: ThreeNorths): [string, string] {
+  const rate = n.declinationPerYear;
+  const drift = Math.abs(rate) < 0.05 ? "steady" : `MN moves ${formatEastWest(rate)}/yr`;
+  return [
+    `MN ${formatEastWest(n.declination)} · GN ${formatEastWest(n.gridConvergence)} (UTM ${n.utmZone}) of true N`,
+    `G-M ${formatEastWest(n.gmAngle)} · ${n.model} ${n.year.toFixed(1)} · ${drift}`,
+  ];
+}
+
+/**
+ * Tier 4's declination diagram (Stage 6B Level 4), in the compass rose's place: true north
+ * (star), grid north (GN) and magnetic north (MN, half arrow) from one point, not to scale, with
+ * the measured angles and the G-M angle beside it. Without figures (the model does not cover
+ * the date) it says so instead of drawing a diagram of nothing.
+ */
+function DeclinationDiagram({ norths }: { norths: PageNorths }) {
+  if ("unavailable" in norths) {
+    // One clamped line, no width cap: a cap cut "…2025.0 to 2030.0" off mid-sentence.
+    return <Text style={[styles.printResolution, CLAMP_ONE_LINE]}>{norths.unavailable}</Text>;
+  }
+  const { grid, magnetic } = diagramAngles(norths.gridConvergence, norths.declination);
+  const len = 22;
+  const cx = 14;
+  const cy = 26;
+  const tip = (deg: number) => [cx + len * Math.sin((deg * Math.PI) / 180), cy - len * Math.cos((deg * Math.PI) / 180)] as const;
+  const [gx, gy] = tip(grid);
+  const [mx, my] = tip(magnetic);
+  const [line1, line2] = northsCaption(norths);
+  return (
+    <View style={{ flexDirection: "row", alignItems: "flex-end" }}>
+      <Svg width={28} height={28}>
+        <Line x1={cx} y1={cy} x2={cx} y2={cy - len} stroke={INK} strokeWidth={0.75} />
+        <Polygon points={`${cx},${cy - len - 3} ${cx + 1},${cy - len} ${cx - 1},${cy - len}`} fill={INK} />
+        <Line x1={cx} y1={cy} x2={gx} y2={gy} stroke={BARK} strokeWidth={0.75} />
+        <Line x1={cx} y1={cy} x2={mx} y2={my} stroke={FOREST} strokeWidth={0.75} />
+        <Polygon points={`${mx},${my} ${cx + (mx - cx) * 0.8},${cy + (my - cy) * 0.8} ${cx + (mx - cx) * 0.8 + 2},${cy + (my - cy) * 0.8}`} fill={FOREST} />
+      </Svg>
+      <View style={{ marginLeft: 3 }}>
+        <Text style={[styles.printResolution, CLAMP_ONE_LINE]}>{line1}</Text>
+        <Text style={[styles.printResolution, CLAMP_ONE_LINE]}>{line2}</Text>
+        <Text style={[styles.printResolution, CLAMP_ONE_LINE]}>Declination diagram not to scale</Text>
+      </View>
     </View>
   );
 }
@@ -813,6 +881,7 @@ function AtlasPageView({
   printDpi,
   cropMarks,
   locatorInset,
+  norths,
 }: {
   page: AtlasPage;
   contract: AtlasContract;
@@ -835,8 +904,11 @@ function AtlasPageView({
   cropMarks?: boolean;
   /** Grid-locator inset over the map's lower-right corner. Default off. */
   locatorInset?: boolean;
+  /** Tier 4: this page's three norths (or why there are none) for the declination diagram. */
+  norths?: PageNorths;
 }) {
   const showTier2 = page.tier >= 2;
+  const showTier4 = page.tier >= 4 && norths !== undefined;
   const showTier3 = page.tier >= 3;
   // The map box, not the printable area: a scale bar is measured against the
   // paper the map actually covers.
@@ -959,7 +1031,7 @@ function AtlasPageView({
               {printResolutionCaption(printDpi, panel !== undefined)}
             </Text>
           </View>
-          {showTier2 ? <CompassRose /> : null}
+          {showTier4 ? <DeclinationDiagram norths={norths!} /> : showTier2 ? <CompassRose /> : null}
           {showTier3 && grid ? <UsngCollar collar={grid.collar} /> : null}
           {pageNumber !== undefined ? (
             <Text style={styles.pageNumber}>{pageNumber}</Text>
@@ -1232,6 +1304,7 @@ export function AtlasDocument({
   atlasDate,
   cropMarks = false,
   locatorInset = false,
+  norths,
 }: {
   contract: AtlasContract;
   title: string;
@@ -1276,6 +1349,8 @@ export function AtlasDocument({
   cropMarks?: boolean;
   /** Grid-locator inset on each map page (multi-page atlases). Default false. */
   locatorInset?: boolean;
+  /** map pageId -> three norths for tier-4 pages (the declination diagram). */
+  norths?: Record<string, PageNorths>;
 }) {
   // Front matter (title page, overview, then TOC) precedes the content pages and shifts their
   // physical page numbers. Both are computed from the same offset so the TOC, the
@@ -1329,6 +1404,7 @@ export function AtlasDocument({
           printDpi={printDpi?.[page.id]}
           cropMarks={cropMarks}
           locatorInset={locatorInset}
+          norths={norths?.[page.id]}
         />
       ))}
     </Document>

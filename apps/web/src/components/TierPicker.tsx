@@ -4,16 +4,16 @@ import type { MapTier } from "@journeybook/atlas-core";
 /**
  * The tiers a reader can actually pick, and what each one draws.
  *
- * Level 4 (full MGRS & azimuth/declination) is defined in `MapTier` and planned
- * on the roadmap, but no renderer implements it — `AtlasDocument` gates all its
- * extra furniture on `tier >= 3`, so a Tier 4 page prints identically to Tier 3.
- * Offering it here sold a feature the PDF does not deliver. It comes back when
- * the renderer draws it, not before.
+ * Level 4 came back on 2026-11-22, when the renderer started drawing something for it: the
+ * declination diagram (true, grid and magnetic north from WMM2025, and the G-M angle) in place
+ * of the compass rose. Its description says exactly that and no more. Full MGRS labelling,
+ * azimuth worksheets and the three-norths lesson are still not drawn, so they are not offered.
  */
 export const TIER_OPTIONS: { value: MapTier; label: string; description: string }[] = [
   { value: 1, label: "Tier 1 — Road Atlas", description: "Grid only, easy to read" },
   { value: 2, label: "Tier 2 — Scout", description: "Grid + scale bar & compass" },
   { value: 3, label: "Tier 3 — Navigator", description: "Tier 2 + UTM/USNG grid" },
+  { value: 4, label: "Tier 4 — Expert", description: "Tier 3 + declination diagram & grid-magnetic angle" },
 ];
 
 interface TierPickerProps {
