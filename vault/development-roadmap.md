@@ -1382,6 +1382,14 @@ found while closing the 2026-11-09 list, plus that list's two test-coverage gaps
   evenly across the panel. The test pins it below 0.6% so a change is noticed. Still not
   covered: latitudes other than ~41°N in the printed output, and A4/other paper.
 
+## Bug hunt — 2026-11-22
+
+Across the code the 2026-11-21/22 branches touched. Branch `work/2026-11-22-stage6b-level4`.
+
+- [x] ~~**The worker's package write could overwrite a package that appeared mid-job.**~~ ✅
+  `rename` became `link` + unlink, so "never over an existing file" holds atomically, not
+  just at request time. The test that creates the file mid-job fails on the old route.
+
 ## Phase 1: Print Geometry
 Build the Docker-hosted React/Vite/shadcn/Tailwind web app skeleton, define the outdoor field-guide visual system, accept bounding boxes, create page grid, generate overview and detail pages, and validate Letter-size PDF output from the preferred client-side React PDF path.
 

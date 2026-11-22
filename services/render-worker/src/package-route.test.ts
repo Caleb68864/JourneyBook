@@ -12,6 +12,7 @@ const TILE_PNG = Buffer.from(
 );
 
 let app: FastifyInstance;
+let previousFetch: typeof fetch;
 let dir: string;
 const tileCalls: string[] = [];
 
@@ -26,6 +27,7 @@ beforeAll(async () => {
       return new Response(new Uint8Array(TILE_PNG), { status: 200, headers: { "content-type": "image/png" } });
     }),
   );
+  previousFetch = globalThis.fetch;
   dir = mkdtempSync(join(tmpdir(), "jb-packages-"));
   app = Fastify();
   await app.register(packageRoute, { packagesDir: dir });
@@ -87,6 +89,38 @@ describe("render-worker POST /package", () => {
     expect(done.state).toBe("failed");
     expect(done.error).toMatch(/over the limit of 1/);
     expect(existsSync(join(dir, "big.pmtiles"))).toBe(false);
+  });
+
+  it("[BEHAVIORAL] never overwrites a package that appears while one is being made", async () => {
+    // Hold every tile fetch until the target exists, so the file lands between the route's
+    // existence check and the write.
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const real = globalThis.fetch;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (!/^https?:/i.test(url)) return real(input, init);
+        await gate;
+        return new Response(new Uint8Array(TILE_PNG), { status: 200, headers: { "content-type": "image/png" } });
+      }),
+    );
+    try {
+      const res = await app.inject({ method: "POST", url: "/package", payload: { ...BODY, outputName: "racing.pmtiles" } });
+      expect(res.statusCode).toBe(202);
+      writeFileSync(join(dir, "racing.pmtiles"), "copied in by hand");
+      release();
+      const done = await settle((res.json() as PackageJobRecord).id);
+
+      expect(done.state).toBe("failed");
+      expect(done.error).toMatch(/appeared while this one was being made/);
+      expect(readFileSync(join(dir, "racing.pmtiles"), "utf8")).toBe("copied in by hand");
+      expect(readdirSync(dir).filter((n) => n.includes(".tmp-"))).toEqual([]);
+    } finally {
+      release();
+      vi.stubGlobal("fetch", previousFetch);
+    }
   });
 
   it("answers 503 when this worker has no packages folder", async () => {

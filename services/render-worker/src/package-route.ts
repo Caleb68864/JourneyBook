@@ -112,7 +112,19 @@ export async function packageRoute(app: FastifyInstance, opts: PackageRouteOptio
         });
         await fs.promises.mkdir(path.dirname(full), { recursive: true });
         await fs.promises.writeFile(temp, result.archive, { flag: "wx" });
-        await fs.promises.rename(temp, full);
+        // link, not rename: rename replaces whatever is at `full`, so a package copied in (or
+        // made by another route) while this one was fetching would have been overwritten. The
+        // existence check above is only advice; link fails with EEXIST, atomically.
+        try {
+          await fs.promises.link(temp, full);
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code === "EEXIST") {
+            throw new Error(`A package named ${body.outputName} appeared while this one was being made; it was left as it was.`);
+          }
+          throw err;
+        } finally {
+          await fs.promises.rm(temp, { force: true });
+        }
         job.record = { ...record, state: "completed", tiles: result.plan.tiles, bytes: result.archive.length, tileType: result.tileType };
         app.log.info({ jobId: id, outputName: body.outputName, tiles: result.plan.tiles }, "package written");
       } catch (err) {
