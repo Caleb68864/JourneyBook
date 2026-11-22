@@ -604,6 +604,8 @@ Goal: implement the [Map Tiers (Learning Curve)](#map-tiers-learning-curve-featu
 > page: grid azimuth from the start's UTM grid north and its back azimuth, magnetic = grid −
 > G-M at the start on the declination date ("not available" outside WMM2025), and ground
 > distance. Leg maths held to legs built in UTM metres (`atlas-core/src/worksheet.test.ts`).
+> *(2026-11-22: each row also names the pages the leg crosses, in walking order ("pages L1,
+> A2, L2"), on the worksheet and the key, so a reader knows which sheets to lay side by side.)*
 > **2026-11-22: the three-norths teaching text is written (owner decision: use FM 3-25.26,
 > 20 July 2001).** That edition's own cover reads "DISTRIBUTION RESTRICTION: Approved for public
 > release; distribution is unlimited", confirmed on the archive.org copy

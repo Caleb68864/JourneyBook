@@ -12,7 +12,7 @@ const contract = {
   pages: [buildLocationPage({ lng: -96.7, lat: 40.8 }, usgs, LETTER_PORTRAIT, "L1", 4)],
 };
 const LEGS: WorksheetLeg[] = [
-  { from: "L1 Capitol", to: "L2 Haymarket", gridAzimuth: 36.87, backAzimuth: 216.87, magneticAzimuth: 35.9, gmAngle: 0.97, distanceMeters: 5000, utmZone: 14 },
+  { from: "L1 Capitol", to: "L2 Haymarket", gridAzimuth: 36.87, backAzimuth: 216.87, magneticAzimuth: 35.9, gmAngle: 0.97, distanceMeters: 5000, utmZone: 14, pages: ["L1", "A2", "L2"] },
   { from: "L2 Haymarket", to: "L3 Pioneers", gridAzimuth: 270.4, backAzimuth: 90.4, magneticAzimuth: null, gmAngle: null, distanceMeters: 850, utmZone: 14 },
 ];
 
@@ -69,5 +69,12 @@ describe("azimuth worksheet pages", () => {
     expect(JSON.stringify(THREE_NORTHS_LESSON)).not.toMatch(/TC 3-25\.26/);
     // The answer key does not repeat the lesson.
     expect(pages[2]!.texts.join(" ")).not.toContain("Three norths");
+  });
+
+  it("[BEHAVIORAL] each row says which pages the leg crosses, on the worksheet and the key", async () => {
+    const pages = measurePdfPages(await renderAtlasPdfToBuffer({ contract, tableOfContents: false, worksheet: { legs: LEGS } }));
+    for (const p of [pages[1]!, pages[2]!]) expect(p.texts).toContain("pages L1, A2, L2");
+    // A leg with no page list (pages not computed) prints none.
+    expect(pages[1]!.texts.filter((t) => t.startsWith("pages "))).toHaveLength(1);
   });
 });

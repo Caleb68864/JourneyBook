@@ -1064,7 +1064,7 @@ export async function renderAtlas(input: RenderAtlasInput): Promise<RenderAtlasR
         label: loc.label ? `L${i + 1} ${loc.label}` : `L${i + 1}`,
         center: loc.center,
       }));
-      worksheet = { legs: worksheetLegs(stops, northsDate), model: "WMM2025" };
+      worksheet = { legs: worksheetLegs(stops, northsDate, contract.pages), model: "WMM2025" };
     }
   }
 

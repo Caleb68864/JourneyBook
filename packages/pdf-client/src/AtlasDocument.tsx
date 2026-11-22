@@ -1346,7 +1346,9 @@ const worksheetStyles = StyleSheet.create({
   row: { flexDirection: "row", borderBottomWidth: 0.5, borderBottomColor: BARK, paddingVertical: 6, alignItems: "flex-end" },
   head: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: INK, paddingBottom: 3, marginTop: 10 },
   leg: { width: 26, fontSize: 8, fontFamily: "Helvetica-Bold", color: FOREST },
-  stops: { width: 150, fontSize: 8, color: INK },
+  stopsBox: { width: 150 },
+  stops: { fontSize: 8, color: INK },
+  legPages: { fontSize: 6.5, color: BARK, marginTop: 1 },
   cell: { width: 82, fontSize: 8, color: INK },
   headCell: { fontSize: 7, fontFamily: "Helvetica-Bold", color: BARK },
   blank: { width: 70, borderBottomWidth: 0.5, borderBottomColor: INK, height: 10, marginRight: 12 },
@@ -1377,6 +1379,10 @@ function WorksheetPages({ title, legs, model }: { title: string; legs: Worksheet
     </View>
   );
   const stopsOf = (l: WorksheetLeg) => `${l.from} to ${l.to}`;
+  // Which sheets to lay side by side for the leg: a leg between stops on different pages has to
+  // be measured across them.
+  const pagesOf = (l: WorksheetLeg) =>
+    l.pages && l.pages.length > 0 ? `pages ${l.pages.join(", ")}` : l.pages ? "on no page of this atlas" : "";
   return (
     <>
       <Page size="LETTER" orientation="portrait" style={[styles.page, { padding: 0.75 * PT }]}>
@@ -1396,7 +1402,10 @@ function WorksheetPages({ title, legs, model }: { title: string; legs: Worksheet
           {legs.map((l, i) => (
             <View key={i} style={worksheetStyles.row} wrap={false}>
               <Text style={worksheetStyles.leg}>{i + 1}</Text>
-              <Text style={worksheetStyles.stops}>{stopsOf(l)}</Text>
+              <View style={worksheetStyles.stopsBox}>
+                <Text style={worksheetStyles.stops}>{stopsOf(l)}</Text>
+                {pagesOf(l) ? <Text style={worksheetStyles.legPages}>{pagesOf(l)}</Text> : null}
+              </View>
               <View style={worksheetStyles.blank} />
               <View style={worksheetStyles.blank} />
               <View style={worksheetStyles.blank} />
@@ -1412,7 +1421,10 @@ function WorksheetPages({ title, legs, model }: { title: string; legs: Worksheet
           {legs.map((l, i) => (
             <View key={i} style={worksheetStyles.row} wrap={false}>
               <Text style={worksheetStyles.leg}>{i + 1}</Text>
-              <Text style={worksheetStyles.stops}>{stopsOf(l)}</Text>
+              <View style={worksheetStyles.stopsBox}>
+                <Text style={worksheetStyles.stops}>{stopsOf(l)}</Text>
+                {pagesOf(l) ? <Text style={worksheetStyles.legPages}>{pagesOf(l)}</Text> : null}
+              </View>
               <Text style={worksheetStyles.cell}>{`${formatAzimuth(l.gridAzimuth)} (back ${formatAzimuth(l.backAzimuth)})`}</Text>
               <Text style={worksheetStyles.cell}>{l.magneticAzimuth === null ? "not available" : formatAzimuth(l.magneticAzimuth)}</Text>
               <Text style={worksheetStyles.cell}>{formatDistance(l.distanceMeters)}</Text>

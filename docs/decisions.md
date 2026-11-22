@@ -1601,3 +1601,11 @@ Each entry follows this shape:
 - Surfaces: packages/atlas-core/src/model.ts, packages/map-sources/src/usng-grid.ts, packages/map-sources/src/mgrs-labels.test.ts, packages/pdf-client/src/AtlasDocument.tsx, packages/render-cli/src/furniture.test.ts
 - Watch: only two adjacent zones (a page wider than 6° is not a 1:24,000 page). The declination diagram and worksheet still use the centre's (or start's) zone for grid north. The Norway/Svalbard zone exceptions are not handled, as before.
 - Commit: (pending)
+
+## 2026-11-22 — Worksheet legs name the pages they cross
+- Symptom: the worksheet gave a leg's two stops but not which sheets it runs over, so a leg between stops on different pages could not be found without searching the atlas.
+- Fix: `worksheetLegs(stops, date, pages?)` adds `pages`: the map pages under the leg's straight line on the start's UTM grid (what a ruler draws), sampled about every 25 m (2 to 4,000 samples), in the order the line enters each bbox, via the exported `pagesAlong`. The engine passes the contract's pages. Each row on both the worksheet and the key prints "pages L1, A2, L2" under the stops, or "on no page of this atlas" for an empty list.
+- Evidence: `worksheet.test.ts`: a leg due east over pages laid out out of order (C1, A1, B1, with A2 off the line) lists A1, B1, C1; no pages given → no list; a leg off every page → []. `worksheet-pages.test.ts`: the list is on both pages, and absent for a leg without one; it fails with the line removed. `furniture.test.ts`: a three-stop atlas lists "pages L1, L2" for the first leg and ends the second on L3. Haymarket is about 1 km from the Capitol, so it is on page L1 too, and the assertion allows that; the first draft wrongly forbade it. With the engine not passing pages, it fails. TS 771.
+- Surfaces: packages/atlas-core/src/worksheet.ts, packages/atlas-core/src/worksheet.test.ts, packages/pdf-client/src/AtlasDocument.tsx, packages/pdf-client/src/worksheet-pages.test.ts, packages/render-cli/src/render.ts, packages/render-cli/src/furniture.test.ts
+- Watch: zoom-ladder pages (L1a, L1b) are listed like any map page when the line crosses them; the list does not prefer the atlas-scale page. The overview is front matter, not a contract page, so it is never listed.
+- Commit: (pending)

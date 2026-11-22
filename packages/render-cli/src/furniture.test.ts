@@ -191,6 +191,10 @@ describe("Stage 6B Level 4 azimuth worksheet through renderAtlas", () => {
     expect(key).toContain("L1 Capitol to L2 Haymarket");
     expect(key).toContain("L2 Haymarket to L3 Pioneers");
     expect(key.some((t) => t.startsWith("L3 Pioneers to"))).toBe(false);
+    // Each leg names the pages it crosses, ending on the page of its finish. Haymarket is about a
+    // kilometre from the Capitol, so it is on page L1 too, and the second leg starts on both.
+    const lists = key.filter((t) => t.startsWith("pages "));
+    expect(lists).toEqual(["pages L1, L2", expect.stringMatching(/^pages (L1, )?L2, L3$/)]);
   });
 
   it("[CONTROL] off by default, and skipped with fewer than two locations", async () => {

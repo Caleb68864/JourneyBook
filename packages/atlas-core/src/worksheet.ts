@@ -1,4 +1,4 @@
-import type { LngLat } from "./model.js";
+import type { BBox, LngLat } from "./model.js";
 import { createUtmProjector, geodesicDistanceMeters, utmZoneForLongitude } from "./projection.js";
 import { threeNorths } from "./north.js";
 
@@ -28,6 +28,8 @@ export interface WorksheetLeg {
   /** Ground distance, metres (geodesic on WGS 84). */
   distanceMeters: number;
   utmZone: number;
+  /** The map pages the leg crosses, in the order a walker meets them. Set when pages are given. */
+  pages?: string[];
 }
 
 const norm = (deg: number) => ((deg % 360) + 360) % 360;
@@ -37,7 +39,11 @@ const norm = (deg: number) => ((deg % 360) + 360) % 360;
  * azimuths in the start's UTM zone, the way a navigator plots them with a protractor on a
  * gridded map, then converted to magnetic with the start's G-M angle on `date`.
  */
-export function worksheetLegs(stops: readonly WorksheetStop[], date: Date): WorksheetLeg[] {
+export function worksheetLegs(
+  stops: readonly WorksheetStop[],
+  date: Date,
+  pages?: readonly { id: string; bbox: BBox }[],
+): WorksheetLeg[] {
   const legs: WorksheetLeg[] = [];
   for (let i = 0; i + 1 < stops.length; i++) {
     const a = stops[i]!;
@@ -62,7 +68,33 @@ export function worksheetLegs(stops: readonly WorksheetStop[], date: Date): Work
       gmAngle: gm,
       distanceMeters: geodesicDistanceMeters(a.center, b.center),
       utmZone: zone,
+      ...(pages ? { pages: pagesAlong(utm, [ea, na], [eb, nb], pages) } : {}),
     });
   }
   return legs;
+}
+
+/**
+ * The pages a straight leg passes through, in order from its start. The leg is the straight line
+ * on the start's UTM grid (what a navigator draws with a ruler), sampled about every 25 m, and a
+ * page counts once the line enters its bbox.
+ */
+export function pagesAlong(
+  utm: ReturnType<typeof createUtmProjector>,
+  from: readonly [number, number],
+  to: readonly [number, number],
+  pages: readonly { id: string; bbox: BBox }[],
+): string[] {
+  const length = Math.hypot(to[0] - from[0], to[1] - from[1]);
+  const steps = Math.max(2, Math.min(4000, Math.ceil(length / 25)));
+  const seen: string[] = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const p = utm.inverse([from[0] + t * (to[0] - from[0]), from[1] + t * (to[1] - from[1])]);
+    for (const page of pages) {
+      const [w, s, e, n] = page.bbox;
+      if (p.lng >= w && p.lng <= e && p.lat >= s && p.lat <= n && !seen.includes(page.id)) seen.push(page.id);
+    }
+  }
+  return seen;
 }
