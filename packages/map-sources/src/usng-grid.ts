@@ -7,9 +7,10 @@ import { lngLatToPanelFraction } from "./tilemath.js";
 import mgrs from "mgrs";
 const mgrsForward = mgrs.forward;
 
-// UTM is only defined for latitudes in [-80, 84]; createUtmProjector is
-// northern-hemisphere only (CONUS), so the southern band is out of scope too.
-const UTM_LAT_MIN = 0;
+// UTM (and so MGRS's UTM part) is defined for latitudes 80°S to 84°N; beyond them MGRS uses
+// the polar UPS grid, which this does not draw. South of the equator the projector takes the
+// southern false northing (`createUtmProjector(zone, true)`).
+const UTM_LAT_MIN = -80;
 const UTM_LAT_MAX = 84;
 
 const MAX_GRID_LINES = 60;
@@ -120,7 +121,9 @@ export function buildUsngGrid(
   // renders, grid absent) and log the page bbox so a missing grid is diagnosable.
   try {
     const zone = utmZoneForLongitude(centreLng);
-    const proj = createUtmProjector(zone);
+    // The page centre's hemisphere decides the northing numbers; a page astride the equator
+    // gets its centre's (two-digit labels agree either way: the offset is 10,000 km).
+    const proj = createUtmProjector(zone, centreLat < 0);
 
     // Project all four corners to find the full UTM extent of the bbox.
     const corners = [

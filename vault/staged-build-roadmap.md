@@ -587,7 +587,10 @@ Goal: implement the [Map Tiers (Learning Curve)](#map-tiers-learning-curve-featu
 > named inside its own part of the map ("14T PL", "14T QL"), and the collar lists them all ·
 > MGRS. The `mgrs` library it uses is held to an independent implementation of the standard
 > square lettering and to the repo's proj4 UTM (to 1 m) at 16 points worldwide
-> (`map-sources/src/mgrs-labels.test.ts`). Northern hemisphere only, as the Level 3 grid is.
+> (`map-sources/src/mgrs-labels.test.ts`). *(2026-11-22: southern hemisphere too, 80°S to
+> 84°N: the grid uses the southern false northing south of the equator, so a Sydney page gets
+> its lines, "56H" squares and full northings like 6245000mN, and the library is held to the
+> standard there as well. Beyond UTM's limits MGRS uses the polar UPS grid, still not drawn.)*
 > **2026-11-22: azimuth worksheets built (opt-in). Decided by agent (owner may revisit):** off
 > by default, since they add two pages. With `worksheet` (`--worksheet`, "Azimuth Worksheet"
 > in the editor) and two or more locations, the atlas ends with a worksheet (short

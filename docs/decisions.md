@@ -1585,3 +1585,11 @@ Each entry follows this shape:
 - Surfaces: packages/pdf-client/src/AtlasDocument.tsx, packages/pdf-client/src/index.ts, packages/pdf-client/src/worksheet-pages.test.ts
 - Watch: the 2001 manual is superseded; its doctrine on these basics matches what the renderer draws, but a reader told "the Army's current manual" would be told wrong. The citations name the edition.
 - Commit: (pending)
+
+## 2026-11-22 — The USNG/MGRS grid works in the southern hemisphere
+- Symptom: `buildUsngGrid` returned an empty overlay for any page centred south of the equator (`UTM_LAT_MIN = 0`), because `createUtmProjector` had no `+south` option. Its northings there would have been negative rather than the 10,000,000 m false-northing values southern maps print.
+- Fix: `createUtmProjector(zone, south = false)` adds `+south`. `buildUsngGrid` allows 80°S to 84°N (UTM's own range; MGRS uses UPS beyond, not drawn) and uses the southern projector when the page centre is south of the equator. A page astride the equator gets its centre's numbering; two-digit labels are unaffected, since the offset is 10,000 km. Grid convergence and worksheet azimuths keep the northern projector: false northing does not change direction.
+- Evidence: `mgrs-labels.test.ts` "southern hemisphere": the `mgrs` library's square letters and northing digits match the standard lettering computed with the southern false northing at eight southern points (Sydney to 60°S); a Sydney page gets grid lines, the "56H" zone, its square in the collar and a full northing above 6,000,000 m; a page beyond 80°S stays empty. On the old projector and builder both behavioural cases fail. map-sources 114.
+- Surfaces: packages/atlas-core/src/projection.ts, packages/map-sources/src/usng-grid.ts, packages/map-sources/src/mgrs-labels.test.ts
+- Watch: tile panels and the rest of the engine were already hemisphere-neutral; only the grid was gated. Not checked against a printed southern map.
+- Commit: (pending)

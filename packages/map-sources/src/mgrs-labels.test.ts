@@ -95,3 +95,39 @@ describe("buildUsngGrid with full MGRS labels", () => {
     expect(grid.labels.every((l) => /^\d{2}$/.test(l.text))).toBe(true);
   });
 });
+
+describe("southern hemisphere", () => {
+  const SOUTH: [number, number][] = [[151.2, -33.9], [-58.38, -34.6], [18.42, -33.92], [-70.65, -33.45], [174.76, -36.85], [-47.93, -15.78], [115.86, -31.95], [-0.5, -60]];
+
+  it("[BEHAVIORAL] the library's square letters and digits match the standard with the southern false northing", () => {
+    for (const [lng, lat] of SOUTH) {
+      const zone = utmZoneForLongitude(lng);
+      const [e, n] = createUtmProjector(zone, true).forward({ lng, lat });
+      expect(n).toBeGreaterThan(1_000_000); // the false northing is in
+      const lib = mgrs.forward([lng, lat], 5);
+      expect(lib.slice(-12, -10), `${lng},${lat} (${lib})`).toBe(standardSquare(zone, e, n));
+      expect(Math.abs(Number(lib.slice(-5)) - Math.floor(n % 100_000))).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("[BEHAVIORAL] a southern page gets a grid, its squares and full southern northings", () => {
+    const utmS = createUtmProjector(56, true); // Sydney
+    const [e0, n0] = utmS.forward({ lng: 151.2, lat: -33.9 });
+    const sw = utmS.inverse([e0 - 1500, n0 - 1500]);
+    const ne = utmS.inverse([e0 + 1500, n0 + 1500]);
+    const bbox: BBox = [sw.lng, sw.lat, ne.lng, ne.lat];
+    const grid = buildUsngGrid(bbox, 1000, 1000, { mgrs: true });
+
+    expect(grid.lines.length).toBeGreaterThan(4);
+    expect(grid.collar.zoneDesignator).toBe("56H");
+    const id = mgrs.forward([151.2, -33.9], 1);
+    expect(grid.collar.squares).toContain(`${id.slice(0, 3)} ${id.slice(3, 5)}`);
+    const firstN = Math.ceil((n0 - 1500) / 1000) * 1000;
+    expect(grid.labels.map((l) => l.text)).toContain(`${firstN}mN`);
+    expect(firstN).toBeGreaterThan(6_000_000); // a southern northing, not a negative one
+  });
+
+  it("[CONTROL] still empty beyond UTM's limits (MGRS uses UPS there)", () => {
+    expect(buildUsngGrid([-10, -85, 10, -82], 800, 1000).lines).toHaveLength(0);
+  });
+});
