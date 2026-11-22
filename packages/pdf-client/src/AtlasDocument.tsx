@@ -28,6 +28,7 @@ import {
   type UsngGridOverlay,
   type WorksheetLeg,
   formatEastWest,
+  gridName,
 } from "@journeybook/atlas-core";
 import { brand, PIN_SHAPES, resolvePinShape, resolvePinColor } from "@journeybook/ui";
 import type { PinStyle } from "@journeybook/atlas-core";
@@ -332,7 +333,7 @@ export function northsCaption(n: ThreeNorths): [string, string] {
     ];
   }
   return [
-    `MN ${formatEastWest(n.declination)} · GN ${formatEastWest(n.gridConvergence)} (UTM ${n.utmZone}) of true N`,
+    `MN ${formatEastWest(n.declination)} · GN ${formatEastWest(n.gridConvergence)} (${gridName(n.utmZone)}) of true N`,
     `G-M ${formatEastWest(n.gmAngle)} · ${n.model} ${n.year.toFixed(1)} · ${drift}`,
   ];
 }
@@ -843,9 +844,11 @@ function UsngCollar({ collar }: { collar: UsngGridOverlay["collar"] }) {
   return (
     <View style={{ alignItems: "center" }}>
       <Text style={[styles.small, { fontFamily: "Helvetica-Bold" }, CLAMP_ONE_LINE]}>
-        {collar.squares && collar.squares.length > 0
-          ? `${collar.squares.join(" / ")} · MGRS`
-          : `${collar.zoneDesignator} ${collar.hundredKmSquare} · USNG`}
+        {collar.system === "UPS"
+          ? `${collar.zoneDesignator} · UPS (polar grid)`
+          : collar.squares && collar.squares.length > 0
+            ? `${collar.squares.join(" / ")} · MGRS`
+            : `${collar.zoneDesignator} ${collar.hundredKmSquare} · USNG`}
       </Text>
     </View>
   );
@@ -1401,7 +1404,7 @@ function WorksheetPages({ title, legs, model }: { title: string; legs: Worksheet
   const multiZone = new Set(legs.map((l) => l.utmZone)).size > 1;
   const pagesOf = (l: WorksheetLeg) => {
     const where = l.pages && l.pages.length > 0 ? `pages ${l.pages.join(", ")}` : l.pages ? "on no page of this atlas" : "";
-    const grid = multiZone ? `UTM ${l.utmZone} grid` : "";
+    const grid = multiZone ? `${gridName(l.utmZone)} grid` : "";
     return [where, grid].filter(Boolean).join(" · ");
   };
   return (

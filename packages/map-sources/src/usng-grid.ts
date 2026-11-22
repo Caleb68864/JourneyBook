@@ -1,5 +1,5 @@
 import type { BBox, LngLat, UsngGridOverlay } from "@journeybook/atlas-core";
-import { createUtmProjector, utmZoneFor, utmZoneRange } from "@journeybook/atlas-core";
+import { createUpsProjector, createUtmProjector, isUpsLatitude, upsZoneLetter, utmZoneFor, utmZoneRange } from "@journeybook/atlas-core";
 import { lngLatToPanelFraction } from "./tilemath.js";
 // `mgrs` is a CommonJS module — a named ESM import (`{ forward }`) typechecks and
 // works under vitest but throws "Named export 'forward' not found" at runtime under
@@ -7,11 +7,10 @@ import { lngLatToPanelFraction } from "./tilemath.js";
 import mgrs from "mgrs";
 const mgrsForward = mgrs.forward;
 
-// UTM (and so MGRS's UTM part) is defined for latitudes 80°S to 84°N; beyond them MGRS uses
-// the polar UPS grid, which this does not draw. South of the equator the projector takes the
-// southern false northing (`createUtmProjector(zone, true)`).
-const UTM_LAT_MIN = -80;
-const UTM_LAT_MAX = 84;
+// UTM covers 80°S to 84°N; beyond, MGRS uses the polar UPS grid (`createUpsProjector`), drawn
+// here up to the Web Mercator panel's own limit (85.05°: no tile exists past it). South of the
+// equator UTM takes the southern false northing (`createUtmProjector(zone, true)`).
+const PANEL_LAT_LIMIT = 85.0511;
 
 const MAX_GRID_LINES = 60;
 const DEFAULT_INTERVAL_M = 1000;
@@ -250,26 +249,27 @@ export function buildUsngGrid(
   const centreLng = (west + east) / 2;
   const centreLat = (south + north) / 2;
 
-  if (centreLat < UTM_LAT_MIN || centreLat > UTM_LAT_MAX) {
+  if (Math.abs(north) > PANEL_LAT_LIMIT || Math.abs(south) > PANEL_LAT_LIMIT) {
     return emptyOverlay();
   }
+  const polar = isUpsLatitude(centreLat);
 
   // The whole grid build is wrapped: a bad coordinate that makes proj4 or mgrs
   // throw must never abort the render. Degrade to an empty overlay (the page still
   // renders, grid absent) and log the page bbox so a missing grid is diagnosable.
   try {
-    // The centre's zone, with the Norway/Svalbard exceptions.
-    const zone = utmZoneFor(centreLng, centreLat);
+    // The centre's zone, with the Norway/Svalbard exceptions; or UPS near the poles.
+    const zone = polar ? 0 : utmZoneFor(centreLng, centreLat);
     // The page centre's hemisphere decides the northing numbers; a page astride the equator
     // gets its centre's (two-digit labels agree either way: the offset is 10,000 km).
-    const proj = createUtmProjector(zone, centreLat < 0);
+    const proj = polar ? createUpsProjector(centreLat > 0) : createUtmProjector(zone, centreLat < 0);
 
     // A page across a UTM zone boundary: each zone's grid on its own side (see zonePart).
     // Zones are taken at the centre's latitude, so the exceptions' boundaries (3°E in Norway,
     // 9/21/33°E on Svalbard) are where they really are, not every 6°.
     const westRange = utmZoneRange(west, centreLat);
     const eastRange = utmZoneRange(east - 1e-9, centreLat);
-    if (westRange.zone !== eastRange.zone && westRange.east === eastRange.west) {
+    if (!polar && westRange.zone !== eastRange.zone && westRange.east === eastRange.west) {
       return zoneJunction(bbox, westRange.zone, eastRange.zone, centreLat < 0, opts, eastRange.west);
     }
 
@@ -338,6 +338,11 @@ export function buildUsngGrid(
 
     // Collar from MGRS/USNG (its own guard — a collar failure still yields lines).
     let collar: UsngGridOverlay["collar"] = { zoneDesignator: "", hundredKmSquare: "" };
+    if (polar) {
+      // The UPS zone letter follows from the standard; the polar 100 km square letters are not
+      // given: no library here (nor NGA's mgrs-js) converts polar points to check them against.
+      return { lines, labels, collar: { zoneDesignator: upsZoneLetter(centreLng, centreLat), hundredKmSquare: "", system: "UPS" } };
+    }
     try {
       const usng = mgrsForward([centreLng, centreLat], 1);
       collar = parseUsngCollar(usng);

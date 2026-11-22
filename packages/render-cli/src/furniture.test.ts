@@ -257,3 +257,18 @@ describe("grid north per zone through renderAtlas", () => {
     expect(key).toContain("UTM 14 grid");
   });
 });
+
+describe("the polar UPS grid through renderAtlas", () => {
+  it("[BEHAVIORAL] a tier-4 page north of 84°N is gridded in UPS and its diagram uses UPS grid north", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jb-ups-"));
+    try {
+      const out = join(dir, "a.pdf");
+      await renderAtlas({ mode: "location", center: { lng: 10, lat: 84.5 }, scalePresetId: "usgs-7-5-min", tier: 4, declinationDate: "2026-07-02", outputPath: out });
+      const texts = measurePdfPages(readFileSync(out))[0]!.texts.join("");
+      expect(texts).toContain("Z · UPS (polar grid)");
+      expect(texts).toMatch(/GN 10\.0° E \(UPS\) of true N/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

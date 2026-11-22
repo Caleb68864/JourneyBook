@@ -127,8 +127,10 @@ describe("southern hemisphere", () => {
     expect(firstN).toBeGreaterThan(6_000_000); // a southern northing, not a negative one
   });
 
-  it("[CONTROL] still empty beyond UTM's limits (MGRS uses UPS there)", () => {
-    expect(buildUsngGrid([-10, -85, 10, -82], 800, 1000).lines).toHaveLength(0);
+  it("beyond UTM's limits it is the polar UPS grid, not UTM", () => {
+    // This used to be empty (no grid south of 80°S); since UPS is drawn, it is UPS.
+    const grid = buildUsngGrid([-10, -85, 10, -82], 800, 1000);
+    expect(grid.collar.system).toBe("UPS");
   });
 });
 
@@ -221,5 +223,26 @@ describe("the Norway and Svalbard zone exceptions", () => {
     expect(svalbard.zoneBoundary).toMatchObject({ westZone: 31, eastZone: 33 });
     // And no junction at 6°E on Svalbard, where zone 32 does not exist.
     expect(buildUsngGrid([5.95, 77.99, 6.05, 78.01], 1000, 1000).zoneBoundary).toBeUndefined();
+  });
+});
+
+describe("the polar UPS grid", () => {
+  it("[BEHAVIORAL] a page north of 84°N gets a UPS grid and its zone letter", () => {
+    const grid = buildUsngGrid([9.85, 84.49, 10.15, 84.51], 1000, 1000, { mgrs: true });
+    expect(grid.lines.length).toBeGreaterThan(2);
+    expect(grid.collar).toMatchObject({ zoneDesignator: "Z", system: "UPS" });
+    // No 100 km square letters: none could be checked for the polar grid.
+    expect(grid.mgrs).toBeUndefined();
+    expect(buildUsngGrid([-10.15, 84.49, -9.85, 84.51], 1000, 1000).collar.zoneDesignator).toBe("Y");
+  });
+
+  it("[BEHAVIORAL] a page south of 80°S does too", () => {
+    const grid = buildUsngGrid([44.9, -82.01, 45.1, -81.99], 1000, 1000);
+    expect(grid.lines.length).toBeGreaterThan(2);
+    expect(grid.collar).toMatchObject({ zoneDesignator: "B", system: "UPS" });
+  });
+
+  it("[CONTROL] empty past the panel's own limit (85.05°: no map tile exists there)", () => {
+    expect(buildUsngGrid([-10, 85.1, 10, 86], 800, 1000).lines).toHaveLength(0);
   });
 });

@@ -232,6 +232,8 @@ export interface UsngGridOverlay {
      * for the other part.
      */
     squares?: string[];
+    /** "UPS" beyond UTM's limits, where `zoneDesignator` is the UPS zone letter (Y, Z, A, B). */
+    system?: "UPS";
   };
   /**
    * Level 4 only: full MGRS labelling. Each 100 km square on the page gets its identifier placed

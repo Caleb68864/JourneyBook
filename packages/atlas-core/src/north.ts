@@ -1,5 +1,5 @@
 import type { LngLat } from "./model.js";
-import { createUtmProjector, utmZoneFor } from "./projection.js";
+import { createUpsProjector, createUtmProjector, isUpsLatitude, utmZoneFor } from "./projection.js";
 import { decimalYear, magneticField } from "./declination.js";
 
 /**
@@ -16,7 +16,7 @@ export interface ThreeNorths {
   gmAngle: number;
   /** Annual change of declination (and so of the G-M angle), degrees/year. */
   declinationPerYear: number;
-  /** UTM zone whose grid north is meant. */
+  /** UTM zone whose grid north is meant; 0 means the polar UPS grid. */
   utmZone: number;
   /** The decimal year the magnetic figures are for, and their model. */
   year: number;
@@ -39,8 +39,10 @@ export function gridConvergence(p: LngLat, inZone?: number): { degrees: number; 
   // The point's own zone, exceptions included (Norway, Svalbard), unless a zone is named (the
   // other side of a zone junction): grid north is the grid the map is drawn in. The hemisphere
   // does not change a direction, but use the matching grid.
-  const zone = inZone ?? utmZoneFor(p.lng, p.lat);
-  const utm = createUtmProjector(zone, p.lat < 0);
+  // Beyond UTM's limits the grid is UPS, reported as zone 0.
+  const polar = inZone === undefined && isUpsLatitude(p.lat);
+  const zone = polar ? 0 : inZone ?? utmZoneFor(p.lng, p.lat);
+  const utm = polar ? createUpsProjector(p.lat > 0) : createUtmProjector(zone, p.lat < 0);
   const [e, n] = utm.forward(p);
   const a = utm.inverse([e, n - 5]);
   const q = utm.inverse([e, n + 5]);
@@ -84,4 +86,9 @@ export function formatEastWest(degrees: number, digits = 1): string {
   const rounded = Number(degrees.toFixed(digits));
   if (rounded === 0) return `${(0).toFixed(digits)}°`;
   return `${Math.abs(rounded).toFixed(digits)}° ${rounded > 0 ? "E" : "W"}`;
+}
+
+/** "UTM 14", or "UPS" for zone 0 (the polar grid). */
+export function gridName(zone: number): string {
+  return zone === 0 ? "UPS" : `UTM ${zone}`;
 }

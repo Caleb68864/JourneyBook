@@ -591,6 +591,12 @@ Goal: implement the [Map Tiers (Learning Curve)](#map-tiers-learning-curve-featu
 > 84°N: the grid uses the southern false northing south of the equator, so a Sydney page gets
 > its lines, "56H" squares and full northings like 6245000mN, and the library is held to the
 > standard there as well. Beyond UTM's limits MGRS uses the polar UPS grid, still not drawn.)*
+> *(2026-11-22, later: the polar UPS grid is drawn north of 84°N and south of 80°S, up to the
+> 85.05° limit of Web Mercator map tiles: grid lines and numbers from EPSG:32661/32761 (held to
+> Snyder's polar stereographic formulas to the millimetre), the UPS zone letter (Y/Z, A/B) in a
+> "Z · UPS (polar grid)" collar, and UPS grid north in the declination diagram and worksheet.
+> **The polar 100 km square letters are not drawn:** neither the `mgrs` library nor NGA's own
+> `mgrs-js` converts polar points, so there is nothing to check them against.)*
 > *(2026-11-22: a page that spans two UTM zones is drawn as a zone junction: each zone's grid
 > only on its own side of the boundary meridian, numbered in its own zone (first eastings in
 > full on both sides, northing labels on each zone's outer edge), both zones' 100 km squares
